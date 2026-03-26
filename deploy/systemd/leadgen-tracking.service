@@ -1,0 +1,15 @@
+[Unit]
+Description=Leadgen Tracking System Gunicorn
+After=network.target
+
+[Service]
+User=ubuntu
+Group=www-data
+WorkingDirectory=/srv/leadgen-tracking-system
+EnvironmentFile=/srv/leadgen-tracking-system/.env
+ExecStart=/srv/leadgen-tracking-system/.venv/bin/gunicorn config.wsgi:application -c deploy/gunicorn.conf.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -9,6 +9,8 @@ Django application for managing lead generation staff, supervisor review, CRM ca
 - MySQL in deployment, SQLite fallback for local development if MySQL env vars are not set
 - Google OAuth via `django-allauth`
 - SendGrid email delivery with `.ics` calendar invites
+- WhiteNoise for static file serving
+- Gunicorn for EC2 app serving
 
 ## Features
 
@@ -50,6 +52,8 @@ python manage.py bootstrap_supervisor
 python manage.py runserver
 ```
 
+`.env` is loaded automatically from the repository root if present.
+
 ## Google OAuth
 
 Set `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` in the environment. Configure the Google OAuth redirect URI as:
@@ -59,6 +63,8 @@ Set `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` in the environment
 Use the deployed domain equivalent in production.
 
 Only users whose email addresses already exist in the system can sign in, except for the supervisor email configured by `SUPERVISOR_EMAIL`, which is auto-provisioned on first Google login if it does not already exist.
+
+Google sign-in is further restricted to verified Google email addresses.
 
 ## SendGrid
 
@@ -85,6 +91,32 @@ Matching logic:
 
 - Set MySQL environment variables in production
 - Set `DJANGO_ALLOWED_HOSTS`
+- Set `DJANGO_CSRF_TRUSTED_ORIGINS`
 - Set `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`
 - Set `SENDGRID_API_KEY`
 - Run `python manage.py migrate`
+- Run `python manage.py collectstatic`
+- Use `APP_ENV=production`
+- Set `SECURE_SSL_REDIRECT=True` and a non-zero `SECURE_HSTS_SECONDS` behind HTTPS
+
+## EC2 / AWS preparation
+
+The repository includes:
+
+- [deploy/gunicorn.conf.py](/Users/gk/Documents/Codex-projects/Leadgen-tracking-system/deploy/gunicorn.conf.py)
+- [deploy/systemd/leadgen-tracking.service](/Users/gk/Documents/Codex-projects/Leadgen-tracking-system/deploy/systemd/leadgen-tracking.service)
+- [deploy/nginx/leadgen-tracking.conf](/Users/gk/Documents/Codex-projects/Leadgen-tracking-system/deploy/nginx/leadgen-tracking.conf)
+- [deploy/ec2-deploy.sh](/Users/gk/Documents/Codex-projects/Leadgen-tracking-system/deploy/ec2-deploy.sh)
+
+Suggested EC2 shape:
+
+1. Ubuntu instance with Python 3.11, Nginx, and MySQL client libraries installed.
+2. App checked out to `/srv/leadgen-tracking-system`.
+3. `.env` file placed at `/srv/leadgen-tracking-system/.env`.
+4. Gunicorn managed by systemd.
+5. Nginx reverse proxy in front of Gunicorn.
+6. AWS security group allowing `80/443` inbound and DB access only from approved sources.
+
+Suggested ALB or uptime health check path:
+
+- `/health/`

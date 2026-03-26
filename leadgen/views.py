@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from django.contrib import messages
 from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
@@ -20,16 +20,30 @@ from .forms import (
     SystemSettingForm,
 )
 from .models import CallImportBatch, CallLog, Meeting, Prospect, ProspectStatusUpdate, SystemSetting, User
-from .services import apply_call_outcome, import_exotel_report, update_meeting_outcome
+from .services import (
+    apply_call_outcome,
+    build_supervisor_report,
+    database_healthcheck,
+    import_exotel_report,
+    update_meeting_outcome,
+)
 
 
 def login_page(request):
+    if request.user.is_authenticated:
+        return redirect("home")
     return render(request, "auth/login.html")
 
 
 def logout_view(request):
     logout(request)
     return redirect("login")
+
+
+def healthcheck(request):
+    ok = database_healthcheck()
+    status = 200 if ok else 503
+    return JsonResponse({"status": "ok" if ok else "error"}, status=status)
 
 
 @login_required
@@ -41,16 +55,24 @@ def home(request):
 
 @role_required(User.ROLE_SUPERVISOR)
 def supervisor_dashboard(request):
+    overdue_meetings = Meeting.objects.filter(
+        status=Meeting.STATUS_SCHEDULED,
+        scheduled_for__lt=timezone.now(),
+    )
+    recent_calls = CallLog.objects.filter(started_at__isnull=False).select_related("staff", "prospect")[:8]
     context = {
         "staff_count": User.objects.filter(role=User.ROLE_STAFF, is_active=True).count(),
         "pending_review_count": Prospect.objects.filter(approval_status=Prospect.APPROVAL_PENDING).count(),
         "accepted_count": Prospect.objects.filter(approval_status=Prospect.APPROVAL_ACCEPTED).count(),
         "scheduled_count": Meeting.objects.filter(status=Meeting.STATUS_SCHEDULED).count(),
+        "overdue_meeting_count": overdue_meetings.count(),
+        "follow_up_count": Prospect.objects.filter(workflow_status=Prospect.WORKFLOW_FOLLOW_UP).count(),
         "recent_imports": CallImportBatch.objects.all()[:5],
         "upcoming_meetings": Meeting.objects.filter(
             status=Meeting.STATUS_SCHEDULED,
             scheduled_for__gte=timezone.now(),
         )[:5],
+        "recent_calls": recent_calls,
     }
     return render(request, "leadgen/supervisor_dashboard.html", context)
 
@@ -182,21 +204,11 @@ def supervisor_reports(request):
     form = ReportFilterForm(request.GET or None, initial=initial)
     report = None
     if form.is_valid():
-        start_dt = timezone.make_aware(datetime.combine(form.cleaned_data["start_date"], datetime.min.time()))
-        end_dt = timezone.make_aware(datetime.combine(form.cleaned_data["end_date"], datetime.max.time()))
-        report = {
-            "attempts": CallLog.objects.filter(started_at__range=(start_dt, end_dt)).count(),
-            "connects": CallLog.objects.filter(started_at__range=(start_dt, end_dt), was_connected=True).count(),
-            "follow_ups": ProspectStatusUpdate.objects.filter(
-                created_at__range=(start_dt, end_dt),
-                outcome=ProspectStatusUpdate.OUTCOME_FOLLOW_UP,
-            ).count(),
-            "meetings_scheduled": Meeting.objects.filter(created_at__range=(start_dt, end_dt)).count(),
-            "meetings_not_happened": Meeting.objects.filter(
-                created_at__range=(start_dt, end_dt),
-                status=Meeting.STATUS_DID_NOT_HAPPEN,
-            ).count(),
-        }
+        report = build_supervisor_report(
+            start_date=form.cleaned_data["start_date"],
+            end_date=form.cleaned_data["end_date"],
+            tz_name=SystemSetting.load().default_timezone,
+        )
     return render(request, "leadgen/supervisor_reports.html", {"form": form, "report": report})
 
 

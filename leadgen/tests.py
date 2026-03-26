@@ -1,12 +1,13 @@
 from datetime import datetime
 
+from django.db import IntegrityError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from openpyxl import Workbook
 
 from .models import CallImportBatch, Meeting, Prospect, SystemSetting, User
-from .services import apply_call_outcome, import_exotel_report, update_meeting_outcome
+from .services import apply_call_outcome, build_supervisor_report, import_exotel_report, update_meeting_outcome
 
 
 class LeadgenWorkflowTests(TestCase):
@@ -104,5 +105,55 @@ class LeadgenWorkflowTests(TestCase):
         self.prospect.refresh_from_db()
         self.assertEqual(self.prospect.total_call_attempts, 1)
         self.assertEqual(self.prospect.total_connected_calls, 1)
+
+    def test_only_one_supervisor_allowed(self):
+        with self.assertRaises(IntegrityError):
+            User.objects.create(
+                email="second-supervisor@example.com",
+                username="second-supervisor@example.com",
+                name="Second Supervisor",
+                role=User.ROLE_SUPERVISOR,
+                is_staff=True,
+                is_superuser=True,
+            )
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_report_builder_returns_staff_metrics(self):
+        apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "follow_up_to_schedule",
+                "scheduled_for": None,
+                "prospect_email": "",
+                "reason": "Asked to call back next week",
+                "follow_up_date": timezone.localdate(),
+            },
+        )
+        self.prospect.status_updates.update(created_at=timezone.make_aware(datetime(2026, 3, 20, 9, 0)))
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["Call SID", "Start Time", "End Time", "From", "To", "Direction", "Status"])
+        sheet.append(
+            ["CA2", "2026-03-20 10:00", "2026-03-20 10:04", "+919900000001", "+919812345678", "outbound", "completed"]
+        )
+        from io import BytesIO
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        batch = CallImportBatch.objects.create(
+            import_date=timezone.localdate(),
+            uploaded_file=SimpleUploadedFile(
+                "test_import_2.xlsx",
+                buffer.getvalue(),
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+            imported_by=self.supervisor,
+        )
+        import_exotel_report(batch)
+        report = build_supervisor_report(datetime(2026, 3, 20).date(), datetime(2026, 3, 20).date(), "Asia/Kolkata")
+        self.assertEqual(report["summary"]["attempts"], 1)
+        self.assertEqual(report["summary"]["follow_ups"], 1)
+        self.assertEqual(report["staff_metrics"][0]["staff"], self.staff)
 
 # Create your tests here.

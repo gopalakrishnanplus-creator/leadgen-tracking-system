@@ -3,9 +3,10 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.db import connection
 from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
-from django.db.models import Count, Max, Q, Sum
+from django.db.models import Avg, Count, Max, Q, Sum
 from django.template.loader import render_to_string
 from django.utils import timezone
 from icalendar import Calendar, Event, vCalAddress, vText
@@ -13,7 +14,7 @@ from openpyxl import load_workbook
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Attachment, Disposition, FileContent, FileName, FileType, Mail
 
-from .models import CallLog, Meeting, Prospect, ProspectStatusUpdate, SystemSetting, User
+from .models import CallImportBatch, CallLog, Meeting, Prospect, ProspectStatusUpdate, SystemSetting, User
 
 
 CRM_STATUS_MAP = {
@@ -76,6 +77,79 @@ def refresh_prospect_call_metrics(prospect):
             "updated_at",
         ]
     )
+
+
+def database_healthcheck():
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT 1")
+        row = cursor.fetchone()
+    return row == (1,)
+
+
+def build_supervisor_report(start_date, end_date, tz_name):
+    tz = ZoneInfo(tz_name)
+    start_dt = timezone.make_aware(datetime.combine(start_date, datetime.min.time()), tz)
+    end_dt = timezone.make_aware(datetime.combine(end_date, datetime.max.time()), tz)
+
+    calls = CallLog.objects.filter(started_at__range=(start_dt, end_dt))
+    status_updates = ProspectStatusUpdate.objects.filter(created_at__range=(start_dt, end_dt))
+    meetings_created = Meeting.objects.filter(created_at__range=(start_dt, end_dt))
+    meetings_outcome = Meeting.objects.filter(outcome_updated_at__range=(start_dt, end_dt))
+    imports = CallImportBatch.objects.filter(import_date__range=(start_date, end_date))
+
+    summary = {
+        "attempts": calls.count(),
+        "connects": calls.filter(was_connected=True).count(),
+        "connect_rate": 0,
+        "avg_connected_duration": calls.filter(was_connected=True).aggregate(avg=Avg("duration_seconds"))["avg"] or 0,
+        "no_answer_count": calls.filter(crm_status=CallLog.STATUS_NO_ANSWER).count(),
+        "busy_count": calls.filter(crm_status=CallLog.STATUS_BUSY).count(),
+        "failed_count": calls.filter(crm_status=CallLog.STATUS_FAILED).count(),
+        "follow_ups": status_updates.filter(outcome=ProspectStatusUpdate.OUTCOME_FOLLOW_UP).count(),
+        "declines": status_updates.filter(outcome=ProspectStatusUpdate.OUTCOME_DECLINED).count(),
+        "meetings_scheduled": meetings_created.count(),
+        "meetings_happened": meetings_outcome.filter(status=Meeting.STATUS_HAPPENED).count(),
+        "meetings_not_happened": meetings_outcome.filter(status=Meeting.STATUS_DID_NOT_HAPPEN).count(),
+        "imports_count": imports.count(),
+        "imported_rows": imports.aggregate(total=Sum("total_rows"))["total"] or 0,
+        "unmatched_import_rows": imports.aggregate(total=Sum("unmatched_rows"))["total"] or 0,
+        "duplicate_import_rows": imports.aggregate(total=Sum("duplicate_rows"))["total"] or 0,
+    }
+    if summary["attempts"]:
+        summary["connect_rate"] = round((summary["connects"] / summary["attempts"]) * 100, 1)
+
+    staff_metrics = []
+    for staff in User.objects.filter(role=User.ROLE_STAFF).order_by("name"):
+        staff_calls = calls.filter(staff=staff)
+        attempts = staff_calls.count()
+        connects = staff_calls.filter(was_connected=True).count()
+        scheduled = meetings_created.filter(scheduled_by=staff).count()
+        happened = meetings_outcome.filter(scheduled_by=staff, status=Meeting.STATUS_HAPPENED).count()
+        not_happened = meetings_outcome.filter(scheduled_by=staff, status=Meeting.STATUS_DID_NOT_HAPPEN).count()
+        follow_ups = status_updates.filter(staff=staff, outcome=ProspectStatusUpdate.OUTCOME_FOLLOW_UP).count()
+        declines = status_updates.filter(staff=staff, outcome=ProspectStatusUpdate.OUTCOME_DECLINED).count()
+        staff_metrics.append(
+            {
+                "staff": staff,
+                "attempts": attempts,
+                "connects": connects,
+                "connect_rate": round((connects / attempts) * 100, 1) if attempts else 0,
+                "follow_ups": follow_ups,
+                "declines": declines,
+                "meetings_scheduled": scheduled,
+                "meetings_happened": happened,
+                "meetings_not_happened": not_happened,
+            }
+        )
+
+    import_batches = list(imports.order_by("-import_date", "-created_at")[:10])
+    return {
+        "summary": summary,
+        "staff_metrics": staff_metrics,
+        "import_batches": import_batches,
+        "start_dt": start_dt,
+        "end_dt": end_dt,
+    }
 
 
 def import_exotel_report(batch):

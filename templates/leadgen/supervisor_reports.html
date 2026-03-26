@@ -15,11 +15,85 @@
 </section>
 {% if report %}
 <section class="stats-grid">
-    <article class="stat-card"><span>{{ report.attempts }}</span><p>Attempts made</p></article>
-    <article class="stat-card"><span>{{ report.connects }}</span><p>Connects</p></article>
-    <article class="stat-card"><span>{{ report.follow_ups }}</span><p>Follow-up to schedule</p></article>
-    <article class="stat-card"><span>{{ report.meetings_scheduled }}</span><p>Meetings scheduled</p></article>
-    <article class="stat-card"><span>{{ report.meetings_not_happened }}</span><p>Meetings that did not happen</p></article>
+    <article class="stat-card"><span>{{ report.summary.attempts }}</span><p>Attempts made</p></article>
+    <article class="stat-card"><span>{{ report.summary.connects }}</span><p>Connects</p></article>
+    <article class="stat-card"><span>{{ report.summary.connect_rate }}%</span><p>Connect rate</p></article>
+    <article class="stat-card"><span>{{ report.summary.follow_ups }}</span><p>Follow-up to schedule</p></article>
+    <article class="stat-card"><span>{{ report.summary.declines }}</span><p>Declines captured</p></article>
+    <article class="stat-card"><span>{{ report.summary.meetings_scheduled }}</span><p>Meetings scheduled</p></article>
+    <article class="stat-card"><span>{{ report.summary.meetings_happened }}</span><p>Meetings happened</p></article>
+    <article class="stat-card"><span>{{ report.summary.meetings_not_happened }}</span><p>Meetings not happened</p></article>
+    <article class="stat-card"><span>{{ report.summary.avg_connected_duration|floatformat:0 }}</span><p>Avg connected call seconds</p></article>
+    <article class="stat-card"><span>{{ report.summary.unmatched_import_rows }}</span><p>Unmatched import rows</p></article>
+    <article class="stat-card"><span>{{ report.summary.duplicate_import_rows }}</span><p>Duplicate import rows</p></article>
+</section>
+<section class="two-col">
+    <div class="panel">
+        <h2>Call status breakdown</h2>
+        <table>
+            <tbody>
+                <tr><th>No answer</th><td>{{ report.summary.no_answer_count }}</td></tr>
+                <tr><th>Busy</th><td>{{ report.summary.busy_count }}</td></tr>
+                <tr><th>Failed</th><td>{{ report.summary.failed_count }}</td></tr>
+                <tr><th>Imported rows</th><td>{{ report.summary.imported_rows }}</td></tr>
+                <tr><th>Imported files</th><td>{{ report.summary.imports_count }}</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="panel">
+        <h2>Recent imports in period</h2>
+        <table>
+            <thead><tr><th>Date</th><th>Total</th><th>Matched</th><th>Unmatched</th><th>Duplicates</th></tr></thead>
+            <tbody>
+            {% for batch in report.import_batches %}
+                <tr>
+                    <td>{{ batch.import_date }}</td>
+                    <td>{{ batch.total_rows }}</td>
+                    <td>{{ batch.matched_rows }}</td>
+                    <td>{{ batch.unmatched_rows }}</td>
+                    <td>{{ batch.duplicate_rows }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="5">No imports in this period.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+<section class="panel">
+    <h2>Staff performance</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Staff</th>
+                <th>Attempts</th>
+                <th>Connects</th>
+                <th>Connect rate</th>
+                <th>Follow-ups</th>
+                <th>Declines</th>
+                <th>Meetings scheduled</th>
+                <th>Meetings happened</th>
+                <th>Meetings not happened</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in report.staff_metrics %}
+            <tr>
+                <td>{{ row.staff.name }}</td>
+                <td>{{ row.attempts }}</td>
+                <td>{{ row.connects }}</td>
+                <td>{{ row.connect_rate }}%</td>
+                <td>{{ row.follow_ups }}</td>
+                <td>{{ row.declines }}</td>
+                <td>{{ row.meetings_scheduled }}</td>
+                <td>{{ row.meetings_happened }}</td>
+                <td>{{ row.meetings_not_happened }}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="9">No staff activity in this period.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
 </section>
 {% endif %}
 {% endblock %}

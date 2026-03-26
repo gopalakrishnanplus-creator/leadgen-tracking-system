@@ -2,6 +2,7 @@ from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 
 
@@ -20,7 +21,23 @@ class User(AbstractUser):
     whatsapp_number = models.CharField(max_length=20, blank=True)
     must_change_password = models.BooleanField(default=False)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["role"],
+                condition=Q(role="supervisor"),
+                name="unique_supervisor_user",
+            )
+        ]
+
+    def clean(self):
+        if self.role == self.ROLE_STAFF and not self.calling_number:
+            raise ValidationError("Lead gen staff must have a calling number.")
+        if self.role == self.ROLE_SUPERVISOR and self.calling_number:
+            raise ValidationError("Supervisor accounts cannot have a calling number.")
+
     def save(self, *args, **kwargs):
+        self.email = (self.email or "").lower()
         self.username = self.email
         super().save(*args, **kwargs)
 
@@ -206,6 +223,10 @@ class CallLog(models.Model):
 
     class Meta:
         ordering = ["-started_at", "-created_at"]
+        indexes = [
+            models.Index(fields=["started_at", "staff"]),
+            models.Index(fields=["started_at", "crm_status"]),
+        ]
 
     def __str__(self):
         return self.call_sid
@@ -242,6 +263,9 @@ class ProspectStatusUpdate(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["created_at", "outcome"]),
+        ]
 
     def __str__(self):
         return f"{self.prospect} - {self.outcome}"
@@ -274,6 +298,10 @@ class Meeting(models.Model):
 
     class Meta:
         ordering = ["-scheduled_for"]
+        indexes = [
+            models.Index(fields=["scheduled_for", "status"]),
+            models.Index(fields=["created_at", "status"]),
+        ]
 
     def mark_invite_sent(self):
         self.invite_sent_at = timezone.now()
@@ -281,5 +309,3 @@ class Meeting(models.Model):
 
     def __str__(self):
         return f"{self.prospect} @ {self.scheduled_for:%Y-%m-%d %H:%M}"
-
-# Create your models here.
