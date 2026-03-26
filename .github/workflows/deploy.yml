@@ -24,7 +24,10 @@ jobs:
           aws-region: ap-south-1
 
       - name: Deploy using SSM
+        shell: bash
         run: |
+          set -e
+
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "i-042b772db54dd2178" \
             --document-name "AWS-RunShellScript" \
@@ -38,7 +41,8 @@ jobs:
               "/var/www/.venv/bin/pip install -r requirements.txt",
               "/var/www/.venv/bin/python manage.py migrate",
               "/var/www/.venv/bin/python manage.py collectstatic --noinput",
-              "sudo systemctl restart leadgen-tracking.service"
+              "sudo systemctl restart leadgen-tracking.service",
+              "sudo systemctl status leadgen-tracking.service --no-pager"
             ]}' \
             --query "Command.CommandId" \
             --output text)
@@ -46,15 +50,15 @@ jobs:
           echo "Command ID: $COMMAND_ID"
 
           aws ssm wait command-executed \
-            --command-id $COMMAND_ID \
-            --instance-id i-042b772db54dd2178 || true
+            --command-id "$COMMAND_ID" \
+            --instance-id "i-042b772db54dd2178" || true
 
           aws ssm list-command-invocations \
-            --command-id $COMMAND_ID \
+            --command-id "$COMMAND_ID" \
             --details
 
           STATUS=$(aws ssm list-command-invocations \
-            --command-id $COMMAND_ID \
+            --command-id "$COMMAND_ID" \
             --query "CommandInvocations[0].Status" \
             --output text)
 
