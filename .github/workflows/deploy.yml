@@ -1,0 +1,66 @@
+name: Deploy Leadgen Tracking System to EC2 via SSM
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::736616688306:role/GitHubActionsLeadgenDeployRole
+          aws-region: ap-south-1
+
+      - name: Deploy using SSM
+        run: |
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "i-042b772db54dd2178" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy Leadgen Tracking System" \
+            --parameters '{"commands":[
+              "set -e",
+              "git config --system --add safe.directory /var/www/leadgen-tracking-system",
+              "cd /var/www/leadgen-tracking-system",
+              "git fetch origin",
+              "git reset --hard origin/main",
+              "/var/www/.venv/bin/pip install -r requirements.txt",
+              "/var/www/.venv/bin/python manage.py migrate",
+              "/var/www/.venv/bin/python manage.py collectstatic --noinput",
+              "sudo systemctl restart leadgen-tracking.service"
+            ]}' \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "Command ID: $COMMAND_ID"
+
+          aws ssm wait command-executed \
+            --command-id $COMMAND_ID \
+            --instance-id i-042b772db54dd2178 || true
+
+          aws ssm list-command-invocations \
+            --command-id $COMMAND_ID \
+            --details
+
+          STATUS=$(aws ssm list-command-invocations \
+            --command-id $COMMAND_ID \
+            --query "CommandInvocations[0].Status" \
+            --output text)
+
+          echo "SSM Status: $STATUS"
+
+          if [ "$STATUS" != "Success" ]; then
+            echo "Deployment failed"
+            exit 1
+          fi
