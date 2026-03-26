@@ -1,0 +1,10 @@
+<p>Hello,</p>
+<p>A meeting has been scheduled with {{ meeting.prospect.contact_name }} from {{ meeting.prospect.company_name }}.</p>
+<ul>
+    <li>Prospect: {{ meeting.prospect.contact_name }}</li>
+    <li>Company: {{ meeting.prospect.company_name }}</li>
+    <li>LinkedIn: {{ meeting.prospect.linkedin_url }}</li>
+    <li>Scheduled for: {{ meeting.scheduled_for }}</li>
+    <li>Lead gen staff: {{ meeting.scheduled_by.name }}</li>
+</ul>
+<p>The calendar invitation is attached.</p>

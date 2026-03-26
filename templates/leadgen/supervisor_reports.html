@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Supervisor Reports{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">Supervisor</p>
+        <h1>Reporting</h1>
+    </div>
+</section>
+<section class="panel form-panel">
+    <form method="get">
+        {{ form.as_p }}
+        <button class="button button-primary" type="submit">Run report</button>
+    </form>
+</section>
+{% if report %}
+<section class="stats-grid">
+    <article class="stat-card"><span>{{ report.attempts }}</span><p>Attempts made</p></article>
+    <article class="stat-card"><span>{{ report.connects }}</span><p>Connects</p></article>
+    <article class="stat-card"><span>{{ report.follow_ups }}</span><p>Follow-up to schedule</p></article>
+    <article class="stat-card"><span>{{ report.meetings_scheduled }}</span><p>Meetings scheduled</p></article>
+    <article class="stat-card"><span>{{ report.meetings_not_happened }}</span><p>Meetings that did not happen</p></article>
+</section>
+{% endif %}
+{% endblock %}

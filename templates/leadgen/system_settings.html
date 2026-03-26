@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}System Settings{% endblock %}
+{% block content %}
+<section class="panel form-panel">
+    <p class="eyebrow">Supervisor</p>
+    <h1>Meeting and notification settings</h1>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button class="button button-primary" type="submit">Save settings</button>
+    </form>
+</section>
+{% endblock %}

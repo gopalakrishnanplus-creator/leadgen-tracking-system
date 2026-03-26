@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Staff Dashboard{% endblock %}
+{% block content %}
+<section class="hero">
+    <div>
+        <p class="eyebrow">Lead gen dashboard</p>
+        <h1>{{ request.user.name }}</h1>
+        <p>Only prospects assigned to you are visible here.</p>
+    </div>
+</section>
+<section class="stats-grid">
+    <article class="stat-card"><span>{{ total_prospects }}</span><p>Total assigned prospects</p></article>
+    <article class="stat-card"><span>{{ pending_review_count }}</span><p>Pending review</p></article>
+    <article class="stat-card"><span>{{ accepted_count }}</span><p>Accepted prospects</p></article>
+    <article class="stat-card"><span>{{ follow_up_count }}</span><p>Follow-up required</p></article>
+    <article class="stat-card"><span>{{ scheduled_count }}</span><p>Scheduled meetings</p></article>
+</section>
+<section class="two-col">
+    <div class="panel">
+        <h2>Recent prospects</h2>
+        <table>
+            <thead><tr><th>Company</th><th>Approval</th><th>Workflow</th></tr></thead>
+            <tbody>
+            {% for prospect in recent_prospects %}
+                <tr>
+                    <td>{{ prospect.company_name }}</td>
+                    <td>{{ prospect.get_approval_status_display }}</td>
+                    <td>{{ prospect.get_workflow_status_display }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="3">No prospects yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="panel">
+        <h2>Upcoming meetings</h2>
+        <table>
+            <thead><tr><th>Prospect</th><th>Date</th><th>Status</th></tr></thead>
+            <tbody>
+            {% for meeting in upcoming_meetings %}
+                <tr>
+                    <td>{{ meeting.prospect.company_name }} / {{ meeting.prospect.contact_name }}</td>
+                    <td>{{ meeting.scheduled_for }}</td>
+                    <td>{{ meeting.get_status_display }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="3">No upcoming meetings.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

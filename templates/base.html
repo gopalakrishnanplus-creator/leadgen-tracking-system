@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Leadgen Tracking System{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="container header-shell">
+            <div>
+                <a class="brand" href="{% url 'home' %}">Leadgen Tracking System</a>
+                <p class="subhead">Supervisor-controlled prospecting and meeting workflow</p>
+            </div>
+            {% if request.user.is_authenticated %}
+                <nav class="main-nav">
+                    {% if request.user.is_supervisor %}
+                        <a href="{% url 'supervisor_dashboard' %}">Dashboard</a>
+                        <a href="{% url 'staff_list' %}">Staff</a>
+                        <a href="{% url 'supervisor_prospect_review' %}">Prospect Review</a>
+                        <a href="{% url 'import_batch_create' %}">Import Calls</a>
+                        <a href="{% url 'supervisor_meeting_list' %}">Meetings</a>
+                        <a href="{% url 'supervisor_reports' %}">Reports</a>
+                        <a href="{% url 'system_settings' %}">Settings</a>
+                    {% else %}
+                        <a href="{% url 'staff_dashboard' %}">Dashboard</a>
+                        <a href="{% url 'staff_prospect_list' %}">Prospects</a>
+                        <a href="{% url 'staff_meeting_list' %}">Meetings</a>
+                    {% endif %}
+                    <a href="{% url 'logout' %}">Logout</a>
+                </nav>
+            {% endif %}
+        </div>
+    </header>
+    <main class="container page-shell">
+        {% if messages %}
+            <section class="messages">
+                {% for message in messages %}
+                    <div class="message {{ message.tags }}">{{ message }}</div>
+                {% endfor %}
+            </section>
+        {% endif %}
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

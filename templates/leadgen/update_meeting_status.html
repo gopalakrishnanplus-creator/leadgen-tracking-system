@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Update Meeting Status{% endblock %}
+{% block content %}
+<section class="panel form-panel">
+    <p class="eyebrow">Supervisor</p>
+    <h1>Update meeting status</h1>
+    <p>{{ meeting.prospect.company_name }} / {{ meeting.prospect.contact_name }} / {{ meeting.scheduled_for }}</p>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button class="button button-primary" type="submit">Save</button>
+    </form>
+</section>
+{% endblock %}

@@ -1,0 +1,11 @@
+Hello,
+
+A meeting has been scheduled with {{ meeting.prospect.contact_name }} from {{ meeting.prospect.company_name }}.
+
+Prospect: {{ meeting.prospect.contact_name }}
+Company: {{ meeting.prospect.company_name }}
+LinkedIn: {{ meeting.prospect.linkedin_url }}
+Scheduled for: {{ meeting.scheduled_for }}
+Lead gen staff: {{ meeting.scheduled_by.name }}
+
+The calendar invitation is attached.

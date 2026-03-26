@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<section class="panel form-panel">
+    <p class="eyebrow">Supervisor</p>
+    <h1>{{ title }}</h1>
+    <p>This keeps historical prospect and meeting data intact while preventing future sign-ins.</p>
+    <form method="post">
+        {% csrf_token %}
+        <button class="button button-danger" type="submit">Confirm</button>
+    </form>
+</section>
+{% endblock %}

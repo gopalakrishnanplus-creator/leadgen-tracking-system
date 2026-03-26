@@ -1,0 +1,26 @@
+{% load socialaccount %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Login | Leadgen Tracking System</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="login-body">
+    <main class="login-shell">
+        <section class="login-card">
+            <p class="eyebrow">Leadgen Tracking System</p>
+            <h1>Google sign-in only</h1>
+            <p>Access is limited to the supervisor account and staff email addresses already created inside the system.</p>
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="message {{ message.tags }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+            <a class="button button-primary button-block" href="{% provider_login_url 'google' process='login' %}">Continue with Google</a>
+            <p class="note">Use the Google account matching the email address configured for your role.</p>
+        </section>
+    </main>
+</body>
+</html>

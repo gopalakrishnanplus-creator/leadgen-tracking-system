@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Import CRM Calls{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">Supervisor</p>
+        <h1>Import daily CRM spreadsheet</h1>
+    </div>
+</section>
+<section class="two-col">
+    <div class="panel form-panel">
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <button class="button button-primary" type="submit">Import spreadsheet</button>
+        </form>
+    </div>
+    <div class="panel">
+        <h2>Recent imports</h2>
+        <table>
+            <thead><tr><th>Date</th><th>Total</th><th>Matched</th><th>Unmatched</th><th>Duplicates</th></tr></thead>
+            <tbody>
+            {% for batch in imports %}
+                <tr>
+                    <td>{{ batch.import_date }}</td>
+                    <td>{{ batch.total_rows }}</td>
+                    <td>{{ batch.matched_rows }}</td>
+                    <td>{{ batch.unmatched_rows }}</td>
+                    <td>{{ batch.duplicate_rows }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="5">No imports yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

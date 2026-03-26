@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Add Prospect{% endblock %}
+{% block content %}
+<section class="panel form-panel">
+    <p class="eyebrow">Lead gen</p>
+    <h1>Add prospect</h1>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button class="button button-primary" type="submit">Submit for review</button>
+    </form>
+</section>
+{% endblock %}

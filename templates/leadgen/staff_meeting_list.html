@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}My Meetings{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">Lead gen</p>
+        <h1>Meetings you scheduled</h1>
+    </div>
+</section>
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>Company</th>
+                <th>Prospect</th>
+                <th>LinkedIn</th>
+                <th>Date and time</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for meeting in meetings %}
+            <tr>
+                <td>{{ meeting.prospect.company_name }}</td>
+                <td>{{ meeting.prospect.contact_name }}</td>
+                <td><a href="{{ meeting.prospect.linkedin_url }}" target="_blank" rel="noreferrer">Open</a></td>
+                <td>{{ meeting.scheduled_for }}</td>
+                <td>{{ meeting.get_status_display }}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="5">No meetings scheduled yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}
