@@ -4,7 +4,8 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-load_dotenv("/var/www/secrets/.leadgen_env")
+load_dotenv(os.environ.get("LEADGEN_ENV_FILE", "/var/www/secrets/.leadgen_env"))
+load_dotenv(BASE_DIR / ".env")
 
 
 def split_csv(value):

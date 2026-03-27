@@ -52,7 +52,7 @@ python manage.py bootstrap_supervisor
 python manage.py runserver
 ```
 
-`.env` is loaded automatically from the repository root if present.
+The app loads environment variables from `/var/www/secrets/.leadgen_env` by default in deployment, and falls back to a local repository `.env` for development. You can override the path with `LEADGEN_ENV_FILE`.
 
 ## Google OAuth
 
@@ -112,7 +112,7 @@ Suggested EC2 shape:
 
 1. Ubuntu instance with Python 3.11, Nginx, and MySQL client libraries installed.
 2. App checked out to `/srv/leadgen-tracking-system`.
-3. `.env` file placed at `/srv/leadgen-tracking-system/.env`.
+3. Environment file placed at `/var/www/secrets/.leadgen_env`.
 4. Gunicorn managed by systemd.
 5. Nginx reverse proxy in front of Gunicorn.
 6. AWS security group allowing `80/443` inbound and DB access only from approved sources.

@@ -5,9 +5,9 @@ After=network.target
 [Service]
 User=ubuntu
 Group=www-data
-WorkingDirectory=/srv/leadgen-tracking-system
-EnvironmentFile=/srv/leadgen-tracking-system/.env
-ExecStart=/srv/leadgen-tracking-system/.venv/bin/gunicorn config.wsgi:application -c deploy/gunicorn.conf.py
+WorkingDirectory=/var/www/leadgen-tracking-system
+EnvironmentFile=/var/www/secrets/.leadgen_env
+ExecStart=/var/www/.venv/bin/gunicorn config.wsgi:application -c deploy/gunicorn.conf.py
 Restart=always
 RestartSec=5
 

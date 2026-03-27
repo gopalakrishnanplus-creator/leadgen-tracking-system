@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="/srv/leadgen-tracking-system"
+APP_DIR="/var/www/leadgen-tracking-system"
+VENV_DIR="/var/www/.venv"
 
 cd "$APP_DIR"
 git fetch origin
 git pull --ff-only origin main
-python3.11 -m venv .venv
-.venv/bin/pip install --upgrade pip
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python manage.py migrate
-.venv/bin/python manage.py collectstatic --noinput
+python3.11 -m venv "$VENV_DIR"
+"$VENV_DIR"/bin/pip install --upgrade pip
+"$VENV_DIR"/bin/pip install -r requirements.txt
+"$VENV_DIR"/bin/python manage.py migrate
+"$VENV_DIR"/bin/python manage.py collectstatic --noinput
 sudo systemctl restart leadgen-tracking
