@@ -6,6 +6,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv("/var/www/secrets/.leadgen_env")
 
+
+def split_csv(value):
+    return [item.strip().lower() for item in value.split(",") if item.strip()]
+
+
 APP_ENV = os.environ.get("APP_ENV", "development").lower()
 IS_PRODUCTION = APP_ENV == "production"
 
@@ -162,6 +167,12 @@ DEFAULT_FROM_EMAIL = os.environ.get(
 SUPERVISOR_EMAIL = os.environ.get(
     "SUPERVISOR_EMAIL",
     "bhavesh.kataria@inditech.co.in",
+).lower()
+SUPERVISOR_ALLOWED_EMAILS = split_csv(
+    os.environ.get(
+        "SUPERVISOR_ALLOWED_EMAILS",
+        "gopala.krishnan@inditech.co.in,gkinchina@gmail.com,bhavesh.kataria@inditech.co.in",
+    )
 )
 SUPERVISOR_NAME = os.environ.get("SUPERVISOR_NAME", "Bhavesh Kataria")
 SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")

@@ -62,7 +62,7 @@ Set `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` in the environment
 
 Use the deployed domain equivalent in production.
 
-Only users whose email addresses already exist in the system can sign in, except for the supervisor email configured by `SUPERVISOR_EMAIL`, which is auto-provisioned on first Google login if it does not already exist.
+Only users whose email addresses already exist in the system can sign in, except for supervisor aliases configured by `SUPERVISOR_ALLOWED_EMAILS`, which map to the single supervisor account and are auto-provisioned on first Google login if needed.
 
 Google sign-in is further restricted to verified Google email addresses.
 

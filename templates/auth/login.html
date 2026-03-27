@@ -18,7 +18,10 @@
                     <div class="message {{ message.tags }}">{{ message }}</div>
                 {% endfor %}
             {% endif %}
-            <a class="button button-primary button-block" href="{% provider_login_url 'google' process='login' %}">Continue with Google</a>
+            <form method="post" action="{% provider_login_url 'google' process='login' %}">
+                {% csrf_token %}
+                <button class="button button-primary button-block" type="submit">Continue with Google</button>
+            </form>
             <p class="note">Use the Google account matching the email address configured for your role.</p>
         </section>
     </main>

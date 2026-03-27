@@ -6,6 +6,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 from openpyxl import Workbook
 
+from .adapters import LeadgenSocialAccountAdapter
 from .models import CallImportBatch, Meeting, Prospect, SystemSetting, User
 from .services import apply_call_outcome, build_supervisor_report, import_exotel_report, update_meeting_outcome
 
@@ -155,5 +156,26 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(report["summary"]["attempts"], 1)
         self.assertEqual(report["summary"]["follow_ups"], 1)
         self.assertEqual(report["staff_metrics"][0]["staff"], self.staff)
+
+    @override_settings(
+        SUPERVISOR_EMAIL="bhavesh.kataria@inditech.co.in",
+        SUPERVISOR_ALLOWED_EMAILS=[
+            "gopala.krishnan@inditech.co.in",
+            "gkinchina@gmail.com",
+            "bhavesh.kataria@inditech.co.in",
+        ],
+    )
+    def test_supervisor_alias_maps_to_single_supervisor_user(self):
+        adapter = LeadgenSocialAccountAdapter()
+        user = adapter._authorized_user_for_email("gkinchina@gmail.com")
+        self.assertEqual(user.pk, self.supervisor.pk)
+        user = adapter._authorized_user_for_email("gopala.krishnan@inditech.co.in")
+        self.assertEqual(user.pk, self.supervisor.pk)
+
+    def test_login_page_posts_to_google_provider(self):
+        response = self.client.get("/login/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'method="post"')
+        self.assertContains(response, "Continue with Google")
 
 # Create your tests here.
