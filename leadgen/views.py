@@ -238,7 +238,13 @@ def staff_prospect_list(request):
 
 @role_required(User.ROLE_STAFF)
 def staff_prospect_create(request):
-    form = ProspectCreateForm(request.POST or None)
+    form = ProspectCreateForm(
+        request.POST or None,
+        instance=Prospect(
+            assigned_to=request.user,
+            created_by=request.user,
+        ),
+    )
     if request.method == "POST" and form.is_valid():
         prospect = form.save(commit=False)
         prospect.assigned_to = request.user

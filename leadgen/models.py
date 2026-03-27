@@ -152,7 +152,9 @@ class Prospect(models.Model):
         ordering = ["company_name", "contact_name"]
 
     def clean(self):
-        if self.assigned_to and not self.assigned_to.is_staff_user:
+        if not self.assigned_to_id:
+            return
+        if not self.assigned_to.is_staff_user:
             raise ValidationError("Prospects must be assigned to a lead gen staff user.")
 
     @property

@@ -7,6 +7,7 @@ from django.utils import timezone
 from openpyxl import Workbook
 
 from .adapters import LeadgenSocialAccountAdapter
+from .forms import ProspectCreateForm
 from .models import CallImportBatch, Meeting, Prospect, SystemSetting, User
 from .services import apply_call_outcome, build_supervisor_report, import_exotel_report, update_meeting_outcome
 
@@ -177,5 +178,41 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'method="post"')
         self.assertContains(response, "Continue with Google")
+
+    def test_prospect_form_accepts_linkedin_without_scheme(self):
+        form = ProspectCreateForm(
+            data={
+                "company_name": "KOKO Coffee Roasters",
+                "contact_name": "Bhavesh Kataria",
+                "linkedin_url": "www.linkedin.com/in/bhavesh-kataria-456b27148",
+                "phone_number": "7770035122",
+            },
+            instance=Prospect(assigned_to=self.staff, created_by=self.staff),
+        )
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        self.assertEqual(
+            form.cleaned_data["linkedin_url"],
+            "https://www.linkedin.com/in/bhavesh-kataria-456b27148",
+        )
+
+    @override_settings(ALLOWED_HOSTS=["testserver", "localhost", "127.0.0.1"])
+    def test_staff_can_submit_prospect_without_server_error(self):
+        self.client.force_login(self.staff)
+        response = self.client.post(
+            "/staff/prospects/add/",
+            {
+                "company_name": "KOKO Coffee Roasters",
+                "contact_name": "Bhavesh Kataria",
+                "linkedin_url": "www.linkedin.com/in/bhavesh-kataria-456b27148",
+                "phone_number": "7770035122",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        created = Prospect.objects.get(phone_number="7770035122")
+        self.assertEqual(created.assigned_to, self.staff)
+        self.assertEqual(
+            created.linkedin_url,
+            "https://www.linkedin.com/in/bhavesh-kataria-456b27148",
+        )
 
 # Create your tests here.

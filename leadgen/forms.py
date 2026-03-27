@@ -1,5 +1,6 @@
 from django import forms
 from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 
 from .models import CallImportBatch, Meeting, Prospect, SystemSetting, User
 
@@ -54,6 +55,18 @@ class ProspectCreateForm(StyledFormMixin, forms.ModelForm):
     class Meta:
         model = Prospect
         fields = ["company_name", "contact_name", "linkedin_url", "phone_number"]
+        widgets = {
+            "linkedin_url": forms.TextInput(
+                attrs={"placeholder": "www.linkedin.com/in/username"}
+            ),
+        }
+
+    def clean_linkedin_url(self):
+        linkedin_url = (self.data.get(self.add_prefix("linkedin_url")) or "").strip()
+        if linkedin_url and "://" not in linkedin_url:
+            linkedin_url = f"https://{linkedin_url}"
+        URLValidator()(linkedin_url)
+        return linkedin_url
 
 
 class ProspectReviewForm(StyledFormMixin, forms.Form):
