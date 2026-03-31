@@ -1,4 +1,5 @@
 from datetime import datetime
+from unittest.mock import patch
 
 from django.db import IntegrityError
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -214,5 +215,45 @@ class LeadgenWorkflowTests(TestCase):
             created.linkedin_url,
             "https://www.linkedin.com/in/bhavesh-kataria-456b27148",
         )
+
+    def test_scheduled_outcome_still_saves_when_invite_send_fails(self):
+        with patch("leadgen.services.send_meeting_invitation", side_effect=RuntimeError("send failed")):
+            with self.captureOnCommitCallbacks(execute=True):
+                meeting = apply_call_outcome(
+                    self.prospect,
+                    self.staff,
+                    {
+                        "outcome": "scheduled",
+                        "scheduled_for": datetime(2026, 3, 31, 14, 30),
+                        "prospect_email": "prospect@example.com",
+                        "reason": "Meeting scheduled",
+                        "follow_up_date": None,
+                    },
+                )
+        self.prospect.refresh_from_db()
+        meeting.refresh_from_db()
+        self.assertEqual(self.prospect.workflow_status, Prospect.WORKFLOW_SCHEDULED)
+        self.assertEqual(meeting.status, Meeting.STATUS_SCHEDULED)
+        self.assertIsNone(meeting.invite_sent_at)
+
+    @override_settings(ALLOWED_HOSTS=["testserver", "localhost", "127.0.0.1"])
+    def test_staff_scheduled_update_does_not_500_when_invite_send_fails(self):
+        self.client.force_login(self.staff)
+        with patch("leadgen.services.send_meeting_invitation", side_effect=RuntimeError("send failed")):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    f"/staff/prospects/{self.prospect.pk}/update-call/",
+                    {
+                        "outcome": "scheduled",
+                        "scheduled_for": "2026-03-31T14:30",
+                        "prospect_email": "swapna@macleodspharma.in",
+                        "reason": "Meeting scheduled",
+                        "follow_up_date": "",
+                    },
+                )
+        self.assertEqual(response.status_code, 302)
+        self.prospect.refresh_from_db()
+        self.assertEqual(self.prospect.workflow_status, Prospect.WORKFLOW_SCHEDULED)
+        self.assertEqual(Meeting.objects.count(), 1)
 
 # Create your tests here.

@@ -1,3 +1,4 @@
+import logging
 import base64
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -15,6 +16,9 @@ from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Attachment, Disposition, FileContent, FileName, FileType, Mail
 
 from .models import CallImportBatch, CallLog, Meeting, Prospect, ProspectStatusUpdate, SystemSetting, User
+
+
+logger = logging.getLogger(__name__)
 
 
 CRM_STATUS_MAP = {
@@ -356,6 +360,22 @@ def send_did_not_happen_email(meeting):
     )
 
 
+def _send_meeting_invitation_after_commit(meeting_id):
+    try:
+        meeting = Meeting.objects.select_related("prospect", "scheduled_by").get(pk=meeting_id)
+        send_meeting_invitation(meeting)
+    except Exception:
+        logger.exception("Failed to send meeting invitation for meeting_id=%s", meeting_id)
+
+
+def _send_did_not_happen_email_after_commit(meeting_id):
+    try:
+        meeting = Meeting.objects.select_related("prospect", "scheduled_by").get(pk=meeting_id)
+        send_did_not_happen_email(meeting)
+    except Exception:
+        logger.exception("Failed to send meeting follow-up email for meeting_id=%s", meeting_id)
+
+
 @transaction.atomic
 def apply_call_outcome(prospect, staff, cleaned_data):
     settings_obj = SystemSetting.load()
@@ -407,7 +427,7 @@ def apply_call_outcome(prospect, staff, cleaned_data):
         prospect_email=prospect_email,
     )
     if meeting:
-        send_meeting_invitation(meeting)
+        transaction.on_commit(lambda: _send_meeting_invitation_after_commit(meeting.pk))
     return meeting
 
 
@@ -444,4 +464,4 @@ def update_meeting_outcome(meeting, status):
         scheduled_for=meeting.scheduled_for,
         prospect_email=meeting.prospect_email,
     )
-    send_did_not_happen_email(meeting)
+    transaction.on_commit(lambda: _send_did_not_happen_email_after_commit(meeting.pk))
