@@ -19,7 +19,10 @@
                         <a href="{% url 'supervisor_dashboard' %}">Dashboard</a>
                         <a href="{% url 'staff_list' %}">Staff</a>
                         <a href="{% url 'sales_manager_list' %}">Sales Managers</a>
+                        <a href="{% url 'finance_manager_list' %}">Finance Managers</a>
                         <a href="{% url 'sales_pipeline_dashboard' %}">Sales Pipeline</a>
+                        <a href="{% url 'contracts_dashboard' %}">Contracts</a>
+                        <a href="{% url 'pending_collections' %}">Pending Collections</a>
                         <a href="{% url 'supervisor_prospect_review' %}">Prospect Review</a>
                         <a href="{% url 'import_batch_create' %}">Import Calls</a>
                         <a href="{% url 'supervisor_meeting_list' %}">Meetings</a>
@@ -28,6 +31,11 @@
                     {% elif request.user.is_sales_manager %}
                         <a href="{% url 'sales_pipeline_dashboard' %}">Sales Pipeline</a>
                         <a href="{% url 'sales_conversation_create' %}">Add Conversation</a>
+                        <a href="{% url 'contracts_dashboard' %}">Contracts</a>
+                        <a href="{% url 'pending_collections' %}">Pending Collections</a>
+                    {% elif request.user.is_finance_manager %}
+                        <a href="{% url 'contracts_dashboard' %}">Contracts</a>
+                        <a href="{% url 'pending_collections' %}">Pending Collections</a>
                     {% else %}
                         <a href="{% url 'staff_dashboard' %}">Dashboard</a>
                         <a href="{% url 'staff_prospect_list' %}">Prospects</a>

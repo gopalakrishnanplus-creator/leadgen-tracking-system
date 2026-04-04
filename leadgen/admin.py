@@ -3,6 +3,10 @@ from django.contrib import admin
 from .models import (
     CallImportBatch,
     CallLog,
+    ContractCollection,
+    ContractCollectionContact,
+    ContractCollectionFile,
+    ContractCollectionInstallment,
     Meeting,
     Prospect,
     ProspectStatusUpdate,
@@ -43,5 +47,9 @@ admin.site.register(SalesConversation)
 admin.site.register(SalesConversationContact)
 admin.site.register(SalesConversationBrand)
 admin.site.register(SalesConversationFile)
+admin.site.register(ContractCollection)
+admin.site.register(ContractCollectionContact)
+admin.site.register(ContractCollectionFile)
+admin.site.register(ContractCollectionInstallment)
 
 # Register your models here.

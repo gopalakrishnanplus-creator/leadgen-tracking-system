@@ -16,12 +16,16 @@ Django application for managing lead generation staff, supervisor review, CRM ca
 
 - Single supervisor account with Google sign-in
 - Lead gen staff management by supervisor
+- Sales manager and finance manager account management by supervisor
 - Staff prospect creation and supervisor approval workflow
 - Prospect assignment visibility restricted to the assigned staff member
 - Daily CRM spreadsheet import using the Exotel report format
 - Manual post-call outcome capture for follow-up, decline, and scheduled meetings
 - Calendar invitation emails to prospect, supervisor, staff member, and up to three sales recipients
 - Meeting outcome updates with automatic follow-up reset when a meeting does not happen
+- Automatic sales pipeline creation when a meeting is marked as happened
+- Contracts and collections workflow with installment tracking and pending collections view
+- Invoice-due notification command for installments whose invoice date is today
 - Supervisor reporting for attempts, connects, follow-ups, scheduled meetings, and meetings that did not happen
 
 ## Local setup
@@ -66,6 +70,8 @@ Only users whose email addresses already exist in the system can sign in, except
 
 Google sign-in is further restricted to verified Google email addresses.
 
+The seeded initial sales manager is `amit@inditech.co.in`.
+
 ## SendGrid
 
 Set `SENDGRID_API_KEY` to enable SendGrid API delivery. If it is omitted, Django falls back to the configured email backend, which defaults to console output for local development.
@@ -98,6 +104,12 @@ Matching logic:
 - Run `python manage.py collectstatic`
 - Use `APP_ENV=production`
 - Set `SECURE_SSL_REDIRECT=True` and a non-zero `SECURE_HSTS_SECONDS` behind HTTPS
+
+To send invoice reminders automatically each day, schedule:
+
+```bash
+python manage.py send_invoice_due_notifications
+```
 
 ## EC2 / AWS preparation
 

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Pending Collections{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{% if request.user.is_finance_manager %}Finance{% elif request.user.is_sales_manager %}Sales{% else %}Supervisor{% endif %}</p>
+        <h1>Pending collections</h1>
+    </div>
+    <a class="button" href="{% url 'contracts_dashboard' %}">Back to contracts</a>
+</section>
+<section class="panel">
+    <h2>Items already invoiced but not collected</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Company name</th>
+                <th>Installment amount</th>
+                <th>Date of invoicing</th>
+                <th>Expected date of collection</th>
+                <th>Revised date of collection</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for item in invoiced_pending %}
+            <tr>
+                <td>{{ item.contract_collection.company_name }}</td>
+                <td>Rs {{ item.installment_amount }}</td>
+                <td>{{ item.invoice_date|default:"-" }}</td>
+                <td>{{ item.expected_collection_date|default:"-" }}</td>
+                <td>{{ item.revised_collection_date|default:"-" }}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="5">No invoiced installments are pending collection.</td></tr>
+        {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <th>Total</th>
+                <th>Rs {{ invoiced_pending_total }}</th>
+                <th colspan="3"></th>
+            </tr>
+        </tfoot>
+    </table>
+</section>
+<section class="panel">
+    <h2>Items yet to be invoiced</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Company name</th>
+                <th>Installment amount</th>
+                <th>Date of invoicing</th>
+                <th>Expected date of collection</th>
+                <th>Revised date of collection</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for item in yet_to_invoice %}
+            <tr>
+                <td>{{ item.contract_collection.company_name }}</td>
+                <td>Rs {{ item.installment_amount }}</td>
+                <td>{{ item.invoice_date|default:"-" }}</td>
+                <td>{{ item.expected_collection_date|default:"-" }}</td>
+                <td>{{ item.revised_collection_date|default:"-" }}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="5">No future or uninvoiced installments found.</td></tr>
+        {% endfor %}
+        </tbody>
+        <tfoot>
+            <tr>
+                <th>Total</th>
+                <th>Rs {{ yet_to_invoice_total }}</th>
+                <th colspan="3"></th>
+            </tr>
+        </tfoot>
+    </table>
+</section>
+{% endblock %}

@@ -10,12 +10,14 @@
 <section class="stats-grid">
     <article class="stat-card"><span>{{ staff_count }}</span><p>Active staff</p></article>
     <article class="stat-card"><span>{{ sales_manager_count }}</span><p>Active sales managers</p></article>
+    <article class="stat-card"><span>{{ finance_manager_count }}</span><p>Active finance managers</p></article>
     <article class="stat-card"><span>{{ pending_review_count }}</span><p>Pending prospect reviews</p></article>
     <article class="stat-card"><span>{{ accepted_count }}</span><p>Accepted prospects</p></article>
     <article class="stat-card"><span>{{ scheduled_count }}</span><p>Scheduled meetings</p></article>
     <article class="stat-card"><span>{{ follow_up_count }}</span><p>Prospects in follow-up</p></article>
     <article class="stat-card"><span>{{ overdue_meeting_count }}</span><p>Meetings awaiting outcome update</p></article>
     <article class="stat-card"><span>{{ active_sales_pipeline_count }}</span><p>Active sales pipeline records</p></article>
+    <article class="stat-card"><span>{{ active_contract_count }}</span><p>Contracts in collections</p></article>
 </section>
 <section class="panel">
     <div class="section-head">
@@ -26,6 +28,19 @@
         <div class="button-row">
             <a class="button button-primary" href="{% url 'sales_pipeline_dashboard' %}">Open sales pipeline</a>
             <a class="button" href="{% url 'sales_conversation_create' %}">Add new sales conversation</a>
+        </div>
+    </div>
+</section>
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Contracts and collections</p>
+            <h2>Track signed deals, invoicing, and pending collections</h2>
+        </div>
+        <div class="button-row">
+            <a class="button button-primary" href="{% url 'contracts_dashboard' %}">Open contracts</a>
+            <a class="button" href="{% url 'contract_collection_create' %}">Add new contract</a>
+            <a class="button" href="{% url 'pending_collections' %}">Pending collections</a>
         </div>
     </div>
 </section>

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Contracts and Collections{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{% if request.user.is_finance_manager %}Finance{% elif request.user.is_sales_manager %}Sales{% else %}Supervisor{% endif %}</p>
+        <h1>Contracts and collections</h1>
+        <p class="note">Signed deals move here from sales pipeline and stay tracked through invoicing and collections.</p>
+    </div>
+    <div class="button-row">
+        {% if request.user.is_supervisor or request.user.is_sales_manager %}
+            <a class="button button-primary" href="{% url 'contract_collection_create' %}">Add new contract</a>
+        {% endif %}
+        <a class="button" href="{% url 'pending_collections' %}">Pending collections</a>
+        {% if request.user.is_supervisor %}
+            <a class="button" href="{% url 'send_invoice_due_notifications_now' %}">Send today's invoice alerts</a>
+        {% endif %}
+    </div>
+</section>
+<section class="stats-grid">
+    <article class="stat-card"><span>{{ active_count }}</span><p>Contracts in collections</p></article>
+    <article class="stat-card"><span>{{ pending_count }}</span><p>Installments pending collection</p></article>
+</section>
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Company</th>
+                <th>Contacts</th>
+                <th>Sales manager</th>
+                <th>Contract value</th>
+                <th>Updated</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for contract in contracts %}
+            <tr>
+                <td>{{ contract.contract_collection_id }}</td>
+                <td>{{ contract.company_name }}</td>
+                <td>
+                    {% for contact in contract.contacts.all %}
+                        <div>{{ contact.name }}{% if contact.email %} / {{ contact.email }}{% endif %}</div>
+                    {% endfor %}
+                </td>
+                <td>{% if contract.sales_manager %}{{ contract.sales_manager.name }}{% else %}Unassigned{% endif %}</td>
+                <td>{% if contract.contract_value %}Rs {{ contract.contract_value }}{% else %}-{% endif %}</td>
+                <td>{{ contract.updated_at }}</td>
+                <td class="actions"><a href="{% url 'contract_collection_update' contract.id %}">Open</a></td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="7">No contracts have entered collections yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

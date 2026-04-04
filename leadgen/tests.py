@@ -1,16 +1,34 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from django.db import IntegrityError
+from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from openpyxl import Workbook
 
 from .adapters import LeadgenSocialAccountAdapter
-from .forms import ProspectCreateForm, SalesConversationForm
-from .models import CallImportBatch, Meeting, Prospect, SalesConversation, SystemSetting, User
-from .services import apply_call_outcome, build_supervisor_report, import_exotel_report, update_meeting_outcome
+from .forms import ContractCollectionForm, ProspectCreateForm, SalesConversationForm
+from .models import (
+    CallImportBatch,
+    ContractCollection,
+    ContractCollectionInstallment,
+    Meeting,
+    Prospect,
+    SalesConversation,
+    SystemSetting,
+    User,
+)
+from .services import (
+    apply_call_outcome,
+    build_pending_collections,
+    build_supervisor_report,
+    get_or_create_contract_collection_from_sales_conversation,
+    import_exotel_report,
+    send_due_invoice_notifications,
+    update_meeting_outcome,
+)
 
 
 class LeadgenWorkflowTests(TestCase):
@@ -48,6 +66,14 @@ class LeadgenWorkflowTests(TestCase):
         self.sales_manager.whatsapp_number = self.sales_manager.whatsapp_number or "+919900000002"
         self.sales_manager.set_unusable_password()
         self.sales_manager.save()
+        self.finance_manager = User.objects.create(
+            email="finance@example.com",
+            username="finance@example.com",
+            role=User.ROLE_FINANCE_MANAGER,
+            name="Finance User",
+        )
+        self.finance_manager.set_unusable_password()
+        self.finance_manager.save()
         SystemSetting.load()
         self.prospect = Prospect.objects.create(
             company_name="Acme",
@@ -219,6 +245,11 @@ class LeadgenWorkflowTests(TestCase):
         response = self.client.get("/")
         self.assertRedirects(response, "/sales/")
 
+    def test_home_redirects_finance_manager_to_contracts(self):
+        self.client.force_login(self.finance_manager)
+        response = self.client.get("/")
+        self.assertRedirects(response, "/contracts/")
+
     def test_prospect_form_accepts_linkedin_without_scheme(self):
         form = ProspectCreateForm(
             data={
@@ -342,5 +373,118 @@ class LeadgenWorkflowTests(TestCase):
         response = self.client.get("/sales/")
         self.assertContains(response, "Visible Co")
         self.assertNotContains(response, "Hidden Co")
+
+    def test_contract_collection_is_created_from_signed_sales_conversation(self):
+        sales_conversation = SalesConversation.objects.create(
+            company_name="Signed Co",
+            assigned_sales_manager=self.sales_manager,
+            contract_signed=True,
+            created_by=self.supervisor,
+        )
+        sales_conversation.contacts.create(position=1, name="Jane Doe", email="jane@example.com")
+        contract_collection = get_or_create_contract_collection_from_sales_conversation(
+            sales_conversation,
+            created_by=self.supervisor,
+        )
+        self.assertEqual(contract_collection.company_name, "Signed Co")
+        self.assertEqual(contract_collection.sales_manager, self.sales_manager)
+        self.assertEqual(contract_collection.contacts.count(), 1)
+
+    def test_contract_form_enforces_one_contact_and_collects_installments(self):
+        form = ContractCollectionForm(
+            data={
+                "company_name": "Acme Contracts",
+                "sales_manager": self.sales_manager.pk,
+                "contract_value": "150000.00",
+                "contact_1_name": "Jane Doe",
+                "contact_1_email": "jane@example.com",
+                "contact_1_whatsapp": "9999999999",
+                "contact_2_name": "",
+                "contact_2_email": "",
+                "contact_2_whatsapp": "",
+                "contact_3_name": "",
+                "contact_3_email": "",
+                "contact_3_whatsapp": "",
+                "installment_1_amount": "50000.00",
+                "installment_1_invoice_date": "2026-04-10",
+                "installment_1_expected_collection_date": "2026-04-20",
+                "installment_1_revised_collection_date": "",
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        self.assertEqual(form.cleaned_data["contact_rows"][0]["name"], "Jane Doe")
+        self.assertEqual(form.cleaned_data["installment_rows"][0]["position"], 1)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_send_due_invoice_notifications_sends_email_for_today(self):
+        contract_collection = ContractCollection.objects.create(
+            company_name="Invoice Co",
+            sales_manager=self.sales_manager,
+            contract_value="100000.00",
+            created_by=self.supervisor,
+        )
+        contract_collection.contacts.create(position=1, name="Jane Doe", email="jane@example.com")
+        installment = ContractCollectionInstallment.objects.create(
+            contract_collection=contract_collection,
+            position=1,
+            installment_amount="25000.00",
+            invoice_date=timezone.localdate(),
+            expected_collection_date=timezone.localdate(),
+        )
+        sent_count = send_due_invoice_notifications(timezone.localdate())
+        installment.refresh_from_db()
+        self.assertEqual(sent_count, 1)
+        self.assertIsNotNone(installment.invoice_notification_sent_at)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("Invoice to be raised today", mail.outbox[0].subject)
+
+    def test_pending_collections_groups_invoiced_and_future_installments(self):
+        contract_collection = ContractCollection.objects.create(
+            company_name="Collections Co",
+            sales_manager=self.sales_manager,
+            contract_value="90000.00",
+            created_by=self.supervisor,
+        )
+        ContractCollectionInstallment.objects.create(
+            contract_collection=contract_collection,
+            position=1,
+            installment_amount="30000.00",
+            invoice_date=timezone.localdate() - timedelta(days=2),
+            expected_collection_date=timezone.localdate() + timedelta(days=5),
+        )
+        ContractCollectionInstallment.objects.create(
+            contract_collection=contract_collection,
+            position=2,
+            installment_amount="30000.00",
+            invoice_date=timezone.localdate() + timedelta(days=4),
+            expected_collection_date=timezone.localdate() + timedelta(days=10),
+        )
+        summary = build_pending_collections(ContractCollection.objects.all(), timezone.localdate())
+        self.assertEqual(summary["invoiced_pending"].count(), 1)
+        self.assertEqual(summary["yet_to_invoice"].count(), 1)
+
+    def test_finance_manager_can_open_contracts_dashboard(self):
+        ContractCollection.objects.create(
+            company_name="Finance Visible Co",
+            sales_manager=self.sales_manager,
+            contract_value="120000.00",
+            created_by=self.supervisor,
+        )
+        self.client.force_login(self.finance_manager)
+        response = self.client.get("/contracts/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Finance Visible Co")
+
+    def test_supervisor_can_open_contract_detail_page(self):
+        contract_collection = ContractCollection.objects.create(
+            company_name="Detail Co",
+            sales_manager=self.sales_manager,
+            contract_value="120000.00",
+            created_by=self.supervisor,
+        )
+        self.client.force_login(self.supervisor)
+        response = self.client.get(f"/contracts/{contract_collection.pk}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Detail Co")
 
 # Create your tests here.

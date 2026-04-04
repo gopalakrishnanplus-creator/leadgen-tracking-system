@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{% if request.user.is_finance_manager %}Finance{% elif request.user.is_sales_manager %}Sales{% else %}Supervisor{% endif %}</p>
+        <h1>{{ title }}</h1>
+        {% if contract_collection %}
+            <p class="note">Contract ID: {{ contract_collection.contract_collection_id }}</p>
+        {% endif %}
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'contracts_dashboard' %}">Back to contracts</a>
+        <a class="button" href="{% url 'pending_collections' %}">Pending collections</a>
+    </div>
+</section>
+<section class="two-col">
+    <div class="panel form-panel">
+        <h2>Contract overview</h2>
+        {% if can_edit_terms %}
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <input type="hidden" name="form_type" value="terms">
+                {% if terms_form.non_field_errors %}
+                    <div class="message error">{{ terms_form.non_field_errors }}</div>
+                {% endif %}
+                <p>{{ terms_form.company_name.errors }}{{ terms_form.company_name.label_tag }} {{ terms_form.company_name }}{% if terms_form.company_name.help_text %}<span class="note">{{ terms_form.company_name.help_text }}</span>{% endif %}</p>
+                <p>{{ terms_form.sales_manager.errors }}{{ terms_form.sales_manager.label_tag }} {{ terms_form.sales_manager }}</p>
+                <p>{{ terms_form.contract_value.errors }}{{ terms_form.contract_value.label_tag }} {{ terms_form.contract_value }}{% if terms_form.contract_value.help_text %}<span class="note">{{ terms_form.contract_value.help_text }}</span>{% endif %}</p>
+                <h3>Contacts</h3>
+                <div class="contact-grid">
+                    <p>{{ terms_form.contact_1_name.errors }}{{ terms_form.contact_1_name.label_tag }} {{ terms_form.contact_1_name }}</p>
+                    <p>{{ terms_form.contact_1_email.errors }}{{ terms_form.contact_1_email.label_tag }} {{ terms_form.contact_1_email }}</p>
+                    <p>{{ terms_form.contact_1_whatsapp.errors }}{{ terms_form.contact_1_whatsapp.label_tag }} {{ terms_form.contact_1_whatsapp }}</p>
+                    <p>{{ terms_form.contact_2_name.errors }}{{ terms_form.contact_2_name.label_tag }} {{ terms_form.contact_2_name }}</p>
+                    <p>{{ terms_form.contact_2_email.errors }}{{ terms_form.contact_2_email.label_tag }} {{ terms_form.contact_2_email }}</p>
+                    <p>{{ terms_form.contact_2_whatsapp.errors }}{{ terms_form.contact_2_whatsapp.label_tag }} {{ terms_form.contact_2_whatsapp }}</p>
+                    <p>{{ terms_form.contact_3_name.errors }}{{ terms_form.contact_3_name.label_tag }} {{ terms_form.contact_3_name }}</p>
+                    <p>{{ terms_form.contact_3_email.errors }}{{ terms_form.contact_3_email.label_tag }} {{ terms_form.contact_3_email }}</p>
+                    <p>{{ terms_form.contact_3_whatsapp.errors }}{{ terms_form.contact_3_whatsapp.label_tag }} {{ terms_form.contact_3_whatsapp }}</p>
+                </div>
+                <h3>Contract files</h3>
+                <p>{{ terms_form.contract_files.errors }}{{ terms_form.contract_files.label_tag }} {{ terms_form.contract_files }}{% if terms_form.contract_files.help_text %}<span class="note">{{ terms_form.contract_files.help_text }}</span>{% endif %}</p>
+                {% if existing_contract_files %}
+                    <div class="file-list">
+                        {% for item in existing_contract_files %}
+                            <a href="{{ item.file.url }}" target="_blank" rel="noreferrer">{{ item.file.name }}</a>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="note">No contract files uploaded yet.</p>
+                {% endif %}
+                <h3>Installments</h3>
+                <div class="installment-grid">
+                    <div class="panel nested-panel">
+                        <p class="eyebrow">Installment 1</p>
+                        <p>{{ terms_form.installment_1_amount.errors }}{{ terms_form.installment_1_amount.label_tag }} {{ terms_form.installment_1_amount }}</p>
+                        <p>{{ terms_form.installment_1_invoice_date.errors }}{{ terms_form.installment_1_invoice_date.label_tag }} {{ terms_form.installment_1_invoice_date }}</p>
+                        <p>{{ terms_form.installment_1_expected_collection_date.errors }}{{ terms_form.installment_1_expected_collection_date.label_tag }} {{ terms_form.installment_1_expected_collection_date }}</p>
+                        <p>{{ terms_form.installment_1_revised_collection_date.errors }}{{ terms_form.installment_1_revised_collection_date.label_tag }} {{ terms_form.installment_1_revised_collection_date }}</p>
+                    </div>
+                    <div class="panel nested-panel">
+                        <p class="eyebrow">Installment 2</p>
+                        <p>{{ terms_form.installment_2_amount.errors }}{{ terms_form.installment_2_amount.label_tag }} {{ terms_form.installment_2_amount }}</p>
+                        <p>{{ terms_form.installment_2_invoice_date.errors }}{{ terms_form.installment_2_invoice_date.label_tag }} {{ terms_form.installment_2_invoice_date }}</p>
+                        <p>{{ terms_form.installment_2_expected_collection_date.errors }}{{ terms_form.installment_2_expected_collection_date.label_tag }} {{ terms_form.installment_2_expected_collection_date }}</p>
+                        <p>{{ terms_form.installment_2_revised_collection_date.errors }}{{ terms_form.installment_2_revised_collection_date.label_tag }} {{ terms_form.installment_2_revised_collection_date }}</p>
+                    </div>
+                    <div class="panel nested-panel">
+                        <p class="eyebrow">Installment 3</p>
+                        <p>{{ terms_form.installment_3_amount.errors }}{{ terms_form.installment_3_amount.label_tag }} {{ terms_form.installment_3_amount }}</p>
+                        <p>{{ terms_form.installment_3_invoice_date.errors }}{{ terms_form.installment_3_invoice_date.label_tag }} {{ terms_form.installment_3_invoice_date }}</p>
+                        <p>{{ terms_form.installment_3_expected_collection_date.errors }}{{ terms_form.installment_3_expected_collection_date.label_tag }} {{ terms_form.installment_3_expected_collection_date }}</p>
+                        <p>{{ terms_form.installment_3_revised_collection_date.errors }}{{ terms_form.installment_3_revised_collection_date.label_tag }} {{ terms_form.installment_3_revised_collection_date }}</p>
+                    </div>
+                    <div class="panel nested-panel">
+                        <p class="eyebrow">Installment 4</p>
+                        <p>{{ terms_form.installment_4_amount.errors }}{{ terms_form.installment_4_amount.label_tag }} {{ terms_form.installment_4_amount }}</p>
+                        <p>{{ terms_form.installment_4_invoice_date.errors }}{{ terms_form.installment_4_invoice_date.label_tag }} {{ terms_form.installment_4_invoice_date }}</p>
+                        <p>{{ terms_form.installment_4_expected_collection_date.errors }}{{ terms_form.installment_4_expected_collection_date.label_tag }} {{ terms_form.installment_4_expected_collection_date }}</p>
+                        <p>{{ terms_form.installment_4_revised_collection_date.errors }}{{ terms_form.installment_4_revised_collection_date.label_tag }} {{ terms_form.installment_4_revised_collection_date }}</p>
+                    </div>
+                    <div class="panel nested-panel">
+                        <p class="eyebrow">Installment 5</p>
+                        <p>{{ terms_form.installment_5_amount.errors }}{{ terms_form.installment_5_amount.label_tag }} {{ terms_form.installment_5_amount }}</p>
+                        <p>{{ terms_form.installment_5_invoice_date.errors }}{{ terms_form.installment_5_invoice_date.label_tag }} {{ terms_form.installment_5_invoice_date }}</p>
+                        <p>{{ terms_form.installment_5_expected_collection_date.errors }}{{ terms_form.installment_5_expected_collection_date.label_tag }} {{ terms_form.installment_5_expected_collection_date }}</p>
+                        <p>{{ terms_form.installment_5_revised_collection_date.errors }}{{ terms_form.installment_5_revised_collection_date.label_tag }} {{ terms_form.installment_5_revised_collection_date }}</p>
+                    </div>
+                    <div class="panel nested-panel">
+                        <p class="eyebrow">Installment 6</p>
+                        <p>{{ terms_form.installment_6_amount.errors }}{{ terms_form.installment_6_amount.label_tag }} {{ terms_form.installment_6_amount }}</p>
+                        <p>{{ terms_form.installment_6_invoice_date.errors }}{{ terms_form.installment_6_invoice_date.label_tag }} {{ terms_form.installment_6_invoice_date }}</p>
+                        <p>{{ terms_form.installment_6_expected_collection_date.errors }}{{ terms_form.installment_6_expected_collection_date.label_tag }} {{ terms_form.installment_6_expected_collection_date }}</p>
+                        <p>{{ terms_form.installment_6_revised_collection_date.errors }}{{ terms_form.installment_6_revised_collection_date.label_tag }} {{ terms_form.installment_6_revised_collection_date }}</p>
+                    </div>
+                </div>
+                <button class="button button-primary" type="submit">Save contract details</button>
+            </form>
+        {% else %}
+            <p><strong>Company:</strong> {{ contract_collection.company_name }}</p>
+            <p><strong>Sales manager:</strong> {% if contract_collection.sales_manager %}{{ contract_collection.sales_manager.name }}{% else %}Unassigned{% endif %}</p>
+            <p><strong>Contract value:</strong> {% if contract_collection.contract_value %}Rs {{ contract_collection.contract_value }}{% else %}-{% endif %}</p>
+            <h3>Contacts</h3>
+            {% for contact in contract_collection.contacts.all %}
+                <p>{{ contact.name }}{% if contact.email %} / {{ contact.email }}{% endif %}{% if contact.whatsapp_number %} / {{ contact.whatsapp_number }}{% endif %}</p>
+            {% endfor %}
+            <h3>Contract files</h3>
+            {% if existing_contract_files %}
+                <div class="file-list">
+                    {% for item in existing_contract_files %}
+                        <a href="{{ item.file.url }}" target="_blank" rel="noreferrer">{{ item.file.name }}</a>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="note">No contract files uploaded yet.</p>
+            {% endif %}
+        {% endif %}
+    </div>
+    <div class="panel form-panel">
+        <h2>Collections</h2>
+        {% if can_edit_finance %}
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="form_type" value="finance">
+                {% if finance_form.non_field_errors %}
+                    <div class="message error">{{ finance_form.non_field_errors }}</div>
+                {% endif %}
+                <div class="installment-grid">
+                    <div class="panel nested-panel">
+                        <p class="eyebrow">Installment 1</p>
+                        <p>{{ finance_form.installment_1_collected_amount.errors }}{{ finance_form.installment_1_collected_amount.label_tag }} {{ finance_form.installment_1_collected_amount }}</p>
+                        <p>{{ finance_form.installment_1_collection_date.errors }}{{ finance_form.installment_1_collection_date.label_tag }} {{ finance_form.installment_1_collection_date }}</p>
+                    </div>
+                    <div class="panel nested-panel">
+                        <p class="eyebrow">Installment 2</p>
+                        <p>{{ finance_form.installment_2_collected_amount.errors }}{{ finance_form.installment_2_collected_amount.label_tag }} {{ finance_form.installment_2_collected_amount }}</p>
+                        <p>{{ finance_form.installment_2_collection_date.errors }}{{ finance_form.installment_2_collection_date.label_tag }} {{ finance_form.installment_2_collection_date }}</p>
+                    </div>
+                    <div class="panel nested-panel">
+                        <p class="eyebrow">Installment 3</p>
+                        <p>{{ finance_form.installment_3_collected_amount.errors }}{{ finance_form.installment_3_collected_amount.label_tag }} {{ finance_form.installment_3_collected_amount }}</p>
+                        <p>{{ finance_form.installment_3_collection_date.errors }}{{ finance_form.installment_3_collection_date.label_tag }} {{ finance_form.installment_3_collection_date }}</p>
+                    </div>
+                    <div class="panel nested-panel">
+                        <p class="eyebrow">Installment 4</p>
+                        <p>{{ finance_form.installment_4_collected_amount.errors }}{{ finance_form.installment_4_collected_amount.label_tag }} {{ finance_form.installment_4_collected_amount }}</p>
+                        <p>{{ finance_form.installment_4_collection_date.errors }}{{ finance_form.installment_4_collection_date.label_tag }} {{ finance_form.installment_4_collection_date }}</p>
+                    </div>
+                    <div class="panel nested-panel">
+                        <p class="eyebrow">Installment 5</p>
+                        <p>{{ finance_form.installment_5_collected_amount.errors }}{{ finance_form.installment_5_collected_amount.label_tag }} {{ finance_form.installment_5_collected_amount }}</p>
+                        <p>{{ finance_form.installment_5_collection_date.errors }}{{ finance_form.installment_5_collection_date.label_tag }} {{ finance_form.installment_5_collection_date }}</p>
+                    </div>
+                    <div class="panel nested-panel">
+                        <p class="eyebrow">Installment 6</p>
+                        <p>{{ finance_form.installment_6_collected_amount.errors }}{{ finance_form.installment_6_collected_amount.label_tag }} {{ finance_form.installment_6_collected_amount }}</p>
+                        <p>{{ finance_form.installment_6_collection_date.errors }}{{ finance_form.installment_6_collection_date.label_tag }} {{ finance_form.installment_6_collection_date }}</p>
+                    </div>
+                </div>
+                <button class="button button-primary" type="submit">Save collection updates</button>
+            </form>
+        {% else %}
+            {% if contract_collection %}
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Installment</th>
+                            <th>Amount</th>
+                            <th>Invoice date</th>
+                            <th>Expected</th>
+                            <th>Revised</th>
+                            <th>Collected</th>
+                            <th>Collection date</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for installment in contract_collection.installments.all %}
+                        <tr>
+                            <td>{{ installment.position }}</td>
+                            <td>{% if installment.installment_amount %}Rs {{ installment.installment_amount }}{% else %}-{% endif %}</td>
+                            <td>{{ installment.invoice_date|default:"-" }}</td>
+                            <td>{{ installment.expected_collection_date|default:"-" }}</td>
+                            <td>{{ installment.revised_collection_date|default:"-" }}</td>
+                            <td>{% if installment.collected_amount %}Rs {{ installment.collected_amount }}{% else %}-{% endif %}</td>
+                            <td>{{ installment.collection_date|default:"-" }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="7">No installments added yet.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            {% else %}
+                <p class="note">Collection fields become available after the contract record is created.</p>
+            {% endif %}
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,16 @@
+Invoice to be raised today for the following contract installment.
+
+Company: {{ contract.company_name }}
+Contract ID: {{ contract.contract_collection_id }}
+Sales manager: {% if contract.sales_manager %}{{ contract.sales_manager.name }}{% else %}Unassigned{% endif %}
+Installment number: {{ installment.position }}
+Installment amount: Rs {{ installment.installment_amount }}
+Invoice date: {{ installment.invoice_date }}
+Expected collection date: {{ installment.expected_collection_date|default:"-" }}
+Revised collection date: {{ installment.revised_collection_date|default:"-" }}
+Contract value: {% if contract.contract_value %}Rs {{ contract.contract_value }}{% else %}-{% endif %}
+
+Contacts:
+{% for contact in contract.contacts.all %}
+- {{ contact.name }}{% if contact.email %} / {{ contact.email }}{% endif %}{% if contact.whatsapp_number %} / {{ contact.whatsapp_number }}{% endif %}
+{% endfor %}

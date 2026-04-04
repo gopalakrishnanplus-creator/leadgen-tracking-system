@@ -1,0 +1,18 @@
+<p>Invoice to be raised today for the following contract installment.</p>
+<ul>
+    <li>Company: {{ contract.company_name }}</li>
+    <li>Contract ID: {{ contract.contract_collection_id }}</li>
+    <li>Sales manager: {% if contract.sales_manager %}{{ contract.sales_manager.name }}{% else %}Unassigned{% endif %}</li>
+    <li>Installment number: {{ installment.position }}</li>
+    <li>Installment amount: Rs {{ installment.installment_amount }}</li>
+    <li>Invoice date: {{ installment.invoice_date }}</li>
+    <li>Expected collection date: {{ installment.expected_collection_date|default:"-" }}</li>
+    <li>Revised collection date: {{ installment.revised_collection_date|default:"-" }}</li>
+    <li>Contract value: {% if contract.contract_value %}Rs {{ contract.contract_value }}{% else %}-{% endif %}</li>
+</ul>
+<p>Contacts:</p>
+<ul>
+    {% for contact in contract.contacts.all %}
+        <li>{{ contact.name }}{% if contact.email %} / {{ contact.email }}{% endif %}{% if contact.whatsapp_number %} / {{ contact.whatsapp_number }}{% endif %}</li>
+    {% endfor %}
+</ul>

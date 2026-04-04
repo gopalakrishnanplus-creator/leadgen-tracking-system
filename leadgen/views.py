@@ -10,6 +10,10 @@ from django.utils import timezone
 from .decorators import role_required, roles_required
 from .forms import (
     CallOutcomeForm,
+    ContractCollectionForm,
+    FinanceCollectionUpdateForm,
+    FinanceManagerCreateForm,
+    FinanceManagerUpdateForm,
     ImportBatchForm,
     MeetingStatusUpdateForm,
     ProspectCreateForm,
@@ -26,6 +30,7 @@ from .forms import (
 from .models import (
     CallImportBatch,
     CallLog,
+    ContractCollection,
     Meeting,
     Prospect,
     ProspectStatusUpdate,
@@ -36,9 +41,14 @@ from .models import (
 )
 from .services import (
     apply_call_outcome,
+    build_pending_collections,
     build_supervisor_report,
     database_healthcheck,
+    get_or_create_contract_collection_from_sales_conversation,
     import_exotel_report,
+    send_due_invoice_notifications,
+    sync_contract_collection_data,
+    sync_finance_collection_data,
     sync_sales_conversation_data,
     update_meeting_outcome,
 )
@@ -67,6 +77,8 @@ def home(request):
         return redirect("supervisor_dashboard")
     if request.user.is_sales_manager:
         return redirect("sales_pipeline_dashboard")
+    if request.user.is_finance_manager:
+        return redirect("contracts_dashboard")
     return redirect("staff_dashboard")
 
 
@@ -91,7 +103,9 @@ def supervisor_dashboard(request):
         )[:5],
         "recent_calls": recent_calls,
         "sales_manager_count": User.objects.filter(role=User.ROLE_SALES_MANAGER, is_active=True).count(),
+        "finance_manager_count": User.objects.filter(role=User.ROLE_FINANCE_MANAGER, is_active=True).count(),
         "active_sales_pipeline_count": SalesConversation.objects.filter(contract_signed=False).count(),
+        "active_contract_count": ContractCollection.objects.count(),
     }
     return render(request, "leadgen/supervisor_dashboard.html", context)
 
@@ -118,6 +132,10 @@ def _get_staff_or_404(user_id):
 
 def _get_sales_manager_or_404(user_id):
     return get_object_or_404(User, pk=user_id, role=User.ROLE_SALES_MANAGER)
+
+
+def _get_finance_manager_or_404(user_id):
+    return get_object_or_404(User, pk=user_id, role=User.ROLE_FINANCE_MANAGER)
 
 
 @role_required(User.ROLE_SUPERVISOR)
@@ -178,6 +196,44 @@ def sales_manager_delete(request, user_id):
         messages.success(request, "Sales manager deactivated.")
         return redirect("sales_manager_list")
     return render(request, "leadgen/confirm_delete.html", {"object": sales_manager, "title": "Deactivate sales manager"})
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def finance_manager_list(request):
+    finance_managers = User.objects.filter(role=User.ROLE_FINANCE_MANAGER).order_by("name", "email")
+    return render(request, "leadgen/finance_manager_list.html", {"finance_managers": finance_managers})
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def finance_manager_create(request):
+    form = FinanceManagerCreateForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Finance manager account created.")
+        return redirect("finance_manager_list")
+    return render(request, "leadgen/finance_manager_form.html", {"form": form, "title": "Add finance manager"})
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def finance_manager_update(request, user_id):
+    finance_manager = _get_finance_manager_or_404(user_id)
+    form = FinanceManagerUpdateForm(request.POST or None, instance=finance_manager)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Finance manager updated.")
+        return redirect("finance_manager_list")
+    return render(request, "leadgen/finance_manager_form.html", {"form": form, "title": "Edit finance manager"})
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def finance_manager_delete(request, user_id):
+    finance_manager = _get_finance_manager_or_404(user_id)
+    if request.method == "POST":
+        finance_manager.is_active = False
+        finance_manager.save(update_fields=["is_active"])
+        messages.success(request, "Finance manager deactivated.")
+        return redirect("finance_manager_list")
+    return render(request, "leadgen/confirm_delete.html", {"object": finance_manager, "title": "Deactivate finance manager"})
 
 
 @role_required(User.ROLE_SUPERVISOR)
@@ -389,6 +445,43 @@ def _uploaded_sales_files(request):
     }
 
 
+def _contracts_queryset_for_user(user):
+    queryset = ContractCollection.objects.select_related(
+        "sales_manager",
+        "source_sales_conversation",
+    ).prefetch_related(
+        "contacts",
+        "files",
+        "installments",
+    )
+    if user.is_sales_manager:
+        queryset = queryset.filter(sales_manager=user)
+    return queryset
+
+
+def _configure_contract_form(form, user):
+    if user.is_sales_manager:
+        form.fields["sales_manager"].queryset = User.objects.filter(pk=user.pk)
+        form.fields["sales_manager"].empty_label = None
+        if not form.is_bound and not form.instance.sales_manager_id:
+            form.initial["sales_manager"] = user.pk
+    return form
+
+
+def _contract_collection_for_user_or_404(user, contract_id):
+    queryset = _contracts_queryset_for_user(user)
+    contract_collection = get_object_or_404(queryset, pk=contract_id)
+    if user.is_sales_manager and contract_collection.sales_manager_id != user.pk:
+        raise Http404("You do not have access to this contract.")
+    return contract_collection
+
+
+def _uploaded_contract_files(request):
+    return {
+        "contract_files": request.FILES.getlist("contract_files"),
+    }
+
+
 @roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER)
 def sales_pipeline_dashboard(request):
     conversations = _sales_pipeline_queryset_for_user(request.user).filter(contract_signed=False)
@@ -421,6 +514,10 @@ def sales_conversation_create(request):
         conversation.created_by = request.user
         conversation.save()
         sync_sales_conversation_data(conversation, form.cleaned_data, _uploaded_sales_files(request))
+        if conversation.contract_signed:
+            contract_collection = get_or_create_contract_collection_from_sales_conversation(conversation, created_by=request.user)
+            messages.success(request, "Sales conversation created and moved into contracts and collections.")
+            return redirect("contract_collection_update", contract_id=contract_collection.pk)
         messages.success(request, "Sales conversation created.")
         return redirect("sales_pipeline_dashboard")
     return render(
@@ -448,8 +545,9 @@ def sales_conversation_update(request, conversation_id):
         conversation.save()
         sync_sales_conversation_data(conversation, form.cleaned_data, _uploaded_sales_files(request))
         if conversation.contract_signed:
-            messages.success(request, "Sales conversation updated and removed from the active pipeline.")
-            return redirect("sales_pipeline_dashboard")
+            contract_collection = get_or_create_contract_collection_from_sales_conversation(conversation, created_by=request.user)
+            messages.success(request, "Sales conversation updated and moved into contracts and collections.")
+            return redirect("contract_collection_update", contract_id=contract_collection.pk)
         messages.success(request, "Sales conversation updated.")
         return redirect("sales_conversation_update", conversation_id=conversation.pk)
     return render(
@@ -463,5 +561,103 @@ def sales_conversation_update(request, conversation_id):
             "existing_proposal_files": conversation.files.filter(category=SalesConversationFile.CATEGORY_PROPOSAL),
         },
     )
+
+
+@roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER, User.ROLE_FINANCE_MANAGER)
+def contracts_dashboard(request):
+    contracts = _contracts_queryset_for_user(request.user).order_by("-updated_at")
+    context = {
+        "contracts": contracts,
+        "active_count": contracts.count(),
+        "pending_count": build_pending_collections(_contracts_queryset_for_user(request.user))["invoiced_pending"].count(),
+    }
+    return render(request, "leadgen/contracts_dashboard.html", context)
+
+
+@roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER)
+def contract_collection_create(request):
+    form = ContractCollectionForm(request.POST or None, request.FILES or None)
+    form = _configure_contract_form(form, request.user)
+    if request.method == "POST" and form.is_valid():
+        contract_collection = form.save(commit=False)
+        if request.user.is_sales_manager:
+            contract_collection.sales_manager = request.user
+        contract_collection.created_by = request.user
+        contract_collection.save()
+        sync_contract_collection_data(contract_collection, form.cleaned_data, _uploaded_contract_files(request))
+        messages.success(request, "Contract added to contracts and collections.")
+        return redirect("contract_collection_update", contract_id=contract_collection.pk)
+    return render(
+        request,
+        "leadgen/contract_collection_form.html",
+        {
+            "contract_collection": None,
+            "terms_form": form,
+            "finance_form": None,
+            "existing_contract_files": [],
+            "title": "Add contract",
+            "can_edit_terms": True,
+            "can_edit_finance": False,
+        },
+    )
+
+
+@roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER, User.ROLE_FINANCE_MANAGER)
+def contract_collection_update(request, contract_id):
+    contract_collection = _contract_collection_for_user_or_404(request.user, contract_id)
+    can_edit_terms = request.user.is_supervisor or request.user.is_sales_manager
+    can_edit_finance = request.user.is_finance_manager
+    terms_form = ContractCollectionForm(instance=contract_collection)
+    terms_form = _configure_contract_form(terms_form, request.user)
+    finance_form = FinanceCollectionUpdateForm(contract_collection=contract_collection)
+
+    if request.method == "POST" and can_edit_terms and request.POST.get("form_type") == "terms":
+        terms_form = ContractCollectionForm(request.POST or None, request.FILES or None, instance=contract_collection)
+        terms_form = _configure_contract_form(terms_form, request.user)
+        finance_form = FinanceCollectionUpdateForm(contract_collection=contract_collection)
+        if terms_form.is_valid():
+            updated_contract = terms_form.save(commit=False)
+            if request.user.is_sales_manager:
+                updated_contract.sales_manager = request.user
+            updated_contract.save()
+            sync_contract_collection_data(updated_contract, terms_form.cleaned_data, _uploaded_contract_files(request))
+            messages.success(request, "Contract details updated.")
+            return redirect("contract_collection_update", contract_id=contract_collection.pk)
+
+    if request.method == "POST" and can_edit_finance and request.POST.get("form_type") == "finance":
+        finance_form = FinanceCollectionUpdateForm(request.POST or None, contract_collection=contract_collection)
+        terms_form = ContractCollectionForm(instance=contract_collection)
+        terms_form = _configure_contract_form(terms_form, request.user)
+        if finance_form.is_valid():
+            sync_finance_collection_data(contract_collection, finance_form.cleaned_data)
+            messages.success(request, "Collection updates saved.")
+            return redirect("contract_collection_update", contract_id=contract_collection.pk)
+
+    return render(
+        request,
+        "leadgen/contract_collection_form.html",
+        {
+            "contract_collection": contract_collection,
+            "terms_form": terms_form,
+            "finance_form": finance_form,
+            "existing_contract_files": contract_collection.files.all(),
+            "title": f"Contract {contract_collection.contract_collection_id}",
+            "can_edit_terms": can_edit_terms,
+            "can_edit_finance": can_edit_finance,
+        },
+    )
+
+
+@roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER, User.ROLE_FINANCE_MANAGER)
+def pending_collections_view(request):
+    summary = build_pending_collections(_contracts_queryset_for_user(request.user))
+    return render(request, "leadgen/pending_collections.html", summary)
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def send_invoice_due_notifications_now(request):
+    sent_count = send_due_invoice_notifications()
+    messages.success(request, f"Invoice due notifications sent: {sent_count}")
+    return redirect("contracts_dashboard")
 
 # Create your views here.

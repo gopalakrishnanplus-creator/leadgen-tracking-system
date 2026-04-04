@@ -12,10 +12,12 @@ class User(AbstractUser):
     ROLE_SUPERVISOR = "supervisor"
     ROLE_STAFF = "staff"
     ROLE_SALES_MANAGER = "sales_manager"
+    ROLE_FINANCE_MANAGER = "finance_manager"
     ROLE_CHOICES = [
         (ROLE_SUPERVISOR, "Supervisor"),
         (ROLE_STAFF, "Lead Gen Staff"),
         (ROLE_SALES_MANAGER, "Sales Manager"),
+        (ROLE_FINANCE_MANAGER, "Finance Manager"),
     ]
 
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_STAFF)
@@ -37,8 +39,8 @@ class User(AbstractUser):
     def clean(self):
         if self.role == self.ROLE_STAFF and not self.calling_number:
             raise ValidationError("Lead gen staff must have a calling number.")
-        if self.role in {self.ROLE_SUPERVISOR, self.ROLE_SALES_MANAGER} and self.calling_number:
-            raise ValidationError("Supervisor and sales manager accounts cannot have a calling number.")
+        if self.role in {self.ROLE_SUPERVISOR, self.ROLE_SALES_MANAGER, self.ROLE_FINANCE_MANAGER} and self.calling_number:
+            raise ValidationError("Supervisor, sales manager, and finance manager accounts cannot have a calling number.")
 
     def save(self, *args, **kwargs):
         self.email = (self.email or "").lower()
@@ -56,6 +58,10 @@ class User(AbstractUser):
     @property
     def is_sales_manager(self):
         return self.role == self.ROLE_SALES_MANAGER
+
+    @property
+    def is_finance_manager(self):
+        return self.role == self.ROLE_FINANCE_MANAGER
 
     def __str__(self):
         return self.name or self.email
@@ -325,6 +331,10 @@ def generate_sales_conversation_id():
     return f"SC-{uuid.uuid4().hex[:10].upper()}"
 
 
+def generate_contract_collection_id():
+    return f"CC-{uuid.uuid4().hex[:10].upper()}"
+
+
 class SalesConversation(models.Model):
     STATUS_ENGAGED = "engaged"
     STATUS_NOT_ENGAGED = "not_engaged"
@@ -476,3 +486,148 @@ class SalesConversationFile(models.Model):
 
     def __str__(self):
         return f"{self.sales_conversation.sales_conversation_id} / {self.file.name}"
+
+
+class ContractCollection(models.Model):
+    contract_collection_id = models.CharField(
+        max_length=32,
+        unique=True,
+        default=generate_contract_collection_id,
+        editable=False,
+    )
+    source_sales_conversation = models.OneToOneField(
+        SalesConversation,
+        related_name="contract_collection",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+    )
+    company_name = models.CharField(max_length=255)
+    sales_manager = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="contract_collections",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+    )
+    contract_value = models.DecimalField(max_digits=14, decimal_places=2, blank=True, null=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="created_contract_collections",
+        on_delete=models.PROTECT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at", "company_name"]
+        indexes = [
+            models.Index(fields=["sales_manager", "updated_at"]),
+        ]
+
+    def clean(self):
+        if self.sales_manager_id and not self.sales_manager.is_sales_manager:
+            raise ValidationError("Assigned sales manager must have the sales manager role.")
+
+    @property
+    def contract_terms_locked(self):
+        if self.contract_value is not None:
+            return True
+        if self.files.exists():
+            return True
+        return self.installments.filter(
+            Q(installment_amount__isnull=False)
+            | Q(invoice_date__isnull=False)
+            | Q(expected_collection_date__isnull=False)
+        ).exists()
+
+    def __str__(self):
+        return f"{self.contract_collection_id} - {self.company_name}"
+
+
+class ContractCollectionContact(models.Model):
+    contract_collection = models.ForeignKey(
+        ContractCollection,
+        related_name="contacts",
+        on_delete=models.CASCADE,
+    )
+    position = models.PositiveSmallIntegerField()
+    name = models.CharField(max_length=255)
+    email = models.EmailField(blank=True)
+    whatsapp_number = models.CharField(max_length=20, blank=True)
+
+    class Meta:
+        ordering = ["position"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["contract_collection", "position"],
+                name="unique_contract_contact_position",
+            )
+        ]
+
+    def clean(self):
+        if self.position < 1 or self.position > 3:
+            raise ValidationError("Only three contact slots are supported per contract.")
+
+    def __str__(self):
+        return f"{self.contract_collection.contract_collection_id} / {self.name}"
+
+
+class ContractCollectionFile(models.Model):
+    contract_collection = models.ForeignKey(
+        ContractCollection,
+        related_name="files",
+        on_delete=models.CASCADE,
+    )
+    file = models.FileField(upload_to="contracts/")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.contract_collection.contract_collection_id} / {self.file.name}"
+
+
+class ContractCollectionInstallment(models.Model):
+    contract_collection = models.ForeignKey(
+        ContractCollection,
+        related_name="installments",
+        on_delete=models.CASCADE,
+    )
+    position = models.PositiveSmallIntegerField()
+    installment_amount = models.DecimalField(max_digits=14, decimal_places=2, blank=True, null=True)
+    invoice_date = models.DateField(blank=True, null=True)
+    expected_collection_date = models.DateField(blank=True, null=True)
+    revised_collection_date = models.DateField(blank=True, null=True)
+    collected_amount = models.DecimalField(max_digits=14, decimal_places=2, blank=True, null=True)
+    collection_date = models.DateField(blank=True, null=True)
+    invoice_notification_sent_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ["position"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["contract_collection", "position"],
+                name="unique_contract_installment_position",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["invoice_date", "collection_date"]),
+            models.Index(fields=["expected_collection_date", "revised_collection_date"]),
+        ]
+
+    def clean(self):
+        if self.position < 1 or self.position > 6:
+            raise ValidationError("Only six installment slots are supported per contract.")
+
+    @property
+    def is_collected(self):
+        if self.installment_amount is None:
+            return False
+        if self.collected_amount is None:
+            return False
+        return self.collected_amount >= self.installment_amount and self.collection_date is not None
+
+    def __str__(self):
+        return f"{self.contract_collection.contract_collection_id} / installment {self.position}"

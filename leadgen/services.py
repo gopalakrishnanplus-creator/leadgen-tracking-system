@@ -1,5 +1,6 @@
 import logging
 import base64
+from decimal import Decimal
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -7,7 +8,7 @@ from django.conf import settings
 from django.db import connection
 from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
-from django.db.models import Avg, Count, Max, Q, Sum
+from django.db.models import Avg, Count, F, Max, Q, Sum
 from django.template.loader import render_to_string
 from django.utils import timezone
 from icalendar import Calendar, Event, vCalAddress, vText
@@ -18,6 +19,10 @@ from sendgrid.helpers.mail import Attachment, Disposition, FileContent, FileName
 from .models import (
     CallImportBatch,
     CallLog,
+    ContractCollection,
+    ContractCollectionContact,
+    ContractCollectionFile,
+    ContractCollectionInstallment,
     Meeting,
     Prospect,
     ProspectStatusUpdate,
@@ -379,6 +384,14 @@ def default_sales_manager():
     return None
 
 
+def active_finance_manager_emails():
+    return list(
+        User.objects.filter(role=User.ROLE_FINANCE_MANAGER, is_active=True)
+        .exclude(email="")
+        .values_list("email", flat=True)
+    )
+
+
 def sync_sales_conversation_data(sales_conversation, cleaned_data, uploaded_files=None):
     uploaded_files = uploaded_files or {}
     sales_conversation.assigned_sales_manager = cleaned_data.get("assigned_sales_manager")
@@ -447,6 +460,191 @@ def get_or_create_sales_conversation_from_meeting(meeting, created_by=None):
             sales_conversation.assigned_sales_manager = manager
             sales_conversation.save(update_fields=["assigned_sales_manager", "updated_at"])
     return sales_conversation
+
+
+def get_or_create_contract_collection_from_sales_conversation(sales_conversation, created_by=None):
+    defaults = {
+        "company_name": sales_conversation.company_name,
+        "sales_manager": sales_conversation.assigned_sales_manager,
+        "created_by": created_by or sales_conversation.created_by,
+    }
+    contract_collection, created = ContractCollection.objects.get_or_create(
+        source_sales_conversation=sales_conversation,
+        defaults=defaults,
+    )
+    if created:
+        ContractCollectionContact.objects.bulk_create(
+            [
+                ContractCollectionContact(
+                    contract_collection=contract_collection,
+                    position=contact.position,
+                    name=contact.name,
+                    email=contact.email,
+                    whatsapp_number=contact.whatsapp_number,
+                )
+                for contact in sales_conversation.contacts.all()
+            ]
+        )
+    else:
+        updates = []
+        if not contract_collection.sales_manager_id and sales_conversation.assigned_sales_manager_id:
+            contract_collection.sales_manager = sales_conversation.assigned_sales_manager
+            updates.append("sales_manager")
+        if updates:
+            updates.append("updated_at")
+            contract_collection.save(update_fields=updates)
+    return contract_collection
+
+
+def sync_contract_collection_data(contract_collection, cleaned_data, uploaded_files=None):
+    uploaded_files = uploaded_files or {}
+    contract_collection.sales_manager = cleaned_data.get("sales_manager")
+    if contract_collection.contract_value is None:
+        contract_collection.contract_value = cleaned_data.get("contract_value")
+    contract_collection.save()
+
+    contract_collection.contacts.all().delete()
+    ContractCollectionContact.objects.bulk_create(
+        [
+            ContractCollectionContact(
+                contract_collection=contract_collection,
+                position=row["position"],
+                name=row["name"],
+                email=row["email"],
+                whatsapp_number=row["whatsapp_number"],
+            )
+            for row in cleaned_data["contact_rows"]
+        ]
+    )
+
+    if uploaded_files.get("contract_files") and not contract_collection.files.exists():
+        for uploaded_file in uploaded_files["contract_files"]:
+            ContractCollectionFile.objects.create(
+                contract_collection=contract_collection,
+                file=uploaded_file,
+            )
+
+    installments_by_position = {item.position: item for item in contract_collection.installments.all()}
+    for row in cleaned_data["installment_rows"]:
+        installment = installments_by_position.get(row["position"])
+        if not installment:
+            installment = ContractCollectionInstallment.objects.create(
+                contract_collection=contract_collection,
+                position=row["position"],
+            )
+        if installment.installment_amount is None and row["installment_amount"] is not None:
+            installment.installment_amount = row["installment_amount"]
+        if installment.invoice_date is None and row["invoice_date"] is not None:
+            installment.invoice_date = row["invoice_date"]
+            installment.invoice_notification_sent_at = None
+        if installment.expected_collection_date is None and row["expected_collection_date"] is not None:
+            installment.expected_collection_date = row["expected_collection_date"]
+        installment.revised_collection_date = row["revised_collection_date"]
+        installment.save()
+
+    if contract_collection.source_sales_conversation_id and contract_collection.sales_manager_id:
+        sales_conversation = contract_collection.source_sales_conversation
+        if sales_conversation.assigned_sales_manager_id != contract_collection.sales_manager_id:
+            sales_conversation.assigned_sales_manager = contract_collection.sales_manager
+            sales_conversation.save(update_fields=["assigned_sales_manager", "updated_at"])
+    return contract_collection
+
+
+def sync_finance_collection_data(contract_collection, cleaned_data):
+    installments_by_position = {item.position: item for item in contract_collection.installments.all()}
+    for row in cleaned_data["finance_rows"]:
+        installment = installments_by_position.get(row["position"])
+        if not installment:
+            installment = ContractCollectionInstallment.objects.create(
+                contract_collection=contract_collection,
+                position=row["position"],
+            )
+        installment.collected_amount = row["collected_amount"]
+        installment.collection_date = row["collection_date"]
+        installment.save()
+    return contract_collection
+
+
+def build_pending_collections(contract_query_set, today=None):
+    today = today or timezone.localdate()
+    installments = ContractCollectionInstallment.objects.select_related(
+        "contract_collection",
+        "contract_collection__sales_manager",
+    ).prefetch_related("contract_collection__contacts")
+    installments = installments.filter(contract_collection__in=contract_query_set)
+
+    invoiced = installments.filter(invoice_date__lt=today).filter(
+        Q(collection_date__isnull=True)
+        | Q(collected_amount__isnull=True)
+        | Q(collected_amount__lt=F("installment_amount"))
+    )
+    to_be_invoiced = installments.filter(
+        Q(invoice_date__isnull=True) | Q(invoice_date__gte=today)
+    ).filter(installment_amount__isnull=False)
+
+    return {
+        "invoiced_pending": invoiced.order_by("invoice_date", "contract_collection__company_name", "position"),
+        "invoiced_pending_total": sum(
+            [item.installment_amount or Decimal("0.00") for item in invoiced],
+            Decimal("0.00"),
+        ),
+        "yet_to_invoice": to_be_invoiced.order_by("invoice_date", "contract_collection__company_name", "position"),
+        "yet_to_invoice_total": sum(
+            [item.installment_amount or Decimal("0.00") for item in to_be_invoiced],
+            Decimal("0.00"),
+        ),
+    }
+
+
+def send_invoice_due_email(installment):
+    contract = installment.contract_collection
+    settings_obj = SystemSetting.load()
+    html_body = render_to_string(
+        "emails/invoice_due.html",
+        {"contract": contract, "installment": installment, "settings_obj": settings_obj},
+    )
+    text_body = render_to_string(
+        "emails/invoice_due.txt",
+        {"contract": contract, "installment": installment, "settings_obj": settings_obj},
+    )
+    recipients = unique_emails(
+        [settings_obj.supervisor_sender_email],
+        [contract.sales_manager.email] if contract.sales_manager_id else [],
+        active_finance_manager_emails(),
+    )
+    send_email(
+        subject=f"Invoice to be raised today: {contract.company_name} / installment {installment.position}",
+        html_body=html_body,
+        text_body=text_body,
+        to_emails=[recipients[0]],
+        cc_emails=recipients[1:],
+    )
+
+
+def send_due_invoice_notifications(target_date=None):
+    target_date = target_date or timezone.localdate()
+    installments = ContractCollectionInstallment.objects.select_related(
+        "contract_collection",
+        "contract_collection__sales_manager",
+    ).filter(
+        invoice_date=target_date,
+        invoice_notification_sent_at__isnull=True,
+    )
+    sent_count = 0
+    for installment in installments:
+        try:
+            send_invoice_due_email(installment)
+        except Exception:
+            logger.exception(
+                "Failed to send invoice due email for contract_collection_id=%s installment=%s",
+                installment.contract_collection.contract_collection_id,
+                installment.position,
+            )
+            continue
+        installment.invoice_notification_sent_at = timezone.now()
+        installment.save(update_fields=["invoice_notification_sent_at"])
+        sent_count += 1
+    return sent_count
 
 
 def _send_meeting_invitation_after_commit(meeting_id):

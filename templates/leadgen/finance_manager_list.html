@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Finance Managers{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">Supervisor</p>
+        <h1>Finance managers</h1>
+    </div>
+    <a class="button button-primary" href="{% url 'finance_manager_create' %}">Add finance manager</a>
+</section>
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>WhatsApp</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for finance_manager in finance_managers %}
+            <tr>
+                <td>{{ finance_manager.name }}</td>
+                <td>{{ finance_manager.email }}</td>
+                <td>{{ finance_manager.whatsapp_number|default:"-" }}</td>
+                <td>{% if finance_manager.is_active %}Active{% else %}Inactive{% endif %}</td>
+                <td class="actions">
+                    <a href="{% url 'finance_manager_update' finance_manager.id %}">Edit</a>
+                    <a href="{% url 'finance_manager_delete' finance_manager.id %}">Deactivate</a>
+                </td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="5">No finance managers added yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

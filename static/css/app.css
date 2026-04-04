@@ -141,7 +141,8 @@ a {
 }
 
 .filter-grid,
-.contact-grid {
+.contact-grid,
+.installment-grid {
     display: grid;
     gap: 1rem;
 }
@@ -149,6 +150,17 @@ a {
 .filter-grid {
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     align-items: end;
+}
+
+.installment-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    margin-top: 1rem;
+}
+
+.nested-panel {
+    padding: 1rem;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.7);
 }
 
 .button {

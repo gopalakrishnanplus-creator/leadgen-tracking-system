@@ -4,6 +4,8 @@ from django.core.validators import URLValidator
 
 from .models import (
     CallImportBatch,
+    ContractCollection,
+    ContractCollectionInstallment,
     Meeting,
     Prospect,
     SalesConversation,
@@ -100,6 +102,50 @@ class SalesManagerUpdateForm(StyledFormMixin, forms.ModelForm):
     def save(self, commit=True):
         user = super().save(commit=False)
         user.role = User.ROLE_SALES_MANAGER
+        user.calling_number = None
+        if commit:
+            user.save()
+        return user
+
+
+class FinanceManagerCreateForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = User
+        fields = ["name", "email", "whatsapp_number"]
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].lower()
+        if User.objects.filter(email=email).exists():
+            raise ValidationError("A user with this email already exists.")
+        return email
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.role = User.ROLE_FINANCE_MANAGER
+        user.email = user.email.lower()
+        user.must_change_password = False
+        user.calling_number = None
+        user.set_unusable_password()
+        if commit:
+            user.save()
+        return user
+
+
+class FinanceManagerUpdateForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = User
+        fields = ["name", "email", "whatsapp_number", "is_active"]
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].lower()
+        qs = User.objects.exclude(pk=self.instance.pk).filter(email=email)
+        if qs.exists():
+            raise ValidationError("A user with this email already exists.")
+        return email
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.role = User.ROLE_FINANCE_MANAGER
         user.calling_number = None
         if commit:
             user.save()
@@ -330,3 +376,183 @@ class SalesConversationFilterForm(StyledFormMixin, forms.Form):
         label="Proposal status",
     )
     brand = forms.CharField(required=False, label="Brand name")
+
+
+class ContractCollectionForm(StyledFormMixin, forms.ModelForm):
+    sales_manager = forms.ModelChoiceField(
+        queryset=User.objects.none(),
+        required=False,
+        empty_label="Unassigned",
+        label="Sales manager",
+    )
+    contract_files = forms.FileField(
+        required=False,
+        widget=MultiFileInput(),
+        label="Contract files",
+    )
+
+    class Meta:
+        model = ContractCollection
+        fields = ["company_name", "sales_manager", "contract_value"]
+
+    contact_1_name = forms.CharField(required=False, label="Contact person 1")
+    contact_1_email = forms.EmailField(required=False, label="Contact person 1 email")
+    contact_1_whatsapp = forms.CharField(required=False, label="Contact person 1 WhatsApp")
+    contact_2_name = forms.CharField(required=False, label="Contact person 2")
+    contact_2_email = forms.EmailField(required=False, label="Contact person 2 email")
+    contact_2_whatsapp = forms.CharField(required=False, label="Contact person 2 WhatsApp")
+    contact_3_name = forms.CharField(required=False, label="Contact person 3")
+    contact_3_email = forms.EmailField(required=False, label="Contact person 3 email")
+    contact_3_whatsapp = forms.CharField(required=False, label="Contact person 3 WhatsApp")
+
+    installment_1_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 1 amount")
+    installment_1_invoice_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 1 invoice date")
+    installment_1_expected_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 1 expected collection date")
+    installment_1_revised_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 1 revised collection date")
+    installment_2_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 2 amount")
+    installment_2_invoice_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 2 invoice date")
+    installment_2_expected_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 2 expected collection date")
+    installment_2_revised_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 2 revised collection date")
+    installment_3_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 3 amount")
+    installment_3_invoice_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 3 invoice date")
+    installment_3_expected_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 3 expected collection date")
+    installment_3_revised_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 3 revised collection date")
+    installment_4_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 4 amount")
+    installment_4_invoice_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 4 invoice date")
+    installment_4_expected_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 4 expected collection date")
+    installment_4_revised_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 4 revised collection date")
+    installment_5_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 5 amount")
+    installment_5_invoice_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 5 invoice date")
+    installment_5_expected_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 5 expected collection date")
+    installment_5_revised_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 5 revised collection date")
+    installment_6_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 6 amount")
+    installment_6_invoice_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 6 invoice date")
+    installment_6_expected_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 6 expected collection date")
+    installment_6_revised_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 6 revised collection date")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["sales_manager"].queryset = User.objects.filter(
+            role=User.ROLE_SALES_MANAGER,
+            is_active=True,
+        ).order_by("name", "email")
+        if self.instance.pk:
+            self.fields["company_name"].disabled = True
+            self.fields["company_name"].help_text = "Company name is fixed after the contract is created."
+            for contact in self.instance.contacts.all():
+                self.fields[f"contact_{contact.position}_name"].initial = contact.name
+                self.fields[f"contact_{contact.position}_email"].initial = contact.email
+                self.fields[f"contact_{contact.position}_whatsapp"].initial = contact.whatsapp_number
+            installments = {item.position: item for item in self.instance.installments.all()}
+            for position, installment in installments.items():
+                if installment.installment_amount is not None:
+                    self.fields[f"installment_{position}_amount"].initial = installment.installment_amount
+                    self.fields[f"installment_{position}_amount"].disabled = True
+                if installment.invoice_date is not None:
+                    self.fields[f"installment_{position}_invoice_date"].initial = installment.invoice_date
+                    self.fields[f"installment_{position}_invoice_date"].disabled = True
+                if installment.expected_collection_date is not None:
+                    self.fields[f"installment_{position}_expected_collection_date"].initial = installment.expected_collection_date
+                    self.fields[f"installment_{position}_expected_collection_date"].disabled = True
+                if installment.revised_collection_date is not None:
+                    self.fields[f"installment_{position}_revised_collection_date"].initial = installment.revised_collection_date
+            if self.instance.contract_value is not None:
+                self.fields["contract_value"].disabled = True
+                self.fields["contract_value"].help_text = "Contract value can only be set once."
+            if self.instance.files.exists():
+                self.fields["contract_files"].disabled = True
+                self.fields["contract_files"].help_text = "Contract files can only be uploaded once."
+
+    def clean_company_name(self):
+        if self.instance.pk:
+            return self.instance.company_name
+        return (self.cleaned_data.get("company_name") or "").strip()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        contacts = []
+        for index in range(1, 4):
+            name = (cleaned_data.get(f"contact_{index}_name") or "").strip()
+            email = (cleaned_data.get(f"contact_{index}_email") or "").strip().lower()
+            whatsapp = (cleaned_data.get(f"contact_{index}_whatsapp") or "").strip()
+            if email or whatsapp:
+                if not name:
+                    self.add_error(f"contact_{index}_name", "A contact name is required when email or WhatsApp is provided.")
+            if name:
+                contacts.append(
+                    {
+                        "position": index,
+                        "name": name,
+                        "email": email,
+                        "whatsapp_number": whatsapp,
+                    }
+                )
+        if not contacts:
+            raise ValidationError("At least one contact person is required.")
+        cleaned_data["contact_rows"] = contacts
+
+        installments = []
+        for position in range(1, 7):
+            amount = cleaned_data.get(f"installment_{position}_amount")
+            invoice_date = cleaned_data.get(f"installment_{position}_invoice_date")
+            expected_date = cleaned_data.get(f"installment_{position}_expected_collection_date")
+            revised_date = cleaned_data.get(f"installment_{position}_revised_collection_date")
+            if any(value not in (None, "") for value in [amount, invoice_date, expected_date, revised_date]):
+                if amount in (None, ""):
+                    self.add_error(f"installment_{position}_amount", "Installment amount is required when installment dates are provided.")
+                installments.append(
+                    {
+                        "position": position,
+                        "installment_amount": amount,
+                        "invoice_date": invoice_date,
+                        "expected_collection_date": expected_date,
+                        "revised_collection_date": revised_date,
+                    }
+                )
+        cleaned_data["installment_rows"] = installments
+        return cleaned_data
+
+
+class FinanceCollectionUpdateForm(StyledFormMixin, forms.Form):
+    installment_1_collected_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 1 collected amount")
+    installment_1_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 1 collection date")
+    installment_2_collected_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 2 collected amount")
+    installment_2_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 2 collection date")
+    installment_3_collected_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 3 collected amount")
+    installment_3_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 3 collection date")
+    installment_4_collected_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 4 collected amount")
+    installment_4_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 4 collection date")
+    installment_5_collected_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 5 collected amount")
+    installment_5_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 5 collection date")
+    installment_6_collected_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 6 collected amount")
+    installment_6_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 6 collection date")
+
+    def __init__(self, *args, contract_collection=None, **kwargs):
+        self.contract_collection = contract_collection
+        super().__init__(*args, **kwargs)
+        if self.contract_collection:
+            installments = {item.position: item for item in self.contract_collection.installments.all()}
+            for position, installment in installments.items():
+                self.fields[f"installment_{position}_collected_amount"].initial = installment.collected_amount
+                self.fields[f"installment_{position}_collection_date"].initial = installment.collection_date
+
+    def clean(self):
+        cleaned_data = super().clean()
+        finance_rows = []
+        for position in range(1, 7):
+            amount = cleaned_data.get(f"installment_{position}_collected_amount")
+            collection_date = cleaned_data.get(f"installment_{position}_collection_date")
+            if amount is not None and not collection_date:
+                self.add_error(f"installment_{position}_collection_date", "Collection date is required when collected amount is entered.")
+            if collection_date and amount is None:
+                self.add_error(f"installment_{position}_collected_amount", "Collected amount is required when collection date is entered.")
+            if amount is not None or collection_date is not None:
+                finance_rows.append(
+                    {
+                        "position": position,
+                        "collected_amount": amount,
+                        "collection_date": collection_date,
+                    }
+                )
+        cleaned_data["finance_rows"] = finance_rows
+        return cleaned_data
