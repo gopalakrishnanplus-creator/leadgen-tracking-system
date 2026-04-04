@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Sales Managers{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">Supervisor</p>
+        <h1>Sales managers</h1>
+    </div>
+    <a class="button button-primary" href="{% url 'sales_manager_create' %}">Add sales manager</a>
+</section>
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>WhatsApp</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for sales_manager in sales_managers %}
+            <tr>
+                <td>{{ sales_manager.name }}</td>
+                <td>{{ sales_manager.email }}</td>
+                <td>{{ sales_manager.whatsapp_number|default:"-" }}</td>
+                <td>{% if sales_manager.is_active %}Active{% else %}Inactive{% endif %}</td>
+                <td class="actions">
+                    <a href="{% url 'sales_manager_update' sales_manager.id %}">Edit</a>
+                    <a href="{% url 'sales_manager_delete' sales_manager.id %}">Deactivate</a>
+                </td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="5">No sales managers added yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

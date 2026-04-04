@@ -16,3 +16,17 @@ def role_required(role):
         return wrapped
 
     return decorator
+
+
+def roles_required(*roles):
+    def decorator(view_func):
+        @login_required
+        @wraps(view_func)
+        def wrapped(request, *args, **kwargs):
+            if getattr(request.user, "role", None) not in set(roles):
+                return HttpResponseForbidden("You do not have access to this page.")
+            return view_func(request, *args, **kwargs)
+
+        return wrapped
+
+    return decorator

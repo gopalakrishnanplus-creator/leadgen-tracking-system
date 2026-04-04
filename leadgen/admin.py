@@ -1,6 +1,18 @@
 from django.contrib import admin
 
-from .models import CallImportBatch, CallLog, Meeting, Prospect, ProspectStatusUpdate, SystemSetting, User
+from .models import (
+    CallImportBatch,
+    CallLog,
+    Meeting,
+    Prospect,
+    ProspectStatusUpdate,
+    SalesConversation,
+    SalesConversationBrand,
+    SalesConversationContact,
+    SalesConversationFile,
+    SystemSetting,
+    User,
+)
 
 
 @admin.register(User)
@@ -27,5 +39,9 @@ admin.site.register(SystemSetting)
 admin.site.register(CallImportBatch)
 admin.site.register(CallLog)
 admin.site.register(ProspectStatusUpdate)
+admin.site.register(SalesConversation)
+admin.site.register(SalesConversationContact)
+admin.site.register(SalesConversationBrand)
+admin.site.register(SalesConversationFile)
 
 # Register your models here.

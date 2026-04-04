@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{% if request.user.is_supervisor %}Supervisor{% else %}Sales{% endif %}</p>
+        <h1>{{ title }}</h1>
+        {% if conversation %}
+            <p class="note">Sales conversation ID: {{ conversation.sales_conversation_id }}</p>
+        {% endif %}
+    </div>
+    <a class="button" href="{% url 'sales_pipeline_dashboard' %}">Back to pipeline</a>
+</section>
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+        <section class="message error">
+            {{ form.non_field_errors }}
+        </section>
+    {% endif %}
+    <section class="two-col">
+        <div class="panel form-panel">
+            <h2>Conversation details</h2>
+            <p>{{ form.company_name.errors }}{{ form.company_name.label_tag }} {{ form.company_name }}{% if form.company_name.help_text %}<span class="note">{{ form.company_name.help_text }}</span>{% endif %}</p>
+            <p>{{ form.assigned_sales_manager.errors }}{{ form.assigned_sales_manager.label_tag }} {{ form.assigned_sales_manager }}</p>
+            <p>{{ form.conversation_status.errors }}{{ form.conversation_status.label_tag }} {{ form.conversation_status }}</p>
+            <p>{{ form.proposal_status.errors }}{{ form.proposal_status.label_tag }} {{ form.proposal_status }}</p>
+            <p>{{ form.contract_signed.errors }}{{ form.contract_signed.label_tag }} {{ form.contract_signed }}</p>
+            <p>{{ form.comments.errors }}{{ form.comments.label_tag }} {{ form.comments }}</p>
+        </div>
+        <div class="panel form-panel">
+            <h2>Brands</h2>
+            <p>{{ form.brands_input.errors }}{{ form.brands_input.label_tag }} {{ form.brands_input }}</p>
+            <h2>Contacts</h2>
+            <div class="contact-grid">
+                <p>{{ form.contact_1_name.errors }}{{ form.contact_1_name.label_tag }} {{ form.contact_1_name }}</p>
+                <p>{{ form.contact_1_email.errors }}{{ form.contact_1_email.label_tag }} {{ form.contact_1_email }}</p>
+                <p>{{ form.contact_1_whatsapp.errors }}{{ form.contact_1_whatsapp.label_tag }} {{ form.contact_1_whatsapp }}</p>
+                <p>{{ form.contact_2_name.errors }}{{ form.contact_2_name.label_tag }} {{ form.contact_2_name }}</p>
+                <p>{{ form.contact_2_email.errors }}{{ form.contact_2_email.label_tag }} {{ form.contact_2_email }}</p>
+                <p>{{ form.contact_2_whatsapp.errors }}{{ form.contact_2_whatsapp.label_tag }} {{ form.contact_2_whatsapp }}</p>
+                <p>{{ form.contact_3_name.errors }}{{ form.contact_3_name.label_tag }} {{ form.contact_3_name }}</p>
+                <p>{{ form.contact_3_email.errors }}{{ form.contact_3_email.label_tag }} {{ form.contact_3_email }}</p>
+                <p>{{ form.contact_3_whatsapp.errors }}{{ form.contact_3_whatsapp.label_tag }} {{ form.contact_3_whatsapp }}</p>
+            </div>
+        </div>
+    </section>
+    <section class="two-col">
+        <div class="panel form-panel">
+            <h2>Solution files</h2>
+            <p>{{ form.solution_files.errors }}{{ form.solution_files.label_tag }} {{ form.solution_files }}</p>
+            {% if existing_solution_files %}
+                <div class="file-list">
+                    {% for item in existing_solution_files %}
+                        <a href="{{ item.file.url }}" target="_blank" rel="noreferrer">{{ item.file.name }}</a>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="note">No solution files uploaded yet.</p>
+            {% endif %}
+        </div>
+        <div class="panel form-panel">
+            <h2>Proposal files</h2>
+            <p>{{ form.proposal_files.errors }}{{ form.proposal_files.label_tag }} {{ form.proposal_files }}</p>
+            {% if existing_proposal_files %}
+                <div class="file-list">
+                    {% for item in existing_proposal_files %}
+                        <a href="{{ item.file.url }}" target="_blank" rel="noreferrer">{{ item.file.name }}</a>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="note">No proposal files uploaded yet.</p>
+            {% endif %}
+        </div>
+    </section>
+    <section class="panel">
+        <button class="button button-primary" type="submit">Save sales conversation</button>
+    </section>
+</form>
+{% endblock %}

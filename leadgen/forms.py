@@ -2,7 +2,14 @@ from django import forms
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 
-from .models import CallImportBatch, Meeting, Prospect, SystemSetting, User
+from .models import (
+    CallImportBatch,
+    Meeting,
+    Prospect,
+    SalesConversation,
+    SystemSetting,
+    User,
+)
 
 
 class StyledFormMixin:
@@ -14,6 +21,10 @@ class StyledFormMixin:
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._apply_classes()
+
+
+class MultiFileInput(forms.ClearableFileInput):
+    allow_multiple_selected = True
 
 
 class StaffCreateForm(StyledFormMixin, forms.ModelForm):
@@ -49,6 +60,50 @@ class StaffUpdateForm(StyledFormMixin, forms.ModelForm):
         if qs.exists():
             raise ValidationError("A user with this email already exists.")
         return email
+
+
+class SalesManagerCreateForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = User
+        fields = ["name", "email", "whatsapp_number"]
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].lower()
+        if User.objects.filter(email=email).exists():
+            raise ValidationError("A user with this email already exists.")
+        return email
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.role = User.ROLE_SALES_MANAGER
+        user.email = user.email.lower()
+        user.must_change_password = False
+        user.calling_number = None
+        user.set_unusable_password()
+        if commit:
+            user.save()
+        return user
+
+
+class SalesManagerUpdateForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = User
+        fields = ["name", "email", "whatsapp_number", "is_active"]
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].lower()
+        qs = User.objects.exclude(pk=self.instance.pk).filter(email=email)
+        if qs.exists():
+            raise ValidationError("A user with this email already exists.")
+        return email
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.role = User.ROLE_SALES_MANAGER
+        user.calling_number = None
+        if commit:
+            user.save()
+        return user
 
 
 class ProspectCreateForm(StyledFormMixin, forms.ModelForm):
@@ -158,3 +213,120 @@ class ReportFilterForm(StyledFormMixin, forms.Form):
         if start_date and end_date and start_date > end_date:
             raise ValidationError("Start date must be before end date.")
         return cleaned_data
+
+
+class SalesConversationForm(StyledFormMixin, forms.ModelForm):
+    assigned_sales_manager = forms.ModelChoiceField(
+        queryset=User.objects.none(),
+        required=False,
+        empty_label="Unassigned",
+    )
+    brands_input = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3, "placeholder": "One brand per line or comma separated"}),
+        label="Brands",
+    )
+    solution_files = forms.FileField(
+        required=False,
+        widget=MultiFileInput(),
+        label="Solution files",
+    )
+    proposal_files = forms.FileField(
+        required=False,
+        widget=MultiFileInput(),
+        label="Proposal files",
+    )
+
+    class Meta:
+        model = SalesConversation
+        fields = [
+            "company_name",
+            "assigned_sales_manager",
+            "conversation_status",
+            "proposal_status",
+            "contract_signed",
+            "comments",
+        ]
+        widgets = {
+            "comments": forms.Textarea(attrs={"rows": 5}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["assigned_sales_manager"].queryset = User.objects.filter(
+            role=User.ROLE_SALES_MANAGER,
+            is_active=True,
+        ).order_by("name", "email")
+        if self.instance.pk:
+            self.fields["company_name"].disabled = True
+            self.fields["company_name"].help_text = "Company name is fixed after the sales conversation is created."
+            self.fields["brands_input"].initial = "\n".join(self.instance.brands.values_list("name", flat=True))
+            for contact in self.instance.contacts.all():
+                self.fields[f"contact_{contact.position}_name"].initial = contact.name
+                self.fields[f"contact_{contact.position}_email"].initial = contact.email
+                self.fields[f"contact_{contact.position}_whatsapp"].initial = contact.whatsapp_number
+
+    contact_1_name = forms.CharField(required=False, label="Contact person 1")
+    contact_1_email = forms.EmailField(required=False, label="Contact person 1 email")
+    contact_1_whatsapp = forms.CharField(required=False, label="Contact person 1 WhatsApp")
+    contact_2_name = forms.CharField(required=False, label="Contact person 2")
+    contact_2_email = forms.EmailField(required=False, label="Contact person 2 email")
+    contact_2_whatsapp = forms.CharField(required=False, label="Contact person 2 WhatsApp")
+    contact_3_name = forms.CharField(required=False, label="Contact person 3")
+    contact_3_email = forms.EmailField(required=False, label="Contact person 3 email")
+    contact_3_whatsapp = forms.CharField(required=False, label="Contact person 3 WhatsApp")
+
+    def clean_brands_input(self):
+        raw_value = (self.cleaned_data.get("brands_input") or "").replace(",", "\n")
+        brands = []
+        seen = set()
+        for item in raw_value.splitlines():
+            normalized = item.strip()
+            lower_value = normalized.lower()
+            if normalized and lower_value not in seen:
+                brands.append(normalized)
+                seen.add(lower_value)
+        return brands
+
+    def clean_company_name(self):
+        if self.instance.pk:
+            return self.instance.company_name
+        return (self.cleaned_data.get("company_name") or "").strip()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        contacts = []
+        for index in range(1, 4):
+            name = (cleaned_data.get(f"contact_{index}_name") or "").strip()
+            email = (cleaned_data.get(f"contact_{index}_email") or "").strip().lower()
+            whatsapp = (cleaned_data.get(f"contact_{index}_whatsapp") or "").strip()
+            if email or whatsapp:
+                if not name:
+                    self.add_error(f"contact_{index}_name", "A contact name is required when email or WhatsApp is provided.")
+            if name:
+                contacts.append(
+                    {
+                        "position": index,
+                        "name": name,
+                        "email": email,
+                        "whatsapp_number": whatsapp,
+                    }
+                )
+        if not contacts:
+            raise ValidationError("At least one contact person is required.")
+        cleaned_data["contact_rows"] = contacts
+        return cleaned_data
+
+
+class SalesConversationFilterForm(StyledFormMixin, forms.Form):
+    conversation_status = forms.ChoiceField(
+        required=False,
+        choices=[("", "All conversation statuses"), *SalesConversation.STATUS_CHOICES],
+        label="Conversation status",
+    )
+    proposal_status = forms.ChoiceField(
+        required=False,
+        choices=[("", "All proposal statuses"), *SalesConversation.PROPOSAL_STATUS_CHOICES],
+        label="Proposal status",
+    )
+    brand = forms.CharField(required=False, label="Brand name")

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Sales Pipeline{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{% if request.user.is_supervisor %}Supervisor{% else %}Sales{% endif %}</p>
+        <h1>Sales pipeline</h1>
+        <p class="note">Track every live conversation after a meeting is conducted, or add a standalone conversation directly.</p>
+    </div>
+    <div class="button-row">
+        <a class="button button-primary" href="{% url 'sales_conversation_create' %}">Add new sales conversation</a>
+    </div>
+</section>
+<section class="stats-grid">
+    <article class="stat-card"><span>{{ active_count }}</span><p>Active pipeline records</p></article>
+    <article class="stat-card"><span>{{ signed_count }}</span><p>Contract signed records</p></article>
+</section>
+<section class="panel">
+    <form method="get" class="filter-grid">
+        {{ form.as_p }}
+        <div class="filter-actions">
+            <button class="button button-primary" type="submit">Apply filters</button>
+            <a class="button" href="{% url 'sales_pipeline_dashboard' %}">Clear</a>
+        </div>
+    </form>
+</section>
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Company</th>
+                <th>Contacts</th>
+                <th>Brands</th>
+                <th>Sales manager</th>
+                <th>Conversation status</th>
+                <th>Proposal status</th>
+                <th>Updated</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for conversation in conversations %}
+            <tr>
+                <td>{{ conversation.sales_conversation_id }}</td>
+                <td>{{ conversation.company_name }}</td>
+                <td>
+                    {% for contact in conversation.contacts.all %}
+                        <div>{{ contact.name }}{% if contact.email %} / {{ contact.email }}{% endif %}</div>
+                    {% endfor %}
+                </td>
+                <td>
+                    {% for brand in conversation.brands.all %}
+                        <div>{{ brand.name }}</div>
+                    {% empty %}
+                        -
+                    {% endfor %}
+                </td>
+                <td>{% if conversation.assigned_sales_manager %}{{ conversation.assigned_sales_manager.name }}{% else %}Unassigned{% endif %}</td>
+                <td>{{ conversation.get_conversation_status_display }}</td>
+                <td>{{ conversation.get_proposal_status_display }}</td>
+                <td>{{ conversation.updated_at }}</td>
+                <td class="actions"><a href="{% url 'sales_conversation_update' conversation.id %}">Open</a></td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="9">No sales conversations match the current pipeline view.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
@@ -9,9 +11,11 @@ from django.utils import timezone
 class User(AbstractUser):
     ROLE_SUPERVISOR = "supervisor"
     ROLE_STAFF = "staff"
+    ROLE_SALES_MANAGER = "sales_manager"
     ROLE_CHOICES = [
         (ROLE_SUPERVISOR, "Supervisor"),
         (ROLE_STAFF, "Lead Gen Staff"),
+        (ROLE_SALES_MANAGER, "Sales Manager"),
     ]
 
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_STAFF)
@@ -33,8 +37,8 @@ class User(AbstractUser):
     def clean(self):
         if self.role == self.ROLE_STAFF and not self.calling_number:
             raise ValidationError("Lead gen staff must have a calling number.")
-        if self.role == self.ROLE_SUPERVISOR and self.calling_number:
-            raise ValidationError("Supervisor accounts cannot have a calling number.")
+        if self.role in {self.ROLE_SUPERVISOR, self.ROLE_SALES_MANAGER} and self.calling_number:
+            raise ValidationError("Supervisor and sales manager accounts cannot have a calling number.")
 
     def save(self, *args, **kwargs):
         self.email = (self.email or "").lower()
@@ -48,6 +52,10 @@ class User(AbstractUser):
     @property
     def is_staff_user(self):
         return self.role == self.ROLE_STAFF
+
+    @property
+    def is_sales_manager(self):
+        return self.role == self.ROLE_SALES_MANAGER
 
     def __str__(self):
         return self.name or self.email
@@ -311,3 +319,160 @@ class Meeting(models.Model):
 
     def __str__(self):
         return f"{self.prospect} @ {self.scheduled_for:%Y-%m-%d %H:%M}"
+
+
+def generate_sales_conversation_id():
+    return f"SC-{uuid.uuid4().hex[:10].upper()}"
+
+
+class SalesConversation(models.Model):
+    STATUS_ENGAGED = "engaged"
+    STATUS_NOT_ENGAGED = "not_engaged"
+    STATUS_TO_BE_REVIVED = "to_be_revived"
+    STATUS_DEEPLY_ENGAGED = "deeply_engaged"
+    STATUS_IN_NEGOTIATIONS = "in_negotiations"
+    STATUS_IN_CONTRACTING = "in_contracting"
+    STATUS_CHOICES = [
+        (STATUS_ENGAGED, "Engaged"),
+        (STATUS_NOT_ENGAGED, "Not engaged"),
+        (STATUS_TO_BE_REVIVED, "To be revived"),
+        (STATUS_DEEPLY_ENGAGED, "Deeply engaged"),
+        (STATUS_IN_NEGOTIATIONS, "In negotiations"),
+        (STATUS_IN_CONTRACTING, "In contracting"),
+    ]
+
+    PROPOSAL_SOLUTION_NEEDED = "solution_needed"
+    PROPOSAL_SOLUTION_GIVEN = "solution_given"
+    PROPOSAL_NEED_UPDATED_SOLUTION = "need_updated_solution"
+    PROPOSAL_PROPOSAL_NEEDED = "proposal_needed"
+    PROPOSAL_PROPOSAL_GIVEN = "proposal_given"
+    PROPOSAL_STATUS_CHOICES = [
+        (PROPOSAL_SOLUTION_NEEDED, "Solution needed"),
+        (PROPOSAL_SOLUTION_GIVEN, "Solution given"),
+        (PROPOSAL_NEED_UPDATED_SOLUTION, "Need updated solution"),
+        (PROPOSAL_PROPOSAL_NEEDED, "Proposal needed"),
+        (PROPOSAL_PROPOSAL_GIVEN, "Proposal given"),
+    ]
+
+    sales_conversation_id = models.CharField(
+        max_length=32,
+        unique=True,
+        default=generate_sales_conversation_id,
+        editable=False,
+    )
+    company_name = models.CharField(max_length=255)
+    assigned_sales_manager = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="sales_conversations",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+    )
+    conversation_status = models.CharField(
+        max_length=32,
+        choices=STATUS_CHOICES,
+        default=STATUS_ENGAGED,
+    )
+    proposal_status = models.CharField(
+        max_length=32,
+        choices=PROPOSAL_STATUS_CHOICES,
+        default=PROPOSAL_SOLUTION_NEEDED,
+    )
+    contract_signed = models.BooleanField(default=False)
+    comments = models.TextField(blank=True)
+    source_meeting = models.OneToOneField(
+        Meeting,
+        related_name="sales_conversation",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="created_sales_conversations",
+        on_delete=models.PROTECT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["contract_signed", "-updated_at", "company_name"]
+        indexes = [
+            models.Index(fields=["contract_signed", "conversation_status"]),
+            models.Index(fields=["assigned_sales_manager", "contract_signed"]),
+            models.Index(fields=["proposal_status", "contract_signed"]),
+        ]
+
+    def clean(self):
+        if self.assigned_sales_manager_id and not self.assigned_sales_manager.is_sales_manager:
+            raise ValidationError("Assigned sales manager must have the sales manager role.")
+
+    def __str__(self):
+        return f"{self.sales_conversation_id} - {self.company_name}"
+
+
+class SalesConversationContact(models.Model):
+    sales_conversation = models.ForeignKey(
+        SalesConversation,
+        related_name="contacts",
+        on_delete=models.CASCADE,
+    )
+    position = models.PositiveSmallIntegerField()
+    name = models.CharField(max_length=255)
+    email = models.EmailField(blank=True)
+    whatsapp_number = models.CharField(max_length=20, blank=True)
+
+    class Meta:
+        ordering = ["position"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["sales_conversation", "position"],
+                name="unique_sales_contact_position",
+            )
+        ]
+
+    def clean(self):
+        if self.position < 1 or self.position > 3:
+            raise ValidationError("Only three contact slots are supported per sales conversation.")
+
+    def __str__(self):
+        return f"{self.sales_conversation.sales_conversation_id} / {self.name}"
+
+
+class SalesConversationBrand(models.Model):
+    sales_conversation = models.ForeignKey(
+        SalesConversation,
+        related_name="brands",
+        on_delete=models.CASCADE,
+    )
+    name = models.CharField(max_length=255)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.sales_conversation.sales_conversation_id} / {self.name}"
+
+
+class SalesConversationFile(models.Model):
+    CATEGORY_SOLUTION = "solution"
+    CATEGORY_PROPOSAL = "proposal"
+    CATEGORY_CHOICES = [
+        (CATEGORY_SOLUTION, "Solution"),
+        (CATEGORY_PROPOSAL, "Proposal"),
+    ]
+
+    sales_conversation = models.ForeignKey(
+        SalesConversation,
+        related_name="files",
+        on_delete=models.CASCADE,
+    )
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    file = models.FileField(upload_to="sales_pipeline/")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["category", "-created_at"]
+
+    def __str__(self):
+        return f"{self.sales_conversation.sales_conversation_id} / {self.file.name}"

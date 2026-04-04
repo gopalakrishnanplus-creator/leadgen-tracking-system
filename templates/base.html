@@ -11,18 +11,23 @@
         <div class="container header-shell">
             <div>
                 <a class="brand" href="{% url 'home' %}">Leadgen Tracking System</a>
-                <p class="subhead">Supervisor-controlled prospecting and meeting workflow</p>
+                <p class="subhead">Prospecting, meeting, and sales pipeline workflow</p>
             </div>
             {% if request.user.is_authenticated %}
                 <nav class="main-nav">
                     {% if request.user.is_supervisor %}
                         <a href="{% url 'supervisor_dashboard' %}">Dashboard</a>
                         <a href="{% url 'staff_list' %}">Staff</a>
+                        <a href="{% url 'sales_manager_list' %}">Sales Managers</a>
+                        <a href="{% url 'sales_pipeline_dashboard' %}">Sales Pipeline</a>
                         <a href="{% url 'supervisor_prospect_review' %}">Prospect Review</a>
                         <a href="{% url 'import_batch_create' %}">Import Calls</a>
                         <a href="{% url 'supervisor_meeting_list' %}">Meetings</a>
                         <a href="{% url 'supervisor_reports' %}">Reports</a>
                         <a href="{% url 'system_settings' %}">Settings</a>
+                    {% elif request.user.is_sales_manager %}
+                        <a href="{% url 'sales_pipeline_dashboard' %}">Sales Pipeline</a>
+                        <a href="{% url 'sales_conversation_create' %}">Add Conversation</a>
                     {% else %}
                         <a href="{% url 'staff_dashboard' %}">Dashboard</a>
                         <a href="{% url 'staff_prospect_list' %}">Prospects</a>

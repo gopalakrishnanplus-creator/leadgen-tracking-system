@@ -15,7 +15,19 @@ from openpyxl import load_workbook
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Attachment, Disposition, FileContent, FileName, FileType, Mail
 
-from .models import CallImportBatch, CallLog, Meeting, Prospect, ProspectStatusUpdate, SystemSetting, User
+from .models import (
+    CallImportBatch,
+    CallLog,
+    Meeting,
+    Prospect,
+    ProspectStatusUpdate,
+    SalesConversation,
+    SalesConversationBrand,
+    SalesConversationContact,
+    SalesConversationFile,
+    SystemSetting,
+    User,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -360,6 +372,83 @@ def send_did_not_happen_email(meeting):
     )
 
 
+def default_sales_manager():
+    managers = list(User.objects.filter(role=User.ROLE_SALES_MANAGER, is_active=True).order_by("name", "email")[:2])
+    if len(managers) == 1:
+        return managers[0]
+    return None
+
+
+def sync_sales_conversation_data(sales_conversation, cleaned_data, uploaded_files=None):
+    uploaded_files = uploaded_files or {}
+    sales_conversation.assigned_sales_manager = cleaned_data.get("assigned_sales_manager")
+    sales_conversation.conversation_status = cleaned_data["conversation_status"]
+    sales_conversation.proposal_status = cleaned_data["proposal_status"]
+    sales_conversation.contract_signed = cleaned_data.get("contract_signed", False)
+    sales_conversation.comments = cleaned_data.get("comments", "")
+    sales_conversation.save()
+
+    sales_conversation.contacts.all().delete()
+    SalesConversationContact.objects.bulk_create(
+        [
+            SalesConversationContact(
+                sales_conversation=sales_conversation,
+                position=row["position"],
+                name=row["name"],
+                email=row["email"],
+                whatsapp_number=row["whatsapp_number"],
+            )
+            for row in cleaned_data["contact_rows"]
+        ]
+    )
+
+    sales_conversation.brands.all().delete()
+    SalesConversationBrand.objects.bulk_create(
+        [
+            SalesConversationBrand(sales_conversation=sales_conversation, name=brand_name)
+            for brand_name in cleaned_data["brands_input"]
+        ]
+    )
+
+    for category, field_name in (
+        (SalesConversationFile.CATEGORY_SOLUTION, "solution_files"),
+        (SalesConversationFile.CATEGORY_PROPOSAL, "proposal_files"),
+    ):
+        for uploaded_file in uploaded_files.get(field_name, []):
+            SalesConversationFile.objects.create(
+                sales_conversation=sales_conversation,
+                category=category,
+                file=uploaded_file,
+            )
+    return sales_conversation
+
+
+def get_or_create_sales_conversation_from_meeting(meeting, created_by=None):
+    defaults = {
+        "company_name": meeting.prospect.company_name,
+        "assigned_sales_manager": default_sales_manager(),
+        "created_by": created_by or meeting.scheduled_by,
+    }
+    sales_conversation, created = SalesConversation.objects.get_or_create(
+        source_meeting=meeting,
+        defaults=defaults,
+    )
+    if created:
+        SalesConversationContact.objects.create(
+            sales_conversation=sales_conversation,
+            position=1,
+            name=meeting.prospect.contact_name,
+            email=meeting.prospect_email or meeting.prospect.prospect_email,
+            whatsapp_number="",
+        )
+    elif not sales_conversation.assigned_sales_manager_id:
+        manager = default_sales_manager()
+        if manager:
+            sales_conversation.assigned_sales_manager = manager
+            sales_conversation.save(update_fields=["assigned_sales_manager", "updated_at"])
+    return sales_conversation
+
+
 def _send_meeting_invitation_after_commit(meeting_id):
     try:
         meeting = Meeting.objects.select_related("prospect", "scheduled_by").get(pk=meeting_id)
@@ -432,7 +521,7 @@ def apply_call_outcome(prospect, staff, cleaned_data):
 
 
 @transaction.atomic
-def update_meeting_outcome(meeting, status):
+def update_meeting_outcome(meeting, status, updated_by=None):
     meeting.status = status
     meeting.outcome_updated_at = timezone.now()
     meeting.save(update_fields=["status", "outcome_updated_at", "updated_at"])
@@ -447,6 +536,7 @@ def update_meeting_outcome(meeting, status):
             scheduled_for=meeting.scheduled_for,
             prospect_email=meeting.prospect_email,
         )
+        get_or_create_sales_conversation_from_meeting(meeting, created_by=updated_by)
         return
 
     meeting.prospect.workflow_status = Prospect.WORKFLOW_FOLLOW_UP

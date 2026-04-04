@@ -7,7 +7,7 @@ from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
-from .decorators import role_required
+from .decorators import role_required, roles_required
 from .forms import (
     CallOutcomeForm,
     ImportBatchForm,
@@ -15,16 +15,31 @@ from .forms import (
     ProspectCreateForm,
     ProspectReviewForm,
     ReportFilterForm,
+    SalesConversationFilterForm,
+    SalesConversationForm,
+    SalesManagerCreateForm,
+    SalesManagerUpdateForm,
     StaffCreateForm,
     StaffUpdateForm,
     SystemSettingForm,
 )
-from .models import CallImportBatch, CallLog, Meeting, Prospect, ProspectStatusUpdate, SystemSetting, User
+from .models import (
+    CallImportBatch,
+    CallLog,
+    Meeting,
+    Prospect,
+    ProspectStatusUpdate,
+    SalesConversation,
+    SalesConversationFile,
+    SystemSetting,
+    User,
+)
 from .services import (
     apply_call_outcome,
     build_supervisor_report,
     database_healthcheck,
     import_exotel_report,
+    sync_sales_conversation_data,
     update_meeting_outcome,
 )
 
@@ -50,6 +65,8 @@ def healthcheck(request):
 def home(request):
     if request.user.is_supervisor:
         return redirect("supervisor_dashboard")
+    if request.user.is_sales_manager:
+        return redirect("sales_pipeline_dashboard")
     return redirect("staff_dashboard")
 
 
@@ -73,6 +90,8 @@ def supervisor_dashboard(request):
             scheduled_for__gte=timezone.now(),
         )[:5],
         "recent_calls": recent_calls,
+        "sales_manager_count": User.objects.filter(role=User.ROLE_SALES_MANAGER, is_active=True).count(),
+        "active_sales_pipeline_count": SalesConversation.objects.filter(contract_signed=False).count(),
     }
     return render(request, "leadgen/supervisor_dashboard.html", context)
 
@@ -97,6 +116,10 @@ def _get_staff_or_404(user_id):
     return get_object_or_404(User, pk=user_id, role=User.ROLE_STAFF)
 
 
+def _get_sales_manager_or_404(user_id):
+    return get_object_or_404(User, pk=user_id, role=User.ROLE_SALES_MANAGER)
+
+
 @role_required(User.ROLE_SUPERVISOR)
 def staff_update(request, user_id):
     staff_member = _get_staff_or_404(user_id)
@@ -117,6 +140,44 @@ def staff_delete(request, user_id):
         messages.success(request, "Lead gen staff deactivated.")
         return redirect("staff_list")
     return render(request, "leadgen/confirm_delete.html", {"object": staff_member, "title": "Deactivate lead gen staff"})
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def sales_manager_list(request):
+    sales_managers = User.objects.filter(role=User.ROLE_SALES_MANAGER).order_by("name", "email")
+    return render(request, "leadgen/sales_manager_list.html", {"sales_managers": sales_managers})
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def sales_manager_create(request):
+    form = SalesManagerCreateForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Sales manager account created.")
+        return redirect("sales_manager_list")
+    return render(request, "leadgen/sales_manager_form.html", {"form": form, "title": "Add sales manager"})
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def sales_manager_update(request, user_id):
+    sales_manager = _get_sales_manager_or_404(user_id)
+    form = SalesManagerUpdateForm(request.POST or None, instance=sales_manager)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Sales manager updated.")
+        return redirect("sales_manager_list")
+    return render(request, "leadgen/sales_manager_form.html", {"form": form, "title": "Edit sales manager"})
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def sales_manager_delete(request, user_id):
+    sales_manager = _get_sales_manager_or_404(user_id)
+    if request.method == "POST":
+        sales_manager.is_active = False
+        sales_manager.save(update_fields=["is_active"])
+        messages.success(request, "Sales manager deactivated.")
+        return redirect("sales_manager_list")
+    return render(request, "leadgen/confirm_delete.html", {"object": sales_manager, "title": "Deactivate sales manager"})
 
 
 @role_required(User.ROLE_SUPERVISOR)
@@ -177,7 +238,7 @@ def update_meeting_status(request, meeting_id):
     meeting = get_object_or_404(Meeting.objects.select_related("prospect", "scheduled_by"), pk=meeting_id)
     form = MeetingStatusUpdateForm(request.POST or None, instance=meeting)
     if request.method == "POST" and form.is_valid():
-        update_meeting_outcome(meeting, form.cleaned_data["status"])
+        update_meeting_outcome(meeting, form.cleaned_data["status"], updated_by=request.user)
         messages.success(request, "Meeting status updated.")
         return redirect("supervisor_meeting_list")
     return render(request, "leadgen/update_meeting_status.html", {"meeting": meeting, "form": form})
@@ -291,5 +352,116 @@ def update_call_outcome(request, prospect_id):
 def staff_meeting_list(request):
     meetings = Meeting.objects.filter(scheduled_by=request.user).select_related("prospect")
     return render(request, "leadgen/staff_meeting_list.html", {"meetings": meetings})
+
+
+def _sales_pipeline_queryset_for_user(user):
+    queryset = SalesConversation.objects.select_related("assigned_sales_manager", "source_meeting").prefetch_related(
+        "contacts",
+        "brands",
+        "files",
+    )
+    if user.is_sales_manager:
+        queryset = queryset.filter(assigned_sales_manager=user)
+    return queryset
+
+
+def _configure_sales_conversation_form(form, user):
+    if user.is_sales_manager:
+        form.fields["assigned_sales_manager"].queryset = User.objects.filter(pk=user.pk)
+        form.fields["assigned_sales_manager"].empty_label = None
+        if not form.is_bound and not form.instance.assigned_sales_manager_id:
+            form.initial["assigned_sales_manager"] = user.pk
+    return form
+
+
+def _sales_conversation_for_user_or_404(user, conversation_id):
+    queryset = _sales_pipeline_queryset_for_user(user)
+    conversation = get_object_or_404(queryset, pk=conversation_id)
+    if user.is_sales_manager and conversation.assigned_sales_manager_id != user.pk:
+        raise Http404("You do not have access to this sales conversation.")
+    return conversation
+
+
+def _uploaded_sales_files(request):
+    return {
+        "solution_files": request.FILES.getlist("solution_files"),
+        "proposal_files": request.FILES.getlist("proposal_files"),
+    }
+
+
+@roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER)
+def sales_pipeline_dashboard(request):
+    conversations = _sales_pipeline_queryset_for_user(request.user).filter(contract_signed=False)
+    form = SalesConversationFilterForm(request.GET or None)
+    if form.is_valid():
+        if form.cleaned_data["conversation_status"]:
+            conversations = conversations.filter(conversation_status=form.cleaned_data["conversation_status"])
+        if form.cleaned_data["proposal_status"]:
+            conversations = conversations.filter(proposal_status=form.cleaned_data["proposal_status"])
+        if form.cleaned_data["brand"]:
+            conversations = conversations.filter(brands__name__icontains=form.cleaned_data["brand"].strip())
+    conversations = conversations.distinct().order_by("-updated_at")
+    context = {
+        "form": form,
+        "conversations": conversations,
+        "active_count": conversations.count(),
+        "signed_count": _sales_pipeline_queryset_for_user(request.user).filter(contract_signed=True).count(),
+    }
+    return render(request, "leadgen/sales_pipeline_dashboard.html", context)
+
+
+@roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER)
+def sales_conversation_create(request):
+    form = SalesConversationForm(request.POST or None, request.FILES or None)
+    form = _configure_sales_conversation_form(form, request.user)
+    if request.method == "POST" and form.is_valid():
+        conversation = form.save(commit=False)
+        if request.user.is_sales_manager:
+            conversation.assigned_sales_manager = request.user
+        conversation.created_by = request.user
+        conversation.save()
+        sync_sales_conversation_data(conversation, form.cleaned_data, _uploaded_sales_files(request))
+        messages.success(request, "Sales conversation created.")
+        return redirect("sales_pipeline_dashboard")
+    return render(
+        request,
+        "leadgen/sales_conversation_form.html",
+        {
+            "form": form,
+            "title": "Add sales conversation",
+            "conversation": None,
+            "existing_solution_files": [],
+            "existing_proposal_files": [],
+        },
+    )
+
+
+@roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER)
+def sales_conversation_update(request, conversation_id):
+    conversation = _sales_conversation_for_user_or_404(request.user, conversation_id)
+    form = SalesConversationForm(request.POST or None, request.FILES or None, instance=conversation)
+    form = _configure_sales_conversation_form(form, request.user)
+    if request.method == "POST" and form.is_valid():
+        conversation = form.save(commit=False)
+        if request.user.is_sales_manager:
+            conversation.assigned_sales_manager = request.user
+        conversation.save()
+        sync_sales_conversation_data(conversation, form.cleaned_data, _uploaded_sales_files(request))
+        if conversation.contract_signed:
+            messages.success(request, "Sales conversation updated and removed from the active pipeline.")
+            return redirect("sales_pipeline_dashboard")
+        messages.success(request, "Sales conversation updated.")
+        return redirect("sales_conversation_update", conversation_id=conversation.pk)
+    return render(
+        request,
+        "leadgen/sales_conversation_form.html",
+        {
+            "form": form,
+            "title": f"Sales conversation {conversation.sales_conversation_id}",
+            "conversation": conversation,
+            "existing_solution_files": conversation.files.filter(category=SalesConversationFile.CATEGORY_SOLUTION),
+            "existing_proposal_files": conversation.files.filter(category=SalesConversationFile.CATEGORY_PROPOSAL),
+        },
+    )
 
 # Create your views here.

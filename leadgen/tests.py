@@ -8,8 +8,8 @@ from django.utils import timezone
 from openpyxl import Workbook
 
 from .adapters import LeadgenSocialAccountAdapter
-from .forms import ProspectCreateForm
-from .models import CallImportBatch, Meeting, Prospect, SystemSetting, User
+from .forms import ProspectCreateForm, SalesConversationForm
+from .models import CallImportBatch, Meeting, Prospect, SalesConversation, SystemSetting, User
 from .services import apply_call_outcome, build_supervisor_report, import_exotel_report, update_meeting_outcome
 
 
@@ -34,6 +34,20 @@ class LeadgenWorkflowTests(TestCase):
         )
         self.staff.set_unusable_password()
         self.staff.save()
+        self.sales_manager, _ = User.objects.get_or_create(
+            email="amit@inditech.co.in",
+            defaults={
+                "username": "amit@inditech.co.in",
+                "role": User.ROLE_SALES_MANAGER,
+                "name": "Amit",
+                "whatsapp_number": "+919900000002",
+            },
+        )
+        self.sales_manager.role = User.ROLE_SALES_MANAGER
+        self.sales_manager.name = self.sales_manager.name or "Amit"
+        self.sales_manager.whatsapp_number = self.sales_manager.whatsapp_number or "+919900000002"
+        self.sales_manager.set_unusable_password()
+        self.sales_manager.save()
         SystemSetting.load()
         self.prospect = Prospect.objects.create(
             company_name="Acme",
@@ -81,6 +95,26 @@ class LeadgenWorkflowTests(TestCase):
         self.prospect.refresh_from_db()
         self.assertEqual(self.prospect.workflow_status, Prospect.WORKFLOW_FOLLOW_UP)
         self.assertEqual(self.prospect.follow_up_reason, "Meeting did not happen")
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_meeting_happened_creates_sales_conversation(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 30, 15, 0),
+                "prospect_email": "prospect@example.com",
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        update_meeting_outcome(meeting, Meeting.STATUS_HAPPENED, updated_by=self.supervisor)
+        sales_conversation = SalesConversation.objects.get(source_meeting=meeting)
+        self.assertEqual(sales_conversation.company_name, self.prospect.company_name)
+        self.assertEqual(sales_conversation.assigned_sales_manager, self.sales_manager)
+        self.assertEqual(sales_conversation.contacts.count(), 1)
+        self.assertEqual(sales_conversation.contacts.first().name, self.prospect.contact_name)
 
     def test_import_updates_call_metrics(self):
         workbook = Workbook()
@@ -180,6 +214,11 @@ class LeadgenWorkflowTests(TestCase):
         self.assertContains(response, 'method="post"')
         self.assertContains(response, "Continue with Google")
 
+    def test_home_redirects_sales_manager_to_sales_pipeline(self):
+        self.client.force_login(self.sales_manager)
+        response = self.client.get("/")
+        self.assertRedirects(response, "/sales/")
+
     def test_prospect_form_accepts_linkedin_without_scheme(self):
         form = ProspectCreateForm(
             data={
@@ -255,5 +294,53 @@ class LeadgenWorkflowTests(TestCase):
         self.prospect.refresh_from_db()
         self.assertEqual(self.prospect.workflow_status, Prospect.WORKFLOW_SCHEDULED)
         self.assertEqual(Meeting.objects.count(), 1)
+
+    def test_sales_conversation_form_handles_contacts_and_brands(self):
+        form = SalesConversationForm(
+            data={
+                "company_name": "Acme",
+                "assigned_sales_manager": self.sales_manager.pk,
+                "conversation_status": SalesConversation.STATUS_ENGAGED,
+                "proposal_status": SalesConversation.PROPOSAL_PROPOSAL_NEEDED,
+                "comments": "Warm opportunity",
+                "brands_input": "Brand A\nBrand B",
+                "contact_1_name": "Jane Doe",
+                "contact_1_email": "jane@example.com",
+                "contact_1_whatsapp": "9999999999",
+                "contact_2_name": "",
+                "contact_2_email": "",
+                "contact_2_whatsapp": "",
+                "contact_3_name": "",
+                "contact_3_email": "",
+                "contact_3_whatsapp": "",
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        self.assertEqual(form.cleaned_data["brands_input"], ["Brand A", "Brand B"])
+        self.assertEqual(form.cleaned_data["contact_rows"][0]["name"], "Jane Doe")
+
+    def test_sales_manager_pipeline_is_limited_to_assigned_records(self):
+        SalesConversation.objects.create(
+            company_name="Visible Co",
+            assigned_sales_manager=self.sales_manager,
+            created_by=self.supervisor,
+        )
+        other_manager = User.objects.create(
+            email="other-sales@example.com",
+            username="other-sales@example.com",
+            role=User.ROLE_SALES_MANAGER,
+            name="Other Sales",
+        )
+        other_manager.set_unusable_password()
+        other_manager.save()
+        SalesConversation.objects.create(
+            company_name="Hidden Co",
+            assigned_sales_manager=other_manager,
+            created_by=self.supervisor,
+        )
+        self.client.force_login(self.sales_manager)
+        response = self.client.get("/sales/")
+        self.assertContains(response, "Visible Co")
+        self.assertNotContains(response, "Hidden Co")
 
 # Create your tests here.
