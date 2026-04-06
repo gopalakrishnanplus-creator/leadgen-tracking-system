@@ -16,9 +16,15 @@
     {% endif %}
 </section>
 <section class="stats-grid">
-    <article class="stat-card"><span>{{ total_prospects }}</span><p>Total assigned prospects</p></article>
+    <a class="stat-card stat-link" href="{% if is_supervisor_view %}{% url 'supervisor_staff_prospect_list' dashboard_owner.id %}?view=all{% else %}{% url 'staff_prospect_list' %}?view=all{% endif %}">
+        <span>{{ total_prospects }}</span>
+        <p>Total assigned prospects</p>
+    </a>
     <article class="stat-card"><span>{{ pending_review_count }}</span><p>Pending review</p></article>
-    <article class="stat-card"><span>{{ accepted_count }}</span><p>Accepted prospects</p></article>
+    <a class="stat-card stat-link" href="{% if is_supervisor_view %}{% url 'supervisor_staff_prospect_list' dashboard_owner.id %}?view=accepted{% else %}{% url 'staff_prospect_list' %}?view=accepted{% endif %}">
+        <span>{{ accepted_count }}</span>
+        <p>Accepted prospects</p>
+    </a>
     <article class="stat-card"><span>{{ follow_up_count }}</span><p>Follow-up required</p></article>
     <article class="stat-card"><span>{{ scheduled_count }}</span><p>Scheduled meetings</p></article>
 </section>

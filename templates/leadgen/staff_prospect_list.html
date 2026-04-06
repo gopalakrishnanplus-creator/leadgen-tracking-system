@@ -3,10 +3,26 @@
 {% block content %}
 <section class="section-head">
     <div>
-        <p class="eyebrow">Lead gen</p>
-        <h1>Assigned prospects</h1>
+        <p class="eyebrow">{% if is_supervisor_view %}Lead gen staff view{% else %}Lead gen{% endif %}</p>
+        <h1>
+            {% if status_filter == "accepted" %}
+                Accepted prospects
+            {% else %}
+                Assigned prospects
+            {% endif %}
+        </h1>
+        <p class="note">{{ dashboard_owner.name }}</p>
     </div>
-    <a class="button button-primary" href="{% url 'staff_prospect_create' %}">Add prospect</a>
+    <div class="button-row">
+        {% if not is_supervisor_view %}
+            <a class="button button-primary" href="{% url 'staff_prospect_create' %}">Add prospect</a>
+        {% endif %}
+        <a class="button {% if status_filter != 'accepted' %}button-primary{% endif %}" href="{% if is_supervisor_view %}{% url 'supervisor_staff_prospect_list' dashboard_owner.id %}?view=all{% else %}{% url 'staff_prospect_list' %}?view=all{% endif %}">All assigned</a>
+        <a class="button {% if status_filter == 'accepted' %}button-primary{% endif %}" href="{% if is_supervisor_view %}{% url 'supervisor_staff_prospect_list' dashboard_owner.id %}?view=accepted{% else %}{% url 'staff_prospect_list' %}?view=accepted{% endif %}">Accepted only</a>
+        {% if is_supervisor_view %}
+            <a class="button" href="{% url 'supervisor_staff_dashboard' dashboard_owner.id %}">Back to dashboard</a>
+        {% endif %}
+    </div>
 </section>
 <section class="panel">
     <table>
@@ -31,8 +47,10 @@
                 <td>{{ prospect.get_workflow_status_display }}</td>
                 <td>{{ prospect.get_latest_crm_status_display }}</td>
                 <td>
-                    {% if prospect.approval_status == 'accepted' %}
+                    {% if prospect.approval_status == 'accepted' and not is_supervisor_view %}
                         <a href="{% url 'update_call_outcome' prospect.id %}">Update call result</a>
+                    {% elif prospect.approval_status == 'accepted' and is_supervisor_view %}
+                        Ready to call
                     {% else %}
                         Waiting for review
                     {% endif %}

@@ -143,6 +143,13 @@ def _build_staff_dashboard_context(staff_user):
     }
 
 
+def _filtered_staff_prospects_queryset(staff_user, status_filter):
+    prospects = Prospect.objects.filter(assigned_to=staff_user).order_by("-created_at")
+    if status_filter == "accepted":
+        return prospects.filter(approval_status=Prospect.APPROVAL_ACCEPTED)
+    return prospects
+
+
 @role_required(User.ROLE_SUPERVISOR)
 def supervisor_staff_dashboard(request, user_id):
     staff_member = _get_staff_or_404(user_id)
@@ -363,8 +370,35 @@ def staff_dashboard(request):
 
 @role_required(User.ROLE_STAFF)
 def staff_prospect_list(request):
-    prospects = Prospect.objects.filter(assigned_to=request.user).order_by("-created_at")
-    return render(request, "leadgen/staff_prospect_list.html", {"prospects": prospects})
+    status_filter = request.GET.get("view", "all")
+    prospects = _filtered_staff_prospects_queryset(request.user, status_filter)
+    return render(
+        request,
+        "leadgen/staff_prospect_list.html",
+        {
+            "prospects": prospects,
+            "dashboard_owner": request.user,
+            "is_supervisor_view": False,
+            "status_filter": status_filter,
+        },
+    )
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def supervisor_staff_prospect_list(request, user_id):
+    staff_member = _get_staff_or_404(user_id)
+    status_filter = request.GET.get("view", "all")
+    prospects = _filtered_staff_prospects_queryset(staff_member, status_filter)
+    return render(
+        request,
+        "leadgen/staff_prospect_list.html",
+        {
+            "prospects": prospects,
+            "dashboard_owner": staff_member,
+            "is_supervisor_view": True,
+            "status_filter": status_filter,
+        },
+    )
 
 
 @role_required(User.ROLE_STAFF)

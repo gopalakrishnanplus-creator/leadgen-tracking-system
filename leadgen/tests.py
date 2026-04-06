@@ -500,4 +500,38 @@ class LeadgenWorkflowTests(TestCase):
         self.assertContains(response, self.staff.name)
         self.assertContains(response, "Supervisor view of this staff member")
 
+    def test_staff_prospect_list_can_filter_to_accepted(self):
+        Prospect.objects.create(
+            company_name="Awaiting Review Co",
+            contact_name="Pending Person",
+            linkedin_url="https://linkedin.com/in/pending",
+            phone_number="+919812340000",
+            assigned_to=self.staff,
+            created_by=self.staff,
+            approval_status=Prospect.APPROVAL_PENDING,
+            workflow_status=Prospect.WORKFLOW_PENDING_REVIEW,
+        )
+        self.client.force_login(self.staff)
+        response = self.client.get("/staff/prospects/?view=accepted")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.prospect.company_name)
+        self.assertNotContains(response, "Awaiting Review Co")
+
+    def test_supervisor_can_open_filtered_staff_prospect_list(self):
+        Prospect.objects.create(
+            company_name="Awaiting Review Co",
+            contact_name="Pending Person",
+            linkedin_url="https://linkedin.com/in/pending",
+            phone_number="+919812340001",
+            assigned_to=self.staff,
+            created_by=self.staff,
+            approval_status=Prospect.APPROVAL_PENDING,
+            workflow_status=Prospect.WORKFLOW_PENDING_REVIEW,
+        )
+        self.client.force_login(self.supervisor)
+        response = self.client.get(f"/supervisor/staff/{self.staff.pk}/prospects/?view=accepted")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.prospect.company_name)
+        self.assertNotContains(response, "Awaiting Review Co")
+
 # Create your tests here.

@@ -12,6 +12,7 @@ urlpatterns = [
     path("supervisor/staff/", views.staff_list, name="staff_list"),
     path("supervisor/staff/add/", views.staff_create, name="staff_create"),
     path("supervisor/staff/<int:user_id>/dashboard/", views.supervisor_staff_dashboard, name="supervisor_staff_dashboard"),
+    path("supervisor/staff/<int:user_id>/prospects/", views.supervisor_staff_prospect_list, name="supervisor_staff_prospect_list"),
     path("supervisor/staff/<int:user_id>/edit/", views.staff_update, name="staff_update"),
     path("supervisor/staff/<int:user_id>/delete/", views.staff_delete, name="staff_delete"),
     path("supervisor/sales-managers/", views.sales_manager_list, name="sales_manager_list"),
