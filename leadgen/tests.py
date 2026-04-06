@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.db import IntegrityError
@@ -26,6 +27,7 @@ from .services import (
     build_supervisor_report,
     get_or_create_contract_collection_from_sales_conversation,
     import_exotel_report,
+    send_email,
     send_due_invoice_notifications,
     update_meeting_outcome,
 )
@@ -103,6 +105,28 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(self.prospect.workflow_status, Prospect.WORKFLOW_SCHEDULED)
         self.assertIsNotNone(meeting)
         self.assertEqual(Meeting.objects.count(), 1)
+
+    def test_scheduled_outcome_recipients_include_sales_manager_supervisor_staff_and_prospect(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 30, 15, 0),
+                "prospect_email": "prospect@example.com",
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        self.assertCountEqual(
+            meeting.recipient_emails,
+            [
+                "prospect@example.com",
+                "bhavesh.kataria@inditech.co.in",
+                "staff@example.com",
+                "amit@inditech.co.in",
+            ],
+        )
 
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
     def test_meeting_did_not_happen_reverts_prospect(self):
@@ -437,6 +461,38 @@ class LeadgenWorkflowTests(TestCase):
         self.assertIsNotNone(installment.invoice_notification_sent_at)
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("Invoice to be raised today", mail.outbox[0].subject)
+
+    @override_settings(SENDGRID_API_KEY="test-sendgrid-key", DEFAULT_FROM_EMAIL="bhavesh.kataria@inditech.co.in")
+    def test_send_email_uses_sendgrid_payload_with_cc_and_attachments(self):
+        response = SimpleNamespace(status_code=202, body=b"accepted")
+        with patch("leadgen.services.SendGridAPIClient") as client_cls:
+            client_cls.return_value.client.mail.send.post.return_value = response
+            send_email(
+                subject="Meeting invitation",
+                html_body="<p>HTML body</p>",
+                text_body="Text body",
+                to_emails=["prospect@example.com"],
+                cc_emails=["staff@example.com", "amit@inditech.co.in"],
+                attachments=[
+                    {
+                        "filename": "meeting-invite.ics",
+                        "content": b"BEGIN:VCALENDAR",
+                        "type": "text/calendar",
+                    }
+                ],
+            )
+
+        payload = client_cls.return_value.client.mail.send.post.call_args.kwargs["request_body"]
+        self.assertEqual(payload["from"]["email"], "bhavesh.kataria@inditech.co.in")
+        self.assertEqual(payload["personalizations"][0]["to"], [{"email": "prospect@example.com"}])
+        self.assertEqual(
+            payload["personalizations"][0]["cc"],
+            [{"email": "staff@example.com"}, {"email": "amit@inditech.co.in"}],
+        )
+        self.assertEqual(payload["content"][0]["type"], "text/plain")
+        self.assertEqual(payload["content"][1]["type"], "text/html")
+        self.assertEqual(payload["attachments"][0]["filename"], "meeting-invite.ics")
+        self.assertEqual(payload["attachments"][0]["type"], "text/calendar")
 
     def test_pending_collections_groups_invoiced_and_future_installments(self):
         contract_collection = ContractCollection.objects.create(

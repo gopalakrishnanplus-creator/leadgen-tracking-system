@@ -14,7 +14,6 @@ from django.utils import timezone
 from icalendar import Calendar, Event, vCalAddress, vText
 from openpyxl import load_workbook
 from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Attachment, Disposition, FileContent, FileName, FileType, Mail
 
 from .models import (
     CallImportBatch,
@@ -299,23 +298,37 @@ def send_email(subject, html_body, text_body, to_emails, cc_emails=None, attachm
     cc_emails = cc_emails or []
     attachments = attachments or []
     if settings.SENDGRID_API_KEY:
-        message = Mail(
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to_emails=to_emails,
-            subject=subject,
-            html_content=html_body,
-            plain_text_content=text_body,
-        )
+        payload = {
+            "personalizations": [
+                {
+                    "to": [{"email": email} for email in to_emails],
+                    "subject": subject,
+                }
+            ],
+            "from": {"email": settings.DEFAULT_FROM_EMAIL},
+            "content": [
+                {"type": "text/plain", "value": text_body},
+                {"type": "text/html", "value": html_body},
+            ],
+        }
         if cc_emails:
-            message.cc = cc_emails
-        for attachment in attachments:
-            message.attachment = Attachment(
-                FileContent(base64.b64encode(attachment["content"]).decode("utf-8")),
-                FileName(attachment["filename"]),
-                FileType(attachment["type"]),
-                Disposition("attachment"),
-            )
-        SendGridAPIClient(settings.SENDGRID_API_KEY).send(message)
+            payload["personalizations"][0]["cc"] = [{"email": email} for email in cc_emails]
+        if attachments:
+            payload["attachments"] = [
+                {
+                    "content": base64.b64encode(attachment["content"]).decode("utf-8"),
+                    "filename": attachment["filename"],
+                    "type": attachment["type"],
+                    "disposition": "attachment",
+                }
+                for attachment in attachments
+            ]
+        response = SendGridAPIClient(settings.SENDGRID_API_KEY).client.mail.send.post(request_body=payload)
+        if response.status_code < 200 or response.status_code >= 300:
+            response_body = getattr(response, "body", b"")
+            if isinstance(response_body, bytes):
+                response_body = response_body.decode("utf-8", errors="ignore")
+            raise RuntimeError(f"SendGrid returned status {response.status_code}: {response_body}")
         return
 
     email = EmailMultiAlternatives(
@@ -374,6 +387,14 @@ def send_did_not_happen_email(meeting):
         text_body=text_body,
         to_emails=[meeting.scheduled_by.email],
         cc_emails=[settings_obj.supervisor_sender_email],
+    )
+
+
+def active_sales_manager_emails():
+    return list(
+        User.objects.filter(role=User.ROLE_SALES_MANAGER, is_active=True)
+        .exclude(email="")
+        .values_list("email", flat=True)
     )
 
 
@@ -688,6 +709,7 @@ def apply_call_outcome(prospect, staff, cleaned_data):
             scheduled_for = timezone.make_aware(scheduled_for, ZoneInfo(settings_obj.default_timezone))
         recipient_emails = unique_emails(
             [prospect_email, settings_obj.supervisor_sender_email, staff.email],
+            active_sales_manager_emails(),
             settings_obj.sales_emails(),
         )
         meeting = Meeting.objects.create(
