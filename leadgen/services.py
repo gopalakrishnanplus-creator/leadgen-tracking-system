@@ -306,6 +306,7 @@ def send_email(subject, html_body, text_body, to_emails, cc_emails=None, attachm
                 }
             ],
             "from": {"email": settings.DEFAULT_FROM_EMAIL},
+            "reply_to": {"email": settings.REPLY_TO_EMAIL},
             "content": [
                 {"type": "text/plain", "value": text_body},
                 {"type": "text/html", "value": html_body},
@@ -337,6 +338,7 @@ def send_email(subject, html_body, text_body, to_emails, cc_emails=None, attachm
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=to_emails,
         cc=cc_emails,
+        reply_to=[settings.REPLY_TO_EMAIL],
     )
     email.attach_alternative(html_body, "text/html")
     for attachment in attachments:

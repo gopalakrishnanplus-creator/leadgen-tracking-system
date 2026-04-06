@@ -163,8 +163,12 @@ SOCIALACCOUNT_PROVIDERS = {
 
 DEFAULT_FROM_EMAIL = os.environ.get(
     "DEFAULT_FROM_EMAIL",
-    "bhavesh.kataria@inditech.co.in",
+    "products@inditech.co.in",
 )
+REPLY_TO_EMAIL = os.environ.get(
+    "REPLY_TO_EMAIL",
+    "bhavesh.kataria@inditech.co.in",
+).lower()
 SUPERVISOR_EMAIL = os.environ.get(
     "SUPERVISOR_EMAIL",
     "bhavesh.kataria@inditech.co.in",

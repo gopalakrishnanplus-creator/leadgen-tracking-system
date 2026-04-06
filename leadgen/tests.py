@@ -462,7 +462,11 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("Invoice to be raised today", mail.outbox[0].subject)
 
-    @override_settings(SENDGRID_API_KEY="test-sendgrid-key", DEFAULT_FROM_EMAIL="bhavesh.kataria@inditech.co.in")
+    @override_settings(
+        SENDGRID_API_KEY="test-sendgrid-key",
+        DEFAULT_FROM_EMAIL="products@inditech.co.in",
+        REPLY_TO_EMAIL="bhavesh.kataria@inditech.co.in",
+    )
     def test_send_email_uses_sendgrid_payload_with_cc_and_attachments(self):
         response = SimpleNamespace(status_code=202, body=b"accepted")
         with patch("leadgen.services.SendGridAPIClient") as client_cls:
@@ -483,7 +487,8 @@ class LeadgenWorkflowTests(TestCase):
             )
 
         payload = client_cls.return_value.client.mail.send.post.call_args.kwargs["request_body"]
-        self.assertEqual(payload["from"]["email"], "bhavesh.kataria@inditech.co.in")
+        self.assertEqual(payload["from"]["email"], "products@inditech.co.in")
+        self.assertEqual(payload["reply_to"]["email"], "bhavesh.kataria@inditech.co.in")
         self.assertEqual(payload["personalizations"][0]["to"], [{"email": "prospect@example.com"}])
         self.assertEqual(
             payload["personalizations"][0]["cc"],
@@ -493,6 +498,24 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(payload["content"][1]["type"], "text/html")
         self.assertEqual(payload["attachments"][0]["filename"], "meeting-invite.ics")
         self.assertEqual(payload["attachments"][0]["type"], "text/calendar")
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        DEFAULT_FROM_EMAIL="products@inditech.co.in",
+        REPLY_TO_EMAIL="bhavesh.kataria@inditech.co.in",
+        SENDGRID_API_KEY="",
+    )
+    def test_send_email_sets_reply_to_for_django_backend(self):
+        send_email(
+            subject="Meeting invitation",
+            html_body="<p>HTML body</p>",
+            text_body="Text body",
+            to_emails=["prospect@example.com"],
+            cc_emails=["staff@example.com"],
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].from_email, "products@inditech.co.in")
+        self.assertEqual(mail.outbox[0].reply_to, ["bhavesh.kataria@inditech.co.in"])
 
     def test_pending_collections_groups_invoiced_and_future_installments(self):
         contract_collection = ContractCollection.objects.create(
