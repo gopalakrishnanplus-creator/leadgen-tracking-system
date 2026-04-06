@@ -487,4 +487,17 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Detail Co")
 
+    def test_supervisor_can_open_staff_dashboard_from_staff_list(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.get("/supervisor/staff/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f"/supervisor/staff/{self.staff.pk}/dashboard/")
+
+    def test_supervisor_staff_dashboard_shows_staff_name(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.get(f"/supervisor/staff/{self.staff.pk}/dashboard/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.staff.name)
+        self.assertContains(response, "Supervisor view of this staff member")
+
 # Create your tests here.

@@ -3,10 +3,17 @@
 {% block content %}
 <section class="hero">
     <div>
-        <p class="eyebrow">Lead gen dashboard</p>
-        <h1>{{ request.user.name }}</h1>
-        <p>Only prospects assigned to you are visible here.</p>
+        <p class="eyebrow">{% if is_supervisor_view %}Lead gen staff view{% else %}Lead gen dashboard{% endif %}</p>
+        <h1>{{ dashboard_owner.name }}</h1>
+        {% if is_supervisor_view %}
+            <p>Supervisor view of this staff member's assigned prospects and scheduled meetings.</p>
+        {% else %}
+            <p>Only prospects assigned to you are visible here.</p>
+        {% endif %}
     </div>
+    {% if is_supervisor_view %}
+        <a class="button" href="{% url 'staff_list' %}">Back to staff list</a>
+    {% endif %}
 </section>
 <section class="stats-grid">
     <article class="stat-card"><span>{{ total_prospects }}</span><p>Total assigned prospects</p></article>

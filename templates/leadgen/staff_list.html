@@ -29,6 +29,7 @@
                 <td>{{ staff.whatsapp_number }}</td>
                 <td>{% if staff.is_active %}Active{% else %}Inactive{% endif %}</td>
                 <td class="actions">
+                    <a href="{% url 'supervisor_staff_dashboard' staff.id %}">Dashboard</a>
                     <a href="{% url 'staff_update' staff.id %}">Edit</a>
                     <a href="{% url 'staff_delete' staff.id %}">Deactivate</a>
                 </td>

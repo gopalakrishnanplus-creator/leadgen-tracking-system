@@ -126,6 +126,31 @@ def staff_create(request):
     return render(request, "leadgen/staff_form.html", {"form": form, "title": "Add lead gen staff"})
 
 
+def _build_staff_dashboard_context(staff_user):
+    prospects = Prospect.objects.filter(assigned_to=staff_user)
+    return {
+        "dashboard_owner": staff_user,
+        "total_prospects": prospects.count(),
+        "pending_review_count": prospects.filter(approval_status=Prospect.APPROVAL_PENDING).count(),
+        "accepted_count": prospects.filter(approval_status=Prospect.APPROVAL_ACCEPTED).count(),
+        "follow_up_count": prospects.filter(workflow_status=Prospect.WORKFLOW_FOLLOW_UP).count(),
+        "scheduled_count": prospects.filter(workflow_status=Prospect.WORKFLOW_SCHEDULED).count(),
+        "recent_prospects": prospects.order_by("-created_at")[:5],
+        "upcoming_meetings": Meeting.objects.filter(
+            scheduled_by=staff_user,
+            status=Meeting.STATUS_SCHEDULED,
+        ).select_related("prospect")[:5],
+    }
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def supervisor_staff_dashboard(request, user_id):
+    staff_member = _get_staff_or_404(user_id)
+    context = _build_staff_dashboard_context(staff_member)
+    context["is_supervisor_view"] = True
+    return render(request, "leadgen/staff_dashboard.html", context)
+
+
 def _get_staff_or_404(user_id):
     return get_object_or_404(User, pk=user_id, role=User.ROLE_STAFF)
 
@@ -331,19 +356,8 @@ def supervisor_reports(request):
 
 @role_required(User.ROLE_STAFF)
 def staff_dashboard(request):
-    prospects = Prospect.objects.filter(assigned_to=request.user)
-    context = {
-        "total_prospects": prospects.count(),
-        "pending_review_count": prospects.filter(approval_status=Prospect.APPROVAL_PENDING).count(),
-        "accepted_count": prospects.filter(approval_status=Prospect.APPROVAL_ACCEPTED).count(),
-        "follow_up_count": prospects.filter(workflow_status=Prospect.WORKFLOW_FOLLOW_UP).count(),
-        "scheduled_count": prospects.filter(workflow_status=Prospect.WORKFLOW_SCHEDULED).count(),
-        "recent_prospects": prospects.order_by("-created_at")[:5],
-        "upcoming_meetings": Meeting.objects.filter(
-            scheduled_by=request.user,
-            status=Meeting.STATUS_SCHEDULED,
-        ).select_related("prospect")[:5],
-    }
+    context = _build_staff_dashboard_context(request.user)
+    context["is_supervisor_view"] = False
     return render(request, "leadgen/staff_dashboard.html", context)
 
 
