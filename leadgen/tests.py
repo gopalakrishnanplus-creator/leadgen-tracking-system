@@ -10,7 +10,13 @@ from django.utils import timezone
 from openpyxl import Workbook
 
 from .adapters import LeadgenSocialAccountAdapter
-from .forms import ContractCollectionForm, ProspectCreateForm, SalesConversationForm
+from .forms import (
+    ContractCollectionForm,
+    FinanceManagerCreateForm,
+    ProspectCreateForm,
+    SalesConversationForm,
+    SalesManagerCreateForm,
+)
 from .models import (
     CallImportBatch,
     CallLog,
@@ -272,6 +278,32 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(reminder.sent_by, self.staff)
         self.assertIn("whatsapp-proof", reminder.screenshot.name)
         self.assertTrue(reminder.screenshot.name.endswith(".png"))
+
+    def test_finance_manager_create_form_does_not_require_calling_number(self):
+        form = FinanceManagerCreateForm(
+            data={
+                "name": "Finance Person",
+                "email": "finance.person@example.com",
+                "whatsapp_number": "+919811111111",
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        user = form.save()
+        self.assertEqual(user.role, User.ROLE_FINANCE_MANAGER)
+        self.assertIsNone(user.calling_number)
+
+    def test_sales_manager_create_form_does_not_require_calling_number(self):
+        form = SalesManagerCreateForm(
+            data={
+                "name": "Sales Person",
+                "email": "sales.person@example.com",
+                "whatsapp_number": "+919822222222",
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        user = form.save()
+        self.assertEqual(user.role, User.ROLE_SALES_MANAGER)
+        self.assertIsNone(user.calling_number)
 
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
     def test_send_due_meeting_reminder_emails_creates_automated_logs(self):

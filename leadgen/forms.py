@@ -30,6 +30,16 @@ class MultiFileInput(forms.ClearableFileInput):
     allow_multiple_selected = True
 
 
+class FixedRoleUserFormMixin:
+    target_role = None
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.target_role:
+            self.instance.role = self.target_role
+        self.instance.calling_number = None
+
+
 class StaffCreateForm(StyledFormMixin, forms.ModelForm):
     class Meta:
         model = User
@@ -65,7 +75,9 @@ class StaffUpdateForm(StyledFormMixin, forms.ModelForm):
         return email
 
 
-class SalesManagerCreateForm(StyledFormMixin, forms.ModelForm):
+class SalesManagerCreateForm(FixedRoleUserFormMixin, StyledFormMixin, forms.ModelForm):
+    target_role = User.ROLE_SALES_MANAGER
+
     class Meta:
         model = User
         fields = ["name", "email", "whatsapp_number"]
@@ -88,7 +100,9 @@ class SalesManagerCreateForm(StyledFormMixin, forms.ModelForm):
         return user
 
 
-class SalesManagerUpdateForm(StyledFormMixin, forms.ModelForm):
+class SalesManagerUpdateForm(FixedRoleUserFormMixin, StyledFormMixin, forms.ModelForm):
+    target_role = User.ROLE_SALES_MANAGER
+
     class Meta:
         model = User
         fields = ["name", "email", "whatsapp_number", "is_active"]
@@ -109,7 +123,9 @@ class SalesManagerUpdateForm(StyledFormMixin, forms.ModelForm):
         return user
 
 
-class FinanceManagerCreateForm(StyledFormMixin, forms.ModelForm):
+class FinanceManagerCreateForm(FixedRoleUserFormMixin, StyledFormMixin, forms.ModelForm):
+    target_role = User.ROLE_FINANCE_MANAGER
+
     class Meta:
         model = User
         fields = ["name", "email", "whatsapp_number"]
@@ -132,7 +148,9 @@ class FinanceManagerCreateForm(StyledFormMixin, forms.ModelForm):
         return user
 
 
-class FinanceManagerUpdateForm(StyledFormMixin, forms.ModelForm):
+class FinanceManagerUpdateForm(FixedRoleUserFormMixin, StyledFormMixin, forms.ModelForm):
+    target_role = User.ROLE_FINANCE_MANAGER
+
     class Meta:
         model = User
         fields = ["name", "email", "whatsapp_number", "is_active"]
