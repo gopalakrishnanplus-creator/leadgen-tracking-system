@@ -338,12 +338,20 @@ def build_calendar_invite(meeting, settings_obj):
     event.add("dtstart", start)
     event.add("dtend", end)
     event.add("dtstamp", timezone.now())
+    if meeting.meeting_link:
+        event.add("location", meeting.meeting_link)
+        event.add("url", meeting.meeting_link)
+    description_lines = [
+        f"Prospect: {meeting.prospect.contact_name}",
+        f"Company: {meeting.prospect.company_name}",
+        f"LinkedIn: {meeting.prospect.linkedin_url}",
+        f"Lead Gen Staff: {meeting.scheduled_by.name}",
+        f"Meeting Platform: {meeting.get_meeting_platform_display()}",
+    ]
+    description_lines.extend(meeting.meeting_access_lines)
     event.add(
         "description",
-        f"Prospect: {meeting.prospect.contact_name}\n"
-        f"Company: {meeting.prospect.company_name}\n"
-        f"LinkedIn: {meeting.prospect.linkedin_url}\n"
-        f"Lead Gen Staff: {meeting.scheduled_by.name}",
+        "\n".join([line for line in description_lines if line]),
     )
     organizer = vCalAddress(f"MAILTO:{settings_obj.supervisor_sender_email}")
     organizer.params["cn"] = vText(settings_obj.supervisor_name)
@@ -837,6 +845,7 @@ def apply_call_outcome(prospect, staff, cleaned_data):
     follow_up_date = cleaned_data.get("follow_up_date")
     scheduled_for = cleaned_data.get("scheduled_for")
     prospect_email = cleaned_data.get("prospect_email", "")
+    meeting_platform = cleaned_data.get("meeting_platform", "")
     meeting = None
 
     if outcome == ProspectStatusUpdate.OUTCOME_FOLLOW_UP:
@@ -862,6 +871,7 @@ def apply_call_outcome(prospect, staff, cleaned_data):
             scheduled_by=staff,
             scheduled_for=scheduled_for,
             prospect_email=prospect_email,
+            meeting_platform=meeting_platform,
             recipient_emails=recipient_emails,
         )
         prospect.workflow_status = Prospect.WORKFLOW_SCHEDULED

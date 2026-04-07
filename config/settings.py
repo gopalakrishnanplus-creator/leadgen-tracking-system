@@ -182,6 +182,16 @@ SUPERVISOR_ALLOWED_EMAILS = split_csv(
 SUPERVISOR_NAME = os.environ.get("SUPERVISOR_NAME", "Bhavesh Kataria")
 SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "")
 SITE_BASE_URL = os.environ.get("SITE_BASE_URL", "http://127.0.0.1:8000")
+TEAMS_MEETING_LINK = os.environ.get(
+    "TEAMS_MEETING_LINK",
+    "https://teams.microsoft.com/meet/46370354924443?p=I1IIFzfeGnIxTIGznU",
+)
+ZOOM_MEETING_LINK = os.environ.get(
+    "ZOOM_MEETING_LINK",
+    "https://us02web.zoom.us/j/81585703258?pwd=BlJ5Tbhbqo9P2HNPjsQDLtJZDjB7H9.1",
+)
+ZOOM_MEETING_ID = os.environ.get("ZOOM_MEETING_ID", "815 8570 3258")
+ZOOM_MEETING_PASSCODE = os.environ.get("ZOOM_MEETING_PASSCODE", "255939")
 
 EMAIL_BACKEND = os.environ.get(
     "DJANGO_EMAIL_BACKEND",

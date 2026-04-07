@@ -226,6 +226,10 @@ class CallOutcomeForm(StyledFormMixin, forms.Form):
         input_formats=["%Y-%m-%dT%H:%M"],
     )
     prospect_email = forms.EmailField(required=False)
+    meeting_platform = forms.ChoiceField(
+        required=False,
+        choices=[("", "Select platform")] + Meeting.PLATFORM_CHOICES,
+    )
 
     def clean(self):
         cleaned_data = super().clean()
@@ -239,6 +243,8 @@ class CallOutcomeForm(StyledFormMixin, forms.Form):
                 raise ValidationError("Meeting date and time is required.")
             if not cleaned_data.get("prospect_email"):
                 raise ValidationError("Prospect email is required for a scheduled meeting.")
+            if not cleaned_data.get("meeting_platform"):
+                raise ValidationError("Meeting platform is required.")
         return cleaned_data
 
 

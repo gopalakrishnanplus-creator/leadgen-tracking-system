@@ -294,6 +294,13 @@ class ProspectStatusUpdate(models.Model):
 
 
 class Meeting(models.Model):
+    PLATFORM_TEAMS = "teams"
+    PLATFORM_ZOOM = "zoom"
+    PLATFORM_CHOICES = [
+        (PLATFORM_TEAMS, "Teams meeting"),
+        (PLATFORM_ZOOM, "Zoom meeting"),
+    ]
+
     STATUS_SCHEDULED = "scheduled"
     STATUS_HAPPENED = "happened"
     STATUS_DID_NOT_HAPPEN = "did_not_happen"
@@ -311,6 +318,7 @@ class Meeting(models.Model):
     )
     scheduled_for = models.DateTimeField()
     prospect_email = models.EmailField()
+    meeting_platform = models.CharField(max_length=20, choices=PLATFORM_CHOICES, blank=True, default="")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_SCHEDULED)
     recipient_emails = models.JSONField(default=list, blank=True)
     invite_sent_at = models.DateTimeField(blank=True, null=True)
@@ -328,6 +336,27 @@ class Meeting(models.Model):
     def mark_invite_sent(self):
         self.invite_sent_at = timezone.now()
         self.save(update_fields=["invite_sent_at", "updated_at"])
+
+    @property
+    def meeting_link(self):
+        if self.meeting_platform == self.PLATFORM_TEAMS:
+            return settings.TEAMS_MEETING_LINK
+        if self.meeting_platform == self.PLATFORM_ZOOM:
+            return settings.ZOOM_MEETING_LINK
+        return ""
+
+    @property
+    def meeting_access_lines(self):
+        if self.meeting_platform == self.PLATFORM_TEAMS:
+            return [self.meeting_link] if self.meeting_link else []
+        if self.meeting_platform == self.PLATFORM_ZOOM:
+            lines = [line for line in [self.meeting_link] if line]
+            if settings.ZOOM_MEETING_ID:
+                lines.append(f"Meeting ID: {settings.ZOOM_MEETING_ID}")
+            if settings.ZOOM_MEETING_PASSCODE:
+                lines.append(f"Passcode: {settings.ZOOM_MEETING_PASSCODE}")
+            return lines
+        return []
 
     def __str__(self):
         return f"{self.prospect} @ {self.scheduled_for:%Y-%m-%d %H:%M}"

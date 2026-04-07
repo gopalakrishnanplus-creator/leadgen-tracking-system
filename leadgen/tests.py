@@ -23,6 +23,7 @@ from .models import (
 )
 from .services import (
     apply_call_outcome,
+    build_calendar_invite,
     build_pending_collections,
     build_supervisor_report,
     get_or_create_contract_collection_from_sales_conversation,
@@ -129,6 +130,7 @@ class LeadgenWorkflowTests(TestCase):
                 "outcome": "scheduled",
                 "scheduled_for": datetime(2026, 3, 30, 15, 0),
                 "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_ZOOM,
                 "reason": "",
                 "follow_up_date": None,
             },
@@ -137,6 +139,8 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(self.prospect.workflow_status, Prospect.WORKFLOW_SCHEDULED)
         self.assertIsNotNone(meeting)
         self.assertEqual(Meeting.objects.count(), 1)
+        self.assertEqual(meeting.meeting_platform, Meeting.PLATFORM_ZOOM)
+        self.assertEqual(meeting.meeting_link, "https://us02web.zoom.us/j/81585703258?pwd=BlJ5Tbhbqo9P2HNPjsQDLtJZDjB7H9.1")
 
     def test_scheduled_outcome_recipients_include_sales_manager_supervisor_staff_and_prospect(self):
         meeting = apply_call_outcome(
@@ -146,6 +150,7 @@ class LeadgenWorkflowTests(TestCase):
                 "outcome": "scheduled",
                 "scheduled_for": datetime(2026, 3, 30, 15, 0),
                 "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
                 "reason": "",
                 "follow_up_date": None,
             },
@@ -169,6 +174,7 @@ class LeadgenWorkflowTests(TestCase):
                 "outcome": "scheduled",
                 "scheduled_for": datetime(2026, 3, 30, 15, 0),
                 "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
                 "reason": "",
                 "follow_up_date": None,
             },
@@ -187,6 +193,7 @@ class LeadgenWorkflowTests(TestCase):
                 "outcome": "scheduled",
                 "scheduled_for": datetime(2026, 3, 30, 15, 0),
                 "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
                 "reason": "",
                 "follow_up_date": None,
             },
@@ -215,6 +222,23 @@ class LeadgenWorkflowTests(TestCase):
         self.prospect.refresh_from_db()
         self.assertEqual(self.prospect.total_call_attempts, 1)
         self.assertEqual(self.prospect.total_connected_calls, 1)
+
+    def test_calendar_invite_includes_selected_meeting_link(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 30, 15, 0),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        invite = build_calendar_invite(meeting, SystemSetting.load()).decode("utf-8")
+        self.assertIn("https://teams.microsoft.com/meet/46370354924443?p=I1IIFzfeGnIxTIGznU", invite)
+        self.assertIn("Meeting Platform: Teams meeting", invite)
 
     def test_only_one_supervisor_allowed(self):
         with self.assertRaises(IntegrityError):
@@ -507,6 +531,7 @@ class LeadgenWorkflowTests(TestCase):
                         "outcome": "scheduled",
                         "scheduled_for": datetime(2026, 3, 31, 14, 30),
                         "prospect_email": "prospect@example.com",
+                        "meeting_platform": Meeting.PLATFORM_ZOOM,
                         "reason": "Meeting scheduled",
                         "follow_up_date": None,
                     },
@@ -528,6 +553,7 @@ class LeadgenWorkflowTests(TestCase):
                         "outcome": "scheduled",
                         "scheduled_for": "2026-03-31T14:30",
                         "prospect_email": "swapna@macleodspharma.in",
+                        "meeting_platform": Meeting.PLATFORM_TEAMS,
                         "reason": "Meeting scheduled",
                         "follow_up_date": "",
                     },

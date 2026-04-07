@@ -14,6 +14,7 @@
                 <th>Company</th>
                 <th>Prospect</th>
                 <th>LinkedIn</th>
+                <th>Platform</th>
                 <th>Date and time</th>
                 <th>Status</th>
             </tr>
@@ -24,11 +25,17 @@
                 <td>{{ meeting.prospect.company_name }}</td>
                 <td>{{ meeting.prospect.contact_name }}</td>
                 <td><a href="{{ meeting.prospect.linkedin_url }}" target="_blank" rel="noreferrer">Open</a></td>
+                <td>
+                    {{ meeting.get_meeting_platform_display|default:"-" }}
+                    {% if meeting.meeting_link %}
+                        <div><a href="{{ meeting.meeting_link }}" target="_blank" rel="noreferrer">Join link</a></div>
+                    {% endif %}
+                </td>
                 <td>{{ meeting.scheduled_for }}</td>
                 <td>{{ meeting.get_status_display }}</td>
             </tr>
         {% empty %}
-            <tr><td colspan="5">No meetings scheduled yet.</td></tr>
+            <tr><td colspan="6">No meetings scheduled yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>
