@@ -28,6 +28,7 @@ from .services import (
     get_or_create_contract_collection_from_sales_conversation,
     import_exotel_report,
     send_email,
+    send_test_email_diagnostic,
     send_due_invoice_notifications,
     update_meeting_outcome,
 )
@@ -516,6 +517,39 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].from_email, "products@inditech.co.in")
         self.assertEqual(mail.outbox[0].reply_to, ["bhavesh.kataria@inditech.co.in"])
+
+    @override_settings(
+        SENDGRID_API_KEY="test-sendgrid-key",
+        DEFAULT_FROM_EMAIL="products@inditech.co.in",
+        REPLY_TO_EMAIL="bhavesh.kataria@inditech.co.in",
+    )
+    def test_send_test_email_diagnostic_reports_sendgrid_success(self):
+        response = SimpleNamespace(status_code=202, body=b"accepted")
+        with patch("leadgen.services.probe_sendgrid_connectivity", return_value={"dns_ok": True, "resolved_hosts": ["1.2.3.4"]}):
+            with patch("leadgen.services.SendGridAPIClient") as client_cls:
+                client_cls.return_value.client.mail.send.post.return_value = response
+                diagnostics = send_test_email_diagnostic("gopala.krishnan@inditech.co.in")
+
+        self.assertTrue(diagnostics["success"])
+        self.assertEqual(diagnostics["delivery"]["transport"], "sendgrid")
+        self.assertEqual(diagnostics["delivery"]["status_code"], 202)
+        self.assertEqual(diagnostics["to_email"], "gopala.krishnan@inditech.co.in")
+        self.assertEqual(diagnostics["sendgrid_connectivity"]["dns_ok"], True)
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        DEFAULT_FROM_EMAIL="products@inditech.co.in",
+        REPLY_TO_EMAIL="bhavesh.kataria@inditech.co.in",
+        SENDGRID_API_KEY="",
+    )
+    def test_send_test_email_diagnostic_reports_backend_success(self):
+        with patch("leadgen.services.probe_sendgrid_connectivity", return_value={"dns_ok": True, "resolved_hosts": ["1.2.3.4"]}):
+            diagnostics = send_test_email_diagnostic("gopala.krishnan@inditech.co.in")
+
+        self.assertTrue(diagnostics["success"])
+        self.assertEqual(diagnostics["delivery"]["transport"], "django-email-backend")
+        self.assertEqual(diagnostics["to_email"], "gopala.krishnan@inditech.co.in")
+        self.assertEqual(len(mail.outbox), 1)
 
     def test_pending_collections_groups_invoiced_and_future_installments(self):
         contract_collection = ContractCollection.objects.create(

@@ -1,5 +1,6 @@
 import logging
 import base64
+import socket
 from decimal import Decimal
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -258,6 +259,27 @@ def unique_emails(*groups):
     return emails
 
 
+def mask_secret(value):
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "*" * len(value)
+    return f"{value[:4]}...{value[-4:]}"
+
+
+def probe_sendgrid_connectivity():
+    try:
+        addresses = socket.getaddrinfo("api.sendgrid.com", 443, type=socket.SOCK_STREAM)
+        hosts = sorted({item[4][0] for item in addresses if item[4]})
+        return {"dns_ok": True, "resolved_hosts": hosts[:5]}
+    except Exception as exc:
+        return {
+            "dns_ok": False,
+            "error_type": exc.__class__.__name__,
+            "error_message": str(exc),
+        }
+
+
 def build_calendar_invite(meeting, settings_obj):
     tz = ZoneInfo(settings_obj.default_timezone)
     start = meeting.scheduled_for.astimezone(tz)
@@ -294,7 +316,7 @@ def build_calendar_invite(meeting, settings_obj):
     return calendar.to_ical()
 
 
-def send_email(subject, html_body, text_body, to_emails, cc_emails=None, attachments=None):
+def _deliver_email(subject, html_body, text_body, to_emails, cc_emails=None, attachments=None):
     cc_emails = cc_emails or []
     attachments = attachments or []
     if settings.SENDGRID_API_KEY:
@@ -325,12 +347,23 @@ def send_email(subject, html_body, text_body, to_emails, cc_emails=None, attachm
                 for attachment in attachments
             ]
         response = SendGridAPIClient(settings.SENDGRID_API_KEY).client.mail.send.post(request_body=payload)
+        response_body = getattr(response, "body", b"")
+        if isinstance(response_body, bytes):
+            response_body = response_body.decode("utf-8", errors="ignore")
         if response.status_code < 200 or response.status_code >= 300:
-            response_body = getattr(response, "body", b"")
-            if isinstance(response_body, bytes):
-                response_body = response_body.decode("utf-8", errors="ignore")
             raise RuntimeError(f"SendGrid returned status {response.status_code}: {response_body}")
-        return
+        return {
+            "transport": "sendgrid",
+            "status_code": response.status_code,
+            "response_body": response_body[:1000],
+            "payload_summary": {
+                "from_email": settings.DEFAULT_FROM_EMAIL,
+                "reply_to": settings.REPLY_TO_EMAIL,
+                "to_count": len(to_emails),
+                "cc_count": len(cc_emails),
+                "attachment_count": len(attachments),
+            },
+        }
 
     email = EmailMultiAlternatives(
         subject=subject,
@@ -343,7 +376,75 @@ def send_email(subject, html_body, text_body, to_emails, cc_emails=None, attachm
     email.attach_alternative(html_body, "text/html")
     for attachment in attachments:
         email.attach(attachment["filename"], attachment["content"], attachment["type"])
-    email.send()
+    sent_count = email.send()
+    return {
+        "transport": "django-email-backend",
+        "email_backend": settings.EMAIL_BACKEND,
+        "sent_count": sent_count,
+        "payload_summary": {
+            "from_email": settings.DEFAULT_FROM_EMAIL,
+            "reply_to": settings.REPLY_TO_EMAIL,
+            "to_count": len(to_emails),
+            "cc_count": len(cc_emails),
+            "attachment_count": len(attachments),
+        },
+    }
+
+
+def send_email(subject, html_body, text_body, to_emails, cc_emails=None, attachments=None):
+    _deliver_email(
+        subject=subject,
+        html_body=html_body,
+        text_body=text_body,
+        to_emails=to_emails,
+        cc_emails=cc_emails,
+        attachments=attachments,
+    )
+
+
+def send_test_email_diagnostic(recipient_email):
+    timestamp = timezone.now()
+    subject = f"Leadgen email diagnostics {timestamp:%Y-%m-%d %H:%M:%S %Z}"
+    html_body = (
+        "<p>This is a diagnostic test email from the Leadgen Tracking System.</p>"
+        f"<p>Timestamp: {timestamp.isoformat()}</p>"
+        f"<p>Recipient: {recipient_email}</p>"
+        f"<p>From: {settings.DEFAULT_FROM_EMAIL}</p>"
+        f"<p>Reply-To: {settings.REPLY_TO_EMAIL}</p>"
+    )
+    text_body = (
+        "This is a diagnostic test email from the Leadgen Tracking System.\n"
+        f"Timestamp: {timestamp.isoformat()}\n"
+        f"Recipient: {recipient_email}\n"
+        f"From: {settings.DEFAULT_FROM_EMAIL}\n"
+        f"Reply-To: {settings.REPLY_TO_EMAIL}\n"
+    )
+    diagnostics = {
+        "success": False,
+        "timestamp": timestamp.isoformat(),
+        "app_env": settings.APP_ENV if hasattr(settings, "APP_ENV") else "",
+        "email_backend": settings.EMAIL_BACKEND,
+        "sendgrid_configured": bool(settings.SENDGRID_API_KEY),
+        "sendgrid_api_key_masked": mask_secret(settings.SENDGRID_API_KEY),
+        "from_email": settings.DEFAULT_FROM_EMAIL,
+        "reply_to_email": settings.REPLY_TO_EMAIL,
+        "to_email": recipient_email,
+        "sendgrid_connectivity": probe_sendgrid_connectivity(),
+    }
+    try:
+        delivery = _deliver_email(
+            subject=subject,
+            html_body=html_body,
+            text_body=text_body,
+            to_emails=[recipient_email],
+        )
+        diagnostics["success"] = True
+        diagnostics["delivery"] = delivery
+    except Exception as exc:
+        diagnostics["error_type"] = exc.__class__.__name__
+        diagnostics["error_message"] = str(exc)
+        logger.exception("Email diagnostics failed for recipient=%s", recipient_email)
+    return diagnostics
 
 
 def send_meeting_invitation(meeting):
