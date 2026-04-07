@@ -43,6 +43,7 @@ from .models import (
 )
 from .services import (
     apply_call_outcome,
+    build_daily_target_report,
     build_pending_collections,
     build_supervisor_report,
     database_healthcheck,
@@ -478,6 +479,14 @@ def supervisor_reports(request):
             tz_name=SystemSetting.load().default_timezone,
         )
     return render(request, "leadgen/supervisor_reports.html", {"form": form, "report": report})
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def supervisor_daily_targets(request):
+    settings_obj = SystemSetting.load()
+    target_date = timezone.localdate() - timedelta(days=1)
+    report = build_daily_target_report(target_date=target_date, tz_name=settings_obj.default_timezone)
+    return render(request, "leadgen/supervisor_daily_targets.html", {"report": report})
 
 
 @role_required(User.ROLE_STAFF)

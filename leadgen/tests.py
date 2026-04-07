@@ -13,6 +13,7 @@ from .adapters import LeadgenSocialAccountAdapter
 from .forms import ContractCollectionForm, ProspectCreateForm, SalesConversationForm
 from .models import (
     CallImportBatch,
+    CallLog,
     ContractCollection,
     ContractCollectionInstallment,
     Meeting,
@@ -24,6 +25,7 @@ from .models import (
 from .services import (
     apply_call_outcome,
     build_calendar_invite,
+    build_daily_target_report,
     build_pending_collections,
     build_supervisor_report,
     get_or_create_contract_collection_from_sales_conversation,
@@ -284,6 +286,75 @@ class LeadgenWorkflowTests(TestCase):
         staff_metric = next(item for item in report["staff_metrics"] if item["staff"] == self.staff)
         self.assertEqual(staff_metric["attempts"], 1)
         self.assertEqual(staff_metric["follow_ups"], 1)
+
+    def test_daily_target_report_returns_yesterday_target_and_attempts_per_staff(self):
+        target_date = timezone.localdate()
+        second_target = Prospect.objects.create(
+            company_name="Follow Up Co",
+            contact_name="Follow Up Person",
+            linkedin_url="https://linkedin.com/in/follow-up-person",
+            phone_number="+919812300001",
+            assigned_to=self.other_staff,
+            created_by=self.supervisor,
+            approval_status=Prospect.APPROVAL_ACCEPTED,
+            workflow_status=Prospect.WORKFLOW_FOLLOW_UP,
+        )
+        completed_prospect = Prospect.objects.create(
+            company_name="Worked Co",
+            contact_name="Worked Person",
+            linkedin_url="https://linkedin.com/in/worked-person",
+            phone_number="+919812300002",
+            assigned_to=self.staff,
+            created_by=self.supervisor,
+            approval_status=Prospect.APPROVAL_ACCEPTED,
+            workflow_status=Prospect.WORKFLOW_SCHEDULED,
+        )
+        batch = CallImportBatch.objects.create(
+            import_date=target_date,
+            uploaded_file=SimpleUploadedFile("target-report.xlsx", b"placeholder"),
+            imported_by=self.supervisor,
+        )
+        started_at = timezone.make_aware(datetime.combine(target_date, datetime.min.time()) + timedelta(hours=10))
+        ended_at = started_at + timedelta(minutes=2)
+        CallLog.objects.create(
+            call_sid="TARGET-REPORT-1",
+            batch=batch,
+            staff=self.staff,
+            prospect=completed_prospect,
+            started_at=started_at,
+            ended_at=ended_at,
+            duration_seconds=120,
+            from_number=self.staff.calling_number,
+            to_number=completed_prospect.phone_number,
+            direction="outbound",
+            crm_status=CallLog.STATUS_COMPLETED,
+            was_connected=True,
+            matched=True,
+            raw_data={},
+        )
+        CallLog.objects.create(
+            call_sid="TARGET-REPORT-2",
+            batch=batch,
+            staff=self.other_staff,
+            prospect=second_target,
+            started_at=started_at,
+            ended_at=ended_at,
+            duration_seconds=120,
+            from_number=self.other_staff.calling_number,
+            to_number=second_target.phone_number,
+            direction="outbound",
+            crm_status=CallLog.STATUS_NO_ANSWER,
+            was_connected=False,
+            matched=True,
+            raw_data={},
+        )
+        report = build_daily_target_report(target_date=target_date, tz_name="Asia/Kolkata")
+        staff_row = next(item for item in report["staff_rows"] if item["staff"] == self.staff)
+        other_staff_row = next(item for item in report["staff_rows"] if item["staff"] == self.other_staff)
+        self.assertEqual(staff_row["target_count"], 2)
+        self.assertEqual(staff_row["actual_attempts"], 1)
+        self.assertEqual(other_staff_row["target_count"], 1)
+        self.assertEqual(other_staff_row["actual_attempts"], 1)
 
     def test_import_failed_marks_prospect_invalid_and_hides_from_staff_views(self):
         self._import_rows(

@@ -34,6 +34,7 @@ urlpatterns = [
     path("supervisor/meetings/<int:meeting_id>/status/", views.update_meeting_status, name="update_meeting_status"),
     path("supervisor/settings/", views.system_settings_view, name="system_settings"),
     path("supervisor/reports/", views.supervisor_reports, name="supervisor_reports"),
+    path("supervisor/daily-targets/", views.supervisor_daily_targets, name="supervisor_daily_targets"),
     path("sales/", views.sales_pipeline_dashboard, name="sales_pipeline_dashboard"),
     path("sales/add/", views.sales_conversation_create, name="sales_conversation_create"),
     path("sales/<int:conversation_id>/", views.sales_conversation_update, name="sales_conversation_update"),

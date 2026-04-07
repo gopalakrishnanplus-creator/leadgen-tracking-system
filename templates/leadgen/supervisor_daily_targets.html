@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Daily Targets{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">Supervisor</p>
+        <h1>Yesterday targets vs attempts</h1>
+        <p class="note">{{ report.target_date }}</p>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'supervisor_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>Lead gen staff</th>
+                <th>Yesterday target</th>
+                <th>Actual call attempts</th>
+                <th>Difference</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in report.staff_rows %}
+            <tr>
+                <td>{{ row.staff.name }}</td>
+                <td>{{ row.target_count }}</td>
+                <td>{{ row.actual_attempts }}</td>
+                <td>{{ row.delta }}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="4">No active lead gen staff found.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+<section class="panel">
+    <p class="note">
+        Target is based on prospects that were still active for calling plus prospects that were actually attempted yesterday and therefore formed part of the day's workload.
+    </p>
+</section>
+{% endblock %}

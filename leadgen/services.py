@@ -214,6 +214,38 @@ def build_supervisor_report(start_date, end_date, tz_name):
     }
 
 
+def build_daily_target_report(target_date, tz_name):
+    tz = ZoneInfo(tz_name)
+    start_dt = timezone.make_aware(datetime.combine(target_date, datetime.min.time()), tz)
+    end_dt = timezone.make_aware(datetime.combine(target_date, datetime.max.time()), tz)
+    staff_rows = []
+
+    for staff in User.objects.filter(role=User.ROLE_STAFF, is_active=True).order_by("name", "email"):
+        assigned_prospects = Prospect.objects.filter(
+            assigned_to=staff,
+            approval_status=Prospect.APPROVAL_ACCEPTED,
+            created_at__lte=end_dt,
+        ).filter(Q(accepted_at__isnull=True) | Q(accepted_at__lte=end_dt))
+        target_queryset = assigned_prospects.filter(
+            Q(workflow_status__in=ACTIVE_CALLING_WORKFLOWS)
+            | Q(call_logs__started_at__range=(start_dt, end_dt))
+        ).distinct()
+        actual_attempts = CallLog.objects.filter(staff=staff, started_at__range=(start_dt, end_dt)).count()
+        staff_rows.append(
+            {
+                "staff": staff,
+                "target_count": target_queryset.count(),
+                "actual_attempts": actual_attempts,
+                "delta": actual_attempts - target_queryset.count(),
+            }
+        )
+
+    return {
+        "target_date": target_date,
+        "staff_rows": staff_rows,
+    }
+
+
 def import_exotel_report(batch):
     workbook = load_workbook(batch.uploaded_file.path, data_only=True)
     sheet = workbook[workbook.sheetnames[0]]
