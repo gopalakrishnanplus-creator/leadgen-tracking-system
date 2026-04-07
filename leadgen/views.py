@@ -16,6 +16,7 @@ from .forms import (
     FinanceManagerUpdateForm,
     ImportBatchForm,
     MeetingStatusUpdateForm,
+    MeetingReminderLogForm,
     ProspectCreateForm,
     SupervisorProspectActionForm,
     ProspectReviewForm,
@@ -45,10 +46,12 @@ from .services import (
     apply_call_outcome,
     build_daily_target_report,
     build_pending_collections,
+    build_reminder_dashboard,
     build_supervisor_report,
     database_healthcheck,
     get_or_create_contract_collection_from_sales_conversation,
     import_exotel_report,
+    log_whatsapp_reminder,
     send_due_invoice_notifications,
     sync_contract_collection_data,
     sync_finance_collection_data,
@@ -442,6 +445,13 @@ def supervisor_meeting_list(request):
 
 
 @role_required(User.ROLE_SUPERVISOR)
+def supervisor_reminder_dashboard(request):
+    settings_obj = SystemSetting.load()
+    dashboard = build_reminder_dashboard(settings_obj.default_timezone)
+    return render(request, "leadgen/supervisor_reminder_dashboard.html", {"dashboard": dashboard})
+
+
+@role_required(User.ROLE_SUPERVISOR)
 def update_meeting_status(request, meeting_id):
     meeting = get_object_or_404(Meeting.objects.select_related("prospect", "scheduled_by"), pk=meeting_id)
     form = MeetingStatusUpdateForm(request.POST or None, instance=meeting)
@@ -593,8 +603,42 @@ def update_call_outcome(request, prospect_id):
 
 @role_required(User.ROLE_STAFF)
 def staff_meeting_list(request):
-    meetings = Meeting.objects.filter(scheduled_by=request.user).select_related("prospect")
+    meetings = Meeting.objects.filter(scheduled_by=request.user).select_related("prospect").prefetch_related("reminders")
     return render(request, "leadgen/staff_meeting_list.html", {"meetings": meetings})
+
+
+def _staff_meeting_or_404(user, meeting_id):
+    return get_object_or_404(
+        Meeting.objects.select_related("prospect", "scheduled_by").prefetch_related("reminders"),
+        pk=meeting_id,
+        scheduled_by=user,
+    )
+
+
+@role_required(User.ROLE_STAFF)
+def log_meeting_reminder(request, meeting_id):
+    meeting = _staff_meeting_or_404(request.user, meeting_id)
+    if meeting.status != Meeting.STATUS_SCHEDULED:
+        raise Http404("Reminder logging is only available for scheduled meetings.")
+    form = MeetingReminderLogForm(request.POST or None, request.FILES or None)
+    if request.method == "POST" and form.is_valid():
+        log_whatsapp_reminder(
+            meeting=meeting,
+            reminder_type=form.cleaned_data["reminder_type"],
+            recipient_number=form.cleaned_data["recipient_number"],
+            screenshot=form.cleaned_data["screenshot"],
+            sent_by=request.user,
+        )
+        messages.success(request, "Reminder logged.")
+        return redirect("staff_meeting_list")
+    return render(
+        request,
+        "leadgen/meeting_reminder_form.html",
+        {
+            "meeting": meeting,
+            "form": form,
+        },
+    )
 
 
 def _sales_pipeline_queryset_for_user(user):

@@ -7,6 +7,7 @@ from .models import (
     ContractCollection,
     ContractCollectionInstallment,
     Meeting,
+    MeetingReminder,
     Prospect,
     SalesConversation,
     SystemSetting,
@@ -246,6 +247,21 @@ class CallOutcomeForm(StyledFormMixin, forms.Form):
             if not cleaned_data.get("meeting_platform"):
                 raise ValidationError("Meeting platform is required.")
         return cleaned_data
+
+
+class MeetingReminderLogForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = MeetingReminder
+        fields = ["reminder_type", "recipient_number", "screenshot"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["reminder_type"].choices = [
+            (MeetingReminder.TYPE_WHATSAPP_INITIAL, "First WhatsApp reminder"),
+            (MeetingReminder.TYPE_WHATSAPP_FINAL, "Second WhatsApp reminder"),
+        ]
+        self.fields["recipient_number"].required = True
+        self.fields["screenshot"].required = True
 
 
 class ImportBatchForm(StyledFormMixin, forms.ModelForm):

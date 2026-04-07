@@ -31,6 +31,7 @@ urlpatterns = [
     path("supervisor/prospects/<int:prospect_id>/review/", views.review_prospect, name="review_prospect"),
     path("supervisor/imports/", views.import_batch_create, name="import_batch_create"),
     path("supervisor/meetings/", views.supervisor_meeting_list, name="supervisor_meeting_list"),
+    path("supervisor/reminders/", views.supervisor_reminder_dashboard, name="supervisor_reminder_dashboard"),
     path("supervisor/meetings/<int:meeting_id>/status/", views.update_meeting_status, name="update_meeting_status"),
     path("supervisor/settings/", views.system_settings_view, name="system_settings"),
     path("supervisor/reports/", views.supervisor_reports, name="supervisor_reports"),
@@ -48,4 +49,5 @@ urlpatterns = [
     path("staff/prospects/add/", views.staff_prospect_create, name="staff_prospect_create"),
     path("staff/prospects/<int:prospect_id>/update-call/", views.update_call_outcome, name="update_call_outcome"),
     path("staff/meetings/", views.staff_meeting_list, name="staff_meeting_list"),
+    path("staff/meetings/<int:meeting_id>/reminders/", views.log_meeting_reminder, name="log_meeting_reminder"),
 ]

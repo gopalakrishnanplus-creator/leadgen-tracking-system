@@ -24,6 +24,7 @@ from .models import (
     ContractCollectionFile,
     ContractCollectionInstallment,
     Meeting,
+    MeetingReminder,
     Prospect,
     ProspectStatusUpdate,
     SalesConversation,
@@ -48,6 +49,13 @@ CRM_STATUS_MAP = {
 ACTIVE_CALLING_WORKFLOWS = {
     Prospect.WORKFLOW_READY_TO_CALL,
     Prospect.WORKFLOW_FOLLOW_UP,
+}
+
+REMINDER_GRACE_WINDOWS = {
+    MeetingReminder.TYPE_WHATSAPP_INITIAL: timedelta(minutes=30),
+    MeetingReminder.TYPE_EMAIL_DAY_BEFORE: timedelta(hours=1),
+    MeetingReminder.TYPE_EMAIL_SAME_DAY: timedelta(hours=1),
+    MeetingReminder.TYPE_WHATSAPP_FINAL: timedelta(minutes=15),
 }
 
 
@@ -573,6 +581,178 @@ def send_did_not_happen_email(meeting):
         to_emails=[meeting.scheduled_by.email],
         cc_emails=[settings_obj.supervisor_sender_email],
     )
+
+
+def meeting_reminder_due_at(meeting, reminder_type, tz_name):
+    tz = ZoneInfo(tz_name)
+    scheduled_local = meeting.scheduled_for.astimezone(tz)
+    created_local = meeting.created_at.astimezone(tz)
+    if reminder_type == MeetingReminder.TYPE_WHATSAPP_INITIAL:
+        return created_local
+    if reminder_type == MeetingReminder.TYPE_EMAIL_DAY_BEFORE:
+        return scheduled_local - timedelta(hours=24)
+    if reminder_type == MeetingReminder.TYPE_EMAIL_SAME_DAY:
+        return timezone.make_aware(
+            datetime.combine(scheduled_local.date(), datetime.min.time()).replace(hour=9),
+            tz,
+        )
+    if reminder_type == MeetingReminder.TYPE_WHATSAPP_FINAL:
+        return scheduled_local - timedelta(hours=1)
+    raise ValueError(f"Unsupported reminder type: {reminder_type}")
+
+
+def reminder_log_map(meeting):
+    return {reminder.reminder_type: reminder for reminder in meeting.reminders.all()}
+
+
+def reminder_status_for_meeting(meeting, reminder_type, tz_name, now=None):
+    now = now or timezone.now()
+    due_at = meeting_reminder_due_at(meeting, reminder_type, tz_name)
+    reminder = reminder_log_map(meeting).get(reminder_type)
+    if reminder:
+        return {
+            "due_at": due_at,
+            "reminder": reminder,
+            "is_sent": True,
+            "is_missed": False,
+        }
+    grace = REMINDER_GRACE_WINDOWS[reminder_type]
+    return {
+        "due_at": due_at,
+        "reminder": None,
+        "is_sent": False,
+        "is_missed": now >= due_at + grace,
+    }
+
+
+def log_whatsapp_reminder(meeting, reminder_type, recipient_number, screenshot, sent_by):
+    defaults = {
+        "recipient_number": normalize_phone(recipient_number) or recipient_number.strip(),
+        "screenshot": screenshot,
+        "sent_by": sent_by,
+        "sent_at": timezone.now(),
+    }
+    reminder, _ = MeetingReminder.objects.update_or_create(
+        meeting=meeting,
+        reminder_type=reminder_type,
+        defaults=defaults,
+    )
+    return reminder
+
+
+def send_meeting_reminder_email(meeting, reminder_type):
+    settings_obj = SystemSetting.load()
+    if reminder_type == MeetingReminder.TYPE_EMAIL_DAY_BEFORE:
+        html_template = "emails/meeting_reminder_day_before.html"
+        text_template = "emails/meeting_reminder_day_before.txt"
+    elif reminder_type == MeetingReminder.TYPE_EMAIL_SAME_DAY:
+        html_template = "emails/meeting_reminder_same_day.html"
+        text_template = "emails/meeting_reminder_same_day.txt"
+    else:
+        raise ValueError(f"Unsupported email reminder type: {reminder_type}")
+
+    html_body = render_to_string(
+        html_template,
+        {"meeting": meeting, "settings_obj": settings_obj},
+    )
+    text_body = render_to_string(
+        text_template,
+        {"meeting": meeting, "settings_obj": settings_obj},
+    )
+    send_email(
+        subject=f"20-min: Outcome-Linked Campaign - Discussion with {meeting.prospect.company_name}",
+        html_body=html_body,
+        text_body=text_body,
+        to_emails=[meeting.prospect_email],
+    )
+    return MeetingReminder.objects.create(
+        meeting=meeting,
+        reminder_type=reminder_type,
+        recipient_number="",
+        sent_at=timezone.now(),
+    )
+
+
+def send_due_meeting_reminder_emails(now=None):
+    now = now or timezone.now()
+    settings_obj = SystemSetting.load()
+    reminders_sent = 0
+    meetings = Meeting.objects.filter(status=Meeting.STATUS_SCHEDULED).select_related("prospect", "scheduled_by")
+    for meeting in meetings:
+        existing = reminder_log_map(meeting)
+        for reminder_type in (
+            MeetingReminder.TYPE_EMAIL_DAY_BEFORE,
+            MeetingReminder.TYPE_EMAIL_SAME_DAY,
+        ):
+            if reminder_type in existing:
+                continue
+            if meeting_reminder_due_at(meeting, reminder_type, settings_obj.default_timezone) <= now:
+                try:
+                    send_meeting_reminder_email(meeting, reminder_type)
+                except Exception:
+                    logger.exception(
+                        "Failed to send meeting reminder email for meeting_id=%s reminder_type=%s",
+                        meeting.pk,
+                        reminder_type,
+                    )
+                    continue
+                reminders_sent += 1
+    return reminders_sent
+
+
+def build_reminder_dashboard(tz_name, now=None):
+    now = now or timezone.now()
+    recent_happened_cutoff = now - timedelta(days=10)
+    meetings = (
+        Meeting.objects.select_related("prospect", "scheduled_by")
+        .prefetch_related("reminders")
+        .filter(
+            Q(status=Meeting.STATUS_SCHEDULED)
+            | Q(status=Meeting.STATUS_HAPPENED, outcome_updated_at__gte=recent_happened_cutoff)
+        )
+        .order_by("scheduled_for")
+    )
+    rows = []
+    summary = {
+        "first_whatsapp_sent": 0,
+        "second_whatsapp_sent": 0,
+        "missed_total": 0,
+    }
+    for meeting in meetings:
+        first_whatsapp = reminder_status_for_meeting(meeting, MeetingReminder.TYPE_WHATSAPP_INITIAL, tz_name, now=now)
+        day_before_email = reminder_status_for_meeting(meeting, MeetingReminder.TYPE_EMAIL_DAY_BEFORE, tz_name, now=now)
+        same_day_email = reminder_status_for_meeting(meeting, MeetingReminder.TYPE_EMAIL_SAME_DAY, tz_name, now=now)
+        final_whatsapp = reminder_status_for_meeting(meeting, MeetingReminder.TYPE_WHATSAPP_FINAL, tz_name, now=now)
+        missed = [
+            label
+            for label, status in (
+                ("First WhatsApp", first_whatsapp),
+                ("24-hour email", day_before_email),
+                ("9 a.m. email", same_day_email),
+                ("Second WhatsApp", final_whatsapp),
+            )
+            if status["is_missed"]
+        ]
+        if first_whatsapp["is_sent"]:
+            summary["first_whatsapp_sent"] += 1
+        if final_whatsapp["is_sent"]:
+            summary["second_whatsapp_sent"] += 1
+        summary["missed_total"] += len(missed)
+        rows.append(
+            {
+                "meeting": meeting,
+                "first_whatsapp": first_whatsapp,
+                "day_before_email": day_before_email,
+                "same_day_email": same_day_email,
+                "final_whatsapp": final_whatsapp,
+                "missed": missed,
+            }
+        )
+    return {
+        "summary": summary,
+        "rows": rows,
+        "recent_happened_cutoff": recent_happened_cutoff,
+    }
 
 
 def active_sales_manager_emails():

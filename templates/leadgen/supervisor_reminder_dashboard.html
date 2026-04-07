@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Reminder Messages{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">Supervisor</p>
+        <h1>Reminder messages</h1>
+        <p class="note">Scheduled meetings plus meetings marked happened in the last 10 days.</p>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'supervisor_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+<section class="stats-grid">
+    <article class="stat-card"><span>{{ dashboard.summary.first_whatsapp_sent }}</span><p>First WhatsApp sent</p></article>
+    <article class="stat-card"><span>{{ dashboard.summary.second_whatsapp_sent }}</span><p>Second WhatsApp sent</p></article>
+    <article class="stat-card"><span>{{ dashboard.summary.missed_total }}</span><p>Missed reminder steps</p></article>
+</section>
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>Company</th>
+                <th>Prospect</th>
+                <th>Lead gen staff</th>
+                <th>Meeting time</th>
+                <th>Status</th>
+                <th>First WhatsApp</th>
+                <th>24-hour email</th>
+                <th>9 a.m. email</th>
+                <th>Second WhatsApp</th>
+                <th>Missed</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in dashboard.rows %}
+            <tr>
+                <td>{{ row.meeting.prospect.company_name }}</td>
+                <td>{{ row.meeting.prospect.contact_name }}</td>
+                <td>{{ row.meeting.scheduled_by.name }}</td>
+                <td>{{ row.meeting.scheduled_for }}</td>
+                <td>{{ row.meeting.get_status_display }}</td>
+                <td>
+                    {% if row.first_whatsapp.is_sent %}
+                        <a href="{{ row.first_whatsapp.reminder.screenshot.url }}" target="_blank" rel="noreferrer">Sent</a>
+                    {% elif row.first_whatsapp.is_missed %}
+                        Missed
+                    {% else %}
+                        Pending
+                    {% endif %}
+                </td>
+                <td>
+                    {% if row.day_before_email.is_sent %}
+                        Sent
+                    {% elif row.day_before_email.is_missed %}
+                        Missed
+                    {% else %}
+                        Pending
+                    {% endif %}
+                </td>
+                <td>
+                    {% if row.same_day_email.is_sent %}
+                        Sent
+                    {% elif row.same_day_email.is_missed %}
+                        Missed
+                    {% else %}
+                        Pending
+                    {% endif %}
+                </td>
+                <td>
+                    {% if row.final_whatsapp.is_sent %}
+                        <a href="{{ row.final_whatsapp.reminder.screenshot.url }}" target="_blank" rel="noreferrer">Sent</a>
+                    {% elif row.final_whatsapp.is_missed %}
+                        Missed
+                    {% else %}
+                        Pending
+                    {% endif %}
+                </td>
+                <td>
+                    {% if row.missed %}
+                        {{ row.missed|join:", " }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="10">No reminder-tracked meetings found.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

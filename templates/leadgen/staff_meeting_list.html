@@ -17,6 +17,7 @@
                 <th>Platform</th>
                 <th>Date and time</th>
                 <th>Status</th>
+                <th></th>
             </tr>
         </thead>
         <tbody>
@@ -33,9 +34,16 @@
                 </td>
                 <td>{{ meeting.scheduled_for }}</td>
                 <td>{{ meeting.get_status_display }}</td>
+                <td>
+                    {% if meeting.status == 'scheduled' %}
+                        <a href="{% url 'log_meeting_reminder' meeting.id %}">Log reminder</a>
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
             </tr>
         {% empty %}
-            <tr><td colspan="6">No meetings scheduled yet.</td></tr>
+            <tr><td colspan="7">No meetings scheduled yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>

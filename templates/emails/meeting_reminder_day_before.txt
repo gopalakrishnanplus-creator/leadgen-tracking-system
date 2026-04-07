@@ -1,0 +1,8 @@
+Dear {{ meeting.prospect.contact_name }},
+
+This is to confirm your online meeting with Amit on {{ meeting.scheduled_for }}
+
+Before our call, please watch this short 2-minute video. It showcases some real programs we’ve delivered. I think you’ll find it insightful: https://youtu.be/6pw1STyVydQ
+
+Warm regards,
+{{ meeting.scheduled_by.name }}

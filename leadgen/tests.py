@@ -17,6 +17,7 @@ from .models import (
     ContractCollection,
     ContractCollectionInstallment,
     Meeting,
+    MeetingReminder,
     Prospect,
     SalesConversation,
     SystemSetting,
@@ -27,10 +28,13 @@ from .services import (
     build_calendar_invite,
     build_daily_target_report,
     build_pending_collections,
+    build_reminder_dashboard,
     build_supervisor_report,
     get_or_create_contract_collection_from_sales_conversation,
     import_exotel_report,
+    log_whatsapp_reminder,
     send_email,
+    send_due_meeting_reminder_emails,
     send_test_email_diagnostic,
     send_due_invoice_notifications,
     update_meeting_outcome,
@@ -241,6 +245,82 @@ class LeadgenWorkflowTests(TestCase):
         invite = build_calendar_invite(meeting, SystemSetting.load()).decode("utf-8")
         self.assertIn("https://teams.microsoft.com/meet/46370354924443?p=I1IIFzfeGnIxTIGznU", invite)
         self.assertIn("Meeting Platform: Teams meeting", invite)
+
+    def test_log_whatsapp_reminder_creates_proof_record(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 30, 15, 0),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        reminder = log_whatsapp_reminder(
+            meeting=meeting,
+            reminder_type=MeetingReminder.TYPE_WHATSAPP_INITIAL,
+            recipient_number="9876543210",
+            screenshot=SimpleUploadedFile("whatsapp-proof.png", b"image-bytes", content_type="image/png"),
+            sent_by=self.staff,
+        )
+        self.assertEqual(reminder.meeting, meeting)
+        self.assertEqual(reminder.reminder_type, MeetingReminder.TYPE_WHATSAPP_INITIAL)
+        self.assertEqual(reminder.recipient_number, "+9876543210")
+        self.assertEqual(reminder.sent_by, self.staff)
+        self.assertIn("whatsapp-proof", reminder.screenshot.name)
+        self.assertTrue(reminder.screenshot.name.endswith(".png"))
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
+    def test_send_due_meeting_reminder_emails_creates_automated_logs(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 31, 10, 0),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        now = timezone.make_aware(datetime(2026, 3, 30, 10, 30))
+        sent_count = send_due_meeting_reminder_emails(now=now)
+        self.assertEqual(sent_count, 1)
+        self.assertEqual(
+            MeetingReminder.objects.filter(
+                meeting=meeting,
+                reminder_type=MeetingReminder.TYPE_EMAIL_DAY_BEFORE,
+            ).count(),
+            1,
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("Outcome-Linked Campaign", mail.outbox[0].subject)
+
+    def test_reminder_dashboard_marks_missed_whatsapp_steps(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 31, 12, 0),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        meeting.created_at = timezone.make_aware(datetime(2026, 3, 30, 10, 0))
+        meeting.save(update_fields=["created_at"])
+        now = timezone.make_aware(datetime(2026, 3, 31, 11, 30))
+        dashboard = build_reminder_dashboard("Asia/Kolkata", now=now)
+        row = next(item for item in dashboard["rows"] if item["meeting"] == meeting)
+        self.assertTrue(row["first_whatsapp"]["is_missed"])
+        self.assertTrue(row["final_whatsapp"]["is_missed"])
+        self.assertIn("First WhatsApp", row["missed"])
 
     def test_only_one_supervisor_allowed(self):
         with self.assertRaises(IntegrityError):

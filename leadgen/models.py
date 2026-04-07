@@ -362,6 +362,43 @@ class Meeting(models.Model):
         return f"{self.prospect} @ {self.scheduled_for:%Y-%m-%d %H:%M}"
 
 
+class MeetingReminder(models.Model):
+    TYPE_WHATSAPP_INITIAL = "whatsapp_initial"
+    TYPE_EMAIL_DAY_BEFORE = "email_day_before"
+    TYPE_EMAIL_SAME_DAY = "email_same_day"
+    TYPE_WHATSAPP_FINAL = "whatsapp_final"
+    TYPE_CHOICES = [
+        (TYPE_WHATSAPP_INITIAL, "First WhatsApp reminder"),
+        (TYPE_EMAIL_DAY_BEFORE, "24-hour reminder email"),
+        (TYPE_EMAIL_SAME_DAY, "Same-day reminder email"),
+        (TYPE_WHATSAPP_FINAL, "Final WhatsApp reminder"),
+    ]
+
+    meeting = models.ForeignKey(Meeting, related_name="reminders", on_delete=models.CASCADE)
+    reminder_type = models.CharField(max_length=32, choices=TYPE_CHOICES)
+    recipient_number = models.CharField(max_length=20, blank=True)
+    screenshot = models.FileField(upload_to="meeting-reminders/", blank=True)
+    sent_at = models.DateTimeField(default=timezone.now)
+    sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="meeting_reminders",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["sent_at", "created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["meeting", "reminder_type"], name="unique_meeting_reminder_type"),
+        ]
+
+    def __str__(self):
+        return f"{self.meeting} - {self.get_reminder_type_display()}"
+
+
 def generate_sales_conversation_id():
     return f"SC-{uuid.uuid4().hex[:10].upper()}"
 

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Log Reminder{% endblock %}
+{% block content %}
+<section class="two-col">
+    <div class="panel form-panel">
+        <p class="eyebrow">Lead gen</p>
+        <h1>Log WhatsApp reminder</h1>
+        <p><strong>Meeting:</strong> {{ meeting.prospect.company_name }} / {{ meeting.prospect.contact_name }}</p>
+        <p><strong>Scheduled for:</strong> {{ meeting.scheduled_for }}</p>
+        <form method="post" enctype="multipart/form-data">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <button class="button button-primary" type="submit">Save reminder proof</button>
+        </form>
+    </div>
+    <div class="panel">
+        <h2>Recorded reminders</h2>
+        <table>
+            <thead><tr><th>Type</th><th>Sent at</th><th>Number</th><th>Screenshot</th></tr></thead>
+            <tbody>
+            {% for reminder in meeting.reminders.all %}
+                <tr>
+                    <td>{{ reminder.get_reminder_type_display }}</td>
+                    <td>{{ reminder.sent_at }}</td>
+                    <td>{{ reminder.recipient_number|default:"-" }}</td>
+                    <td>
+                        {% if reminder.screenshot %}
+                            <a href="{{ reminder.screenshot.url }}" target="_blank" rel="noreferrer">View screenshot</a>
+                        {% else %}
+                            -
+                        {% endif %}
+                    </td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="4">No reminders logged yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

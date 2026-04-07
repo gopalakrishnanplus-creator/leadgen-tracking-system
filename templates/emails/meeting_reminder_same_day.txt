@@ -1,0 +1,6 @@
+Dear {{ meeting.prospect.contact_name }},
+
+Just a friendly reminder that your meeting with Amit today at {{ meeting.scheduled_for }}
+
+Warm regards,
+{{ meeting.scheduled_by.name }}
