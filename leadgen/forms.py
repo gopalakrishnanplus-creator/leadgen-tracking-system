@@ -170,12 +170,32 @@ class ProspectCreateForm(StyledFormMixin, forms.ModelForm):
         return linkedin_url
 
 
+def active_staff_queryset():
+    return User.objects.filter(role=User.ROLE_STAFF, is_active=True).order_by("name", "email")
+
+
+class SupervisorProspectCreateForm(ProspectCreateForm):
+    assigned_to = forms.ModelChoiceField(queryset=User.objects.none(), empty_label=None)
+
+    class Meta(ProspectCreateForm.Meta):
+        fields = ["company_name", "contact_name", "linkedin_url", "phone_number", "assigned_to"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["assigned_to"].queryset = active_staff_queryset()
+
+
 class ProspectReviewForm(StyledFormMixin, forms.Form):
+    assigned_to = forms.ModelChoiceField(queryset=User.objects.none(), empty_label=None)
     decision = forms.ChoiceField(
         choices=[("accept", "Accept"), ("reject", "Reject")],
         widget=forms.RadioSelect,
     )
     supervisor_notes = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["assigned_to"].queryset = active_staff_queryset()
 
 
 class CallOutcomeForm(StyledFormMixin, forms.Form):

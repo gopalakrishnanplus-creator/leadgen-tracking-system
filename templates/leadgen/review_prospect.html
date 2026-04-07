@@ -2,10 +2,17 @@
 {% block title %}Review Prospect{% endblock %}
 {% block content %}
 <section class="panel form-panel">
-    <p class="eyebrow">Supervisor review</p>
-    <h1>{{ prospect.company_name }} / {{ prospect.contact_name }}</h1>
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Supervisor review</p>
+            <h1>{{ prospect.company_name }} / {{ prospect.contact_name }}</h1>
+        </div>
+        <div class="button-row">
+            <a class="button" href="{% url 'supervisor_prospect_review' %}">Back to review queue</a>
+        </div>
+    </div>
     <p><strong>LinkedIn:</strong> <a href="{{ prospect.linkedin_url }}" target="_blank" rel="noreferrer">{{ prospect.linkedin_url }}</a></p>
-    <p><strong>Assigned staff:</strong> {{ prospect.assigned_to.name }}</p>
+    <p><strong>Current assigned staff:</strong> {{ prospect.assigned_to.name }}</p>
     <form method="post">
         {% csrf_token %}
         {{ form.as_p }}

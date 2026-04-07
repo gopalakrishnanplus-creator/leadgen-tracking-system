@@ -24,6 +24,7 @@ urlpatterns = [
     path("supervisor/finance-managers/<int:user_id>/edit/", views.finance_manager_update, name="finance_manager_update"),
     path("supervisor/finance-managers/<int:user_id>/delete/", views.finance_manager_delete, name="finance_manager_delete"),
     path("supervisor/prospects/review/", views.supervisor_prospect_review, name="supervisor_prospect_review"),
+    path("supervisor/prospects/add/", views.supervisor_prospect_create, name="supervisor_prospect_create"),
     path("supervisor/prospects/<int:prospect_id>/review/", views.review_prospect, name="review_prospect"),
     path("supervisor/imports/", views.import_batch_create, name="import_batch_create"),
     path("supervisor/meetings/", views.supervisor_meeting_list, name="supervisor_meeting_list"),

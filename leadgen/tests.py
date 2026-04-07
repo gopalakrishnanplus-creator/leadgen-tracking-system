@@ -55,6 +55,15 @@ class LeadgenWorkflowTests(TestCase):
         )
         self.staff.set_unusable_password()
         self.staff.save()
+        self.other_staff = User.objects.create(
+            email="otherstaff@example.com",
+            username="otherstaff@example.com",
+            role=User.ROLE_STAFF,
+            name="Other Staff",
+            calling_number="+919900000003",
+        )
+        self.other_staff.set_unusable_password()
+        self.other_staff.save()
         self.sales_manager, _ = User.objects.get_or_create(
             email="amit@inditech.co.in",
             defaults={
@@ -242,7 +251,9 @@ class LeadgenWorkflowTests(TestCase):
         report = build_supervisor_report(datetime(2026, 3, 20).date(), datetime(2026, 3, 20).date(), "Asia/Kolkata")
         self.assertEqual(report["summary"]["attempts"], 1)
         self.assertEqual(report["summary"]["follow_ups"], 1)
-        self.assertEqual(report["staff_metrics"][0]["staff"], self.staff)
+        staff_metric = next(item for item in report["staff_metrics"] if item["staff"] == self.staff)
+        self.assertEqual(staff_metric["attempts"], 1)
+        self.assertEqual(staff_metric["follow_ups"], 1)
 
     @override_settings(
         SUPERVISOR_EMAIL="bhavesh.kataria@inditech.co.in",
@@ -309,6 +320,59 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(
             created.linkedin_url,
             "https://www.linkedin.com/in/bhavesh-kataria-456b27148",
+        )
+
+    def test_supervisor_can_reassign_pending_prospect_to_another_staff_member(self):
+        pending = Prospect.objects.create(
+            company_name="Pending Reassign Co",
+            contact_name="Pending Person",
+            linkedin_url="https://linkedin.com/in/pending-person",
+            phone_number="+919811111111",
+            assigned_to=self.staff,
+            created_by=self.staff,
+            approval_status=Prospect.APPROVAL_PENDING,
+            workflow_status=Prospect.WORKFLOW_PENDING_REVIEW,
+        )
+        self.client.force_login(self.supervisor)
+        response = self.client.post(
+            f"/supervisor/prospects/{pending.pk}/review/",
+            {
+                "assigned_to": self.other_staff.pk,
+                "decision": "accept",
+                "supervisor_notes": "Move this to the other caller.",
+            },
+        )
+        self.assertRedirects(response, "/supervisor/prospects/review/")
+        pending.refresh_from_db()
+        self.assertEqual(pending.assigned_to, self.other_staff)
+        self.assertEqual(pending.approval_status, Prospect.APPROVAL_ACCEPTED)
+        self.assertEqual(pending.workflow_status, Prospect.WORKFLOW_READY_TO_CALL)
+        staff_response = self.client.get(f"/supervisor/staff/{self.staff.pk}/dashboard/")
+        self.assertNotContains(staff_response, "Pending Reassign Co")
+        other_staff_response = self.client.get(f"/supervisor/staff/{self.other_staff.pk}/dashboard/")
+        self.assertContains(other_staff_response, "Pending Reassign Co")
+
+    def test_supervisor_can_add_prospect_and_assign_to_staff(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.post(
+            "/supervisor/prospects/add/",
+            {
+                "company_name": "Supervisor Added Co",
+                "contact_name": "Direct Prospect",
+                "linkedin_url": "www.linkedin.com/in/direct-prospect",
+                "phone_number": "8880011223",
+                "assigned_to": self.other_staff.pk,
+            },
+        )
+        self.assertRedirects(response, f"/supervisor/staff/{self.other_staff.pk}/dashboard/")
+        created = Prospect.objects.get(phone_number="8880011223")
+        self.assertEqual(created.assigned_to, self.other_staff)
+        self.assertEqual(created.created_by, self.supervisor)
+        self.assertEqual(created.approval_status, Prospect.APPROVAL_ACCEPTED)
+        self.assertEqual(created.workflow_status, Prospect.WORKFLOW_READY_TO_CALL)
+        self.assertEqual(
+            created.linkedin_url,
+            "https://www.linkedin.com/in/direct-prospect",
         )
 
     def test_scheduled_outcome_still_saves_when_invite_send_fails(self):

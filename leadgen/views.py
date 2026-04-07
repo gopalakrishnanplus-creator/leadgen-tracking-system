@@ -25,6 +25,7 @@ from .forms import (
     SalesManagerUpdateForm,
     StaffCreateForm,
     StaffUpdateForm,
+    SupervisorProspectCreateForm,
     SystemSettingForm,
 )
 from .models import (
@@ -275,10 +276,45 @@ def supervisor_prospect_review(request):
 
 
 @role_required(User.ROLE_SUPERVISOR)
+def supervisor_prospect_create(request):
+    form = SupervisorProspectCreateForm(
+        request.POST or None,
+        instance=Prospect(created_by=request.user),
+    )
+    if request.method == "POST" and form.is_valid():
+        prospect = form.save(commit=False)
+        prospect.created_by = request.user
+        prospect.approval_status = Prospect.APPROVAL_ACCEPTED
+        prospect.workflow_status = Prospect.WORKFLOW_READY_TO_CALL
+        prospect.reviewed_at = timezone.now()
+        prospect.accepted_at = timezone.now()
+        prospect.save()
+        messages.success(request, "Prospect added and assigned to lead gen staff.")
+        return redirect("supervisor_staff_dashboard", user_id=prospect.assigned_to_id)
+    return render(
+        request,
+        "leadgen/prospect_form.html",
+        {
+            "form": form,
+            "eyebrow": "Supervisor",
+            "title": "Add prospect",
+            "submit_label": "Add prospect",
+        },
+    )
+
+
+@role_required(User.ROLE_SUPERVISOR)
 def review_prospect(request, prospect_id):
     prospect = get_object_or_404(Prospect, pk=prospect_id)
-    form = ProspectReviewForm(request.POST or None, initial={"supervisor_notes": prospect.supervisor_notes})
+    form = ProspectReviewForm(
+        request.POST or None,
+        initial={
+            "assigned_to": prospect.assigned_to,
+            "supervisor_notes": prospect.supervisor_notes,
+        },
+    )
     if request.method == "POST" and form.is_valid():
+        prospect.assigned_to = form.cleaned_data["assigned_to"]
         prospect.supervisor_notes = form.cleaned_data["supervisor_notes"]
         prospect.reviewed_at = timezone.now()
         if form.cleaned_data["decision"] == "accept":
@@ -419,7 +455,16 @@ def staff_prospect_create(request):
         prospect.save()
         messages.success(request, "Prospect added for supervisor review.")
         return redirect("staff_prospect_list")
-    return render(request, "leadgen/prospect_form.html", {"form": form})
+    return render(
+        request,
+        "leadgen/prospect_form.html",
+        {
+            "form": form,
+            "eyebrow": "Lead gen",
+            "title": "Add prospect",
+            "submit_label": "Submit for review",
+        },
+    )
 
 
 def _get_staff_prospect(request, prospect_id):
