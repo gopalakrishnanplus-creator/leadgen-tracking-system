@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Manage Prospect{% endblock %}
+{% block content %}
+<section class="panel form-panel">
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Supervisor</p>
+            <h1>{{ prospect.company_name }} / {{ prospect.contact_name }}</h1>
+        </div>
+        <div class="button-row">
+            <a class="button" href="{% url 'supervisor_action_prospect_list' %}">Back to supervisor action list</a>
+        </div>
+    </div>
+    <p><strong>Phone:</strong> {{ prospect.phone_number }}</p>
+    <p><strong>LinkedIn:</strong> <a href="{{ prospect.linkedin_url }}" target="_blank" rel="noreferrer">{{ prospect.linkedin_url }}</a></p>
+    <p><strong>Current assigned staff:</strong> {{ prospect.assigned_to.name }}</p>
+    <p><strong>Comment:</strong> {{ prospect.system_action_note }}</p>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <div class="button-row">
+            <button class="button button-primary" type="submit" name="action" value="reassign">Reassign to selected staff</button>
+            <button class="button" type="submit" name="action" value="mark_invalid">Mark invalid number</button>
+        </div>
+    </form>
+</section>
+{% endblock %}

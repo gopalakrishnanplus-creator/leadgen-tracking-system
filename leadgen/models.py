@@ -109,6 +109,8 @@ class Prospect(models.Model):
     WORKFLOW_DECLINED = "does_not_agree"
     WORKFLOW_SCHEDULED = "scheduled"
     WORKFLOW_MEETING_HAPPENED = "meeting_happened"
+    WORKFLOW_SUPERVISOR_ACTION = "supervisor_action_required"
+    WORKFLOW_INVALID_NUMBER = "invalid_number"
     WORKFLOW_CHOICES = [
         (WORKFLOW_PENDING_REVIEW, "Pending review"),
         (WORKFLOW_READY_TO_CALL, "Ready to call"),
@@ -116,6 +118,8 @@ class Prospect(models.Model):
         (WORKFLOW_DECLINED, "Does not agree"),
         (WORKFLOW_SCHEDULED, "Scheduled"),
         (WORKFLOW_MEETING_HAPPENED, "Meeting happened"),
+        (WORKFLOW_SUPERVISOR_ACTION, "Supervisor action required"),
+        (WORKFLOW_INVALID_NUMBER, "Invalid number"),
     ]
 
     CRM_NOT_CALLED = "not_called"
@@ -159,6 +163,8 @@ class Prospect(models.Model):
     follow_up_reason = models.TextField(blank=True)
     decline_reason = models.TextField(blank=True)
     prospect_email = models.EmailField(blank=True)
+    system_action_note = models.TextField(blank=True)
+    no_answer_reset_count = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

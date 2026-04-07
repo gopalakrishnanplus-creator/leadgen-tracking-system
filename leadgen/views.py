@@ -17,6 +17,7 @@ from .forms import (
     ImportBatchForm,
     MeetingStatusUpdateForm,
     ProspectCreateForm,
+    SupervisorProspectActionForm,
     ProspectReviewForm,
     ReportFilterForm,
     SalesConversationFilterForm,
@@ -72,6 +73,12 @@ def healthcheck(request):
     return JsonResponse({"status": "ok" if ok else "error"}, status=status)
 
 
+STAFF_HIDDEN_WORKFLOWS = {
+    Prospect.WORKFLOW_INVALID_NUMBER,
+    Prospect.WORKFLOW_SUPERVISOR_ACTION,
+}
+
+
 @login_required
 def home(request):
     if request.user.is_supervisor:
@@ -94,6 +101,8 @@ def supervisor_dashboard(request):
         "staff_count": User.objects.filter(role=User.ROLE_STAFF, is_active=True).count(),
         "pending_review_count": Prospect.objects.filter(approval_status=Prospect.APPROVAL_PENDING).count(),
         "accepted_count": Prospect.objects.filter(approval_status=Prospect.APPROVAL_ACCEPTED).count(),
+        "invalid_number_count": Prospect.objects.filter(workflow_status=Prospect.WORKFLOW_INVALID_NUMBER).count(),
+        "supervisor_action_count": Prospect.objects.filter(workflow_status=Prospect.WORKFLOW_SUPERVISOR_ACTION).count(),
         "scheduled_count": Meeting.objects.filter(status=Meeting.STATUS_SCHEDULED).count(),
         "overdue_meeting_count": overdue_meetings.count(),
         "follow_up_count": Prospect.objects.filter(workflow_status=Prospect.WORKFLOW_FOLLOW_UP).count(),
@@ -128,7 +137,7 @@ def staff_create(request):
 
 
 def _build_staff_dashboard_context(staff_user):
-    prospects = Prospect.objects.filter(assigned_to=staff_user)
+    prospects = _visible_staff_prospects_queryset(staff_user)
     return {
         "dashboard_owner": staff_user,
         "total_prospects": prospects.count(),
@@ -144,8 +153,12 @@ def _build_staff_dashboard_context(staff_user):
     }
 
 
+def _visible_staff_prospects_queryset(staff_user):
+    return Prospect.objects.filter(assigned_to=staff_user).exclude(workflow_status__in=STAFF_HIDDEN_WORKFLOWS)
+
+
 def _filtered_staff_prospects_queryset(staff_user, status_filter):
-    prospects = Prospect.objects.filter(assigned_to=staff_user).order_by("-created_at")
+    prospects = _visible_staff_prospects_queryset(staff_user).order_by("-created_at")
     if status_filter == "accepted":
         return prospects.filter(approval_status=Prospect.APPROVAL_ACCEPTED)
     return prospects
@@ -273,6 +286,76 @@ def finance_manager_delete(request, user_id):
 def supervisor_prospect_review(request):
     prospects = Prospect.objects.filter(approval_status=Prospect.APPROVAL_PENDING).select_related("assigned_to")
     return render(request, "leadgen/supervisor_prospect_review.html", {"prospects": prospects})
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def supervisor_invalid_prospect_list(request):
+    prospects = Prospect.objects.filter(workflow_status=Prospect.WORKFLOW_INVALID_NUMBER).select_related("assigned_to")
+    return render(request, "leadgen/supervisor_invalid_prospect_list.html", {"prospects": prospects})
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def supervisor_action_prospect_list(request):
+    prospects = Prospect.objects.filter(workflow_status=Prospect.WORKFLOW_SUPERVISOR_ACTION).select_related("assigned_to")
+    return render(request, "leadgen/supervisor_action_prospect_list.html", {"prospects": prospects})
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def supervisor_action_prospect_manage(request, prospect_id):
+    prospect = get_object_or_404(Prospect.objects.select_related("assigned_to"), pk=prospect_id)
+    if prospect.workflow_status != Prospect.WORKFLOW_SUPERVISOR_ACTION:
+        raise Http404("This prospect does not require supervisor action.")
+    form = SupervisorProspectActionForm(
+        request.POST or None,
+        initial={
+            "assigned_to": prospect.assigned_to,
+            "supervisor_notes": prospect.supervisor_notes,
+        },
+    )
+    if request.method == "POST" and form.is_valid():
+        action = request.POST.get("action")
+        prospect.assigned_to = form.cleaned_data["assigned_to"]
+        prospect.supervisor_notes = form.cleaned_data["supervisor_notes"]
+        if action == "reassign":
+            prospect.workflow_status = Prospect.WORKFLOW_READY_TO_CALL
+            prospect.system_action_note = ""
+            prospect.no_answer_reset_count = prospect.call_logs.filter(crm_status=CallLog.STATUS_NO_ANSWER).count()
+            prospect.save(
+                update_fields=[
+                    "assigned_to",
+                    "supervisor_notes",
+                    "workflow_status",
+                    "system_action_note",
+                    "no_answer_reset_count",
+                    "updated_at",
+                ]
+            )
+            messages.success(request, "Prospect reassigned and returned to the lead gen staff dashboard.")
+            return redirect("supervisor_staff_dashboard", user_id=prospect.assigned_to_id)
+        if action == "mark_invalid":
+            prospect.workflow_status = Prospect.WORKFLOW_INVALID_NUMBER
+            prospect.system_action_note = "Marked invalid by supervisor after five unanswered attempts."
+            prospect.follow_up_date = None
+            prospect.follow_up_reason = ""
+            prospect.save(
+                update_fields=[
+                    "assigned_to",
+                    "supervisor_notes",
+                    "workflow_status",
+                    "system_action_note",
+                    "follow_up_date",
+                    "follow_up_reason",
+                    "updated_at",
+                ]
+            )
+            messages.success(request, "Prospect marked as an invalid number.")
+            return redirect("supervisor_invalid_prospect_list")
+        messages.error(request, "Choose a valid action.")
+    return render(
+        request,
+        "leadgen/supervisor_action_prospect_manage.html",
+        {"prospect": prospect, "form": form},
+    )
 
 
 @role_required(User.ROLE_SUPERVISOR)
@@ -473,6 +556,8 @@ def _get_staff_prospect(request, prospect_id):
         pk=prospect_id,
         assigned_to=request.user,
     )
+    if prospect.workflow_status in STAFF_HIDDEN_WORKFLOWS:
+        raise Http404("This prospect is not available for call updates.")
     if prospect.approval_status != Prospect.APPROVAL_ACCEPTED:
         raise Http404("This prospect is not yet available for call updates.")
     return prospect

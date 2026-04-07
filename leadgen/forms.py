@@ -198,6 +198,15 @@ class ProspectReviewForm(StyledFormMixin, forms.Form):
         self.fields["assigned_to"].queryset = active_staff_queryset()
 
 
+class SupervisorProspectActionForm(StyledFormMixin, forms.Form):
+    assigned_to = forms.ModelChoiceField(queryset=User.objects.none(), empty_label=None)
+    supervisor_notes = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["assigned_to"].queryset = active_staff_queryset()
+
+
 class CallOutcomeForm(StyledFormMixin, forms.Form):
     outcome = forms.ChoiceField(
         choices=[

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Supervisor Action Prospects{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">Supervisor</p>
+        <h1>Prospects needing supervisor action</h1>
+        <p class="note">These numbers were attempted five times with no answer and are now paused from staff dashboards.</p>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'supervisor_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>Company</th>
+                <th>Prospect</th>
+                <th>Phone</th>
+                <th>Current staff</th>
+                <th>Comment</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for prospect in prospects %}
+            <tr>
+                <td>{{ prospect.company_name }}</td>
+                <td>{{ prospect.contact_name }}</td>
+                <td>{{ prospect.phone_number }}</td>
+                <td>{{ prospect.assigned_to.name }}</td>
+                <td>{{ prospect.system_action_note }}</td>
+                <td><a href="{% url 'supervisor_action_prospect_manage' prospect.id %}">Manage</a></td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="6">No prospects currently need supervisor action.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

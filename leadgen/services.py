@@ -45,6 +45,11 @@ CRM_STATUS_MAP = {
     "failed": Prospect.CRM_FAILED,
 }
 
+ACTIVE_CALLING_WORKFLOWS = {
+    Prospect.WORKFLOW_READY_TO_CALL,
+    Prospect.WORKFLOW_FOLLOW_UP,
+}
+
 
 def normalize_phone(value):
     if value is None:
@@ -98,6 +103,42 @@ def refresh_prospect_call_metrics(prospect):
             "updated_at",
         ]
     )
+
+
+def unanswered_attempt_count(prospect):
+    return prospect.call_logs.filter(crm_status=CallLog.STATUS_NO_ANSWER).count()
+
+
+def refresh_prospect_import_state(prospect):
+    if prospect.approval_status != Prospect.APPROVAL_ACCEPTED:
+        return
+    if prospect.workflow_status == Prospect.WORKFLOW_INVALID_NUMBER:
+        return
+    if prospect.latest_crm_status == Prospect.CRM_FAILED:
+        prospect.workflow_status = Prospect.WORKFLOW_INVALID_NUMBER
+        prospect.system_action_note = "Reported as an invalid number by the Exotel import."
+        prospect.follow_up_date = None
+        prospect.follow_up_reason = ""
+        prospect.save(
+            update_fields=[
+                "workflow_status",
+                "system_action_note",
+                "follow_up_date",
+                "follow_up_reason",
+                "updated_at",
+            ]
+        )
+        return
+    if prospect.workflow_status not in ACTIVE_CALLING_WORKFLOWS:
+        return
+    unanswered_count = unanswered_attempt_count(prospect)
+    if (
+        prospect.latest_crm_status == Prospect.CRM_NO_ANSWER
+        and unanswered_count - prospect.no_answer_reset_count >= 5
+    ):
+        prospect.workflow_status = Prospect.WORKFLOW_SUPERVISOR_ACTION
+        prospect.system_action_note = "Attempted five times with no answer."
+        prospect.save(update_fields=["workflow_status", "system_action_note", "updated_at"])
 
 
 def database_healthcheck():
@@ -245,6 +286,7 @@ def import_exotel_report(batch):
     )
     for prospect in Prospect.objects.filter(pk__in=touched_prospects):
         refresh_prospect_call_metrics(prospect)
+        refresh_prospect_import_state(prospect)
 
 
 def unique_emails(*groups):

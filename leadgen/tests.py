@@ -98,6 +98,28 @@ class LeadgenWorkflowTests(TestCase):
             workflow_status=Prospect.WORKFLOW_READY_TO_CALL,
         )
 
+    def _import_rows(self, rows):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["Call SID", "Start Time", "End Time", "From", "To", "Direction", "Status"])
+        for row in rows:
+            sheet.append(row)
+        from io import BytesIO
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        batch = CallImportBatch.objects.create(
+            import_date=timezone.localdate(),
+            uploaded_file=SimpleUploadedFile(
+                "test_import.xlsx",
+                buffer.getvalue(),
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+            imported_by=self.supervisor,
+        )
+        import_exotel_report(batch)
+        return batch
+
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
     def test_scheduled_outcome_creates_meeting(self):
         meeting = apply_call_outcome(
@@ -177,28 +199,19 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(sales_conversation.contacts.first().name, self.prospect.contact_name)
 
     def test_import_updates_call_metrics(self):
-        workbook = Workbook()
-        sheet = workbook.active
-        sheet.append(["Call SID", "Start Time", "End Time", "From", "To", "Direction", "Status"])
-        sheet.append(
-            ["CA1", "2026-03-20 10:00", "2026-03-20 10:05", "+919900000001", "+919812345678", "outbound", "completed"]
+        self._import_rows(
+            [
+                [
+                    "CA1",
+                    "2026-03-20 10:00",
+                    "2026-03-20 10:05",
+                    "+919900000001",
+                    "+919812345678",
+                    "outbound",
+                    "completed",
+                ]
+            ]
         )
-        temp_path = self.settings.MEDIA_ROOT / "test_import.xlsx" if hasattr(self.settings, "MEDIA_ROOT") else None
-        from io import BytesIO
-
-        buffer = BytesIO()
-        workbook.save(buffer)
-        upload = SimpleUploadedFile(
-            "test_import.xlsx",
-            buffer.getvalue(),
-            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-        batch = CallImportBatch.objects.create(
-            import_date=timezone.localdate(),
-            uploaded_file=upload,
-            imported_by=self.supervisor,
-        )
-        import_exotel_report(batch)
         self.prospect.refresh_from_db()
         self.assertEqual(self.prospect.total_call_attempts, 1)
         self.assertEqual(self.prospect.total_connected_calls, 1)
@@ -228,32 +241,79 @@ class LeadgenWorkflowTests(TestCase):
             },
         )
         self.prospect.status_updates.update(created_at=timezone.make_aware(datetime(2026, 3, 20, 9, 0)))
-        workbook = Workbook()
-        sheet = workbook.active
-        sheet.append(["Call SID", "Start Time", "End Time", "From", "To", "Direction", "Status"])
-        sheet.append(
-            ["CA2", "2026-03-20 10:00", "2026-03-20 10:04", "+919900000001", "+919812345678", "outbound", "completed"]
+        self._import_rows(
+            [
+                [
+                    "CA2",
+                    "2026-03-20 10:00",
+                    "2026-03-20 10:04",
+                    "+919900000001",
+                    "+919812345678",
+                    "outbound",
+                    "completed",
+                ]
+            ]
         )
-        from io import BytesIO
-
-        buffer = BytesIO()
-        workbook.save(buffer)
-        batch = CallImportBatch.objects.create(
-            import_date=timezone.localdate(),
-            uploaded_file=SimpleUploadedFile(
-                "test_import_2.xlsx",
-                buffer.getvalue(),
-                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            ),
-            imported_by=self.supervisor,
-        )
-        import_exotel_report(batch)
         report = build_supervisor_report(datetime(2026, 3, 20).date(), datetime(2026, 3, 20).date(), "Asia/Kolkata")
         self.assertEqual(report["summary"]["attempts"], 1)
         self.assertEqual(report["summary"]["follow_ups"], 1)
         staff_metric = next(item for item in report["staff_metrics"] if item["staff"] == self.staff)
         self.assertEqual(staff_metric["attempts"], 1)
         self.assertEqual(staff_metric["follow_ups"], 1)
+
+    def test_import_failed_marks_prospect_invalid_and_hides_from_staff_views(self):
+        self._import_rows(
+            [
+                [
+                    "CA-FAILED-1",
+                    "2026-03-20 10:00",
+                    "2026-03-20 10:01",
+                    "+919900000001",
+                    "+919812345678",
+                    "outbound",
+                    "failed",
+                ]
+            ]
+        )
+        self.prospect.refresh_from_db()
+        self.assertEqual(self.prospect.workflow_status, Prospect.WORKFLOW_INVALID_NUMBER)
+        self.assertIn("invalid number", self.prospect.system_action_note.lower())
+        self.client.force_login(self.staff)
+        response = self.client.get("/staff/dashboard/")
+        self.assertNotContains(response, self.prospect.company_name)
+        invalid_response = self.client.get("/staff/prospects/")
+        self.assertNotContains(invalid_response, self.prospect.company_name)
+        self.client.force_login(self.supervisor)
+        supervisor_response = self.client.get("/supervisor/prospects/invalid/")
+        self.assertContains(supervisor_response, self.prospect.company_name)
+
+    def test_import_five_no_answers_moves_prospect_to_supervisor_action_queue(self):
+        self._import_rows(
+            [
+                [
+                    f"CA-NOANSWER-{index}",
+                    f"2026-03-2{index} 10:00",
+                    f"2026-03-2{index} 10:01",
+                    "+919900000001",
+                    "+919812345678",
+                    "outbound",
+                    "no-answer",
+                ]
+                for index in range(1, 6)
+            ]
+        )
+        self.prospect.refresh_from_db()
+        self.assertEqual(self.prospect.workflow_status, Prospect.WORKFLOW_SUPERVISOR_ACTION)
+        self.assertEqual(self.prospect.system_action_note, "Attempted five times with no answer.")
+        self.client.force_login(self.staff)
+        response = self.client.get("/staff/dashboard/")
+        self.assertNotContains(response, self.prospect.company_name)
+        hidden_response = self.client.get("/staff/prospects/")
+        self.assertNotContains(hidden_response, self.prospect.company_name)
+        self.client.force_login(self.supervisor)
+        supervisor_response = self.client.get("/supervisor/prospects/supervisor-action/")
+        self.assertContains(supervisor_response, self.prospect.company_name)
+        self.assertContains(supervisor_response, "Attempted five times with no answer.")
 
     @override_settings(
         SUPERVISOR_EMAIL="bhavesh.kataria@inditech.co.in",
@@ -374,6 +434,68 @@ class LeadgenWorkflowTests(TestCase):
             created.linkedin_url,
             "https://www.linkedin.com/in/direct-prospect",
         )
+
+    def test_supervisor_can_reassign_five_no_answer_prospect_to_other_staff(self):
+        self.prospect.workflow_status = Prospect.WORKFLOW_SUPERVISOR_ACTION
+        self.prospect.system_action_note = "Attempted five times with no answer."
+        self.prospect.save(update_fields=["workflow_status", "system_action_note", "updated_at"])
+        for index in range(5):
+            self.prospect.call_logs.create(
+                call_sid=f"REASSIGN-NOANSWER-{index}",
+                batch=CallImportBatch.objects.create(
+                    import_date=timezone.localdate(),
+                    uploaded_file=SimpleUploadedFile(f"batch-{index}.xlsx", b"placeholder"),
+                    imported_by=self.supervisor,
+                ),
+                staff=self.staff,
+                prospect=self.prospect,
+                started_at=timezone.now(),
+                ended_at=timezone.now(),
+                from_number=self.staff.calling_number,
+                to_number=self.prospect.phone_number,
+                direction="outbound",
+                crm_status="no-answer",
+                was_connected=False,
+                matched=True,
+                raw_data={},
+            )
+        self.client.force_login(self.supervisor)
+        response = self.client.post(
+            f"/supervisor/prospects/{self.prospect.pk}/manage/",
+            {
+                "assigned_to": self.other_staff.pk,
+                "supervisor_notes": "Try a different caller.",
+                "action": "reassign",
+            },
+        )
+        self.assertRedirects(response, f"/supervisor/staff/{self.other_staff.pk}/dashboard/")
+        self.prospect.refresh_from_db()
+        self.assertEqual(self.prospect.assigned_to, self.other_staff)
+        self.assertEqual(self.prospect.workflow_status, Prospect.WORKFLOW_READY_TO_CALL)
+        self.assertEqual(self.prospect.system_action_note, "")
+        self.assertEqual(self.prospect.no_answer_reset_count, 5)
+        new_staff_response = self.client.get(f"/supervisor/staff/{self.other_staff.pk}/dashboard/")
+        self.assertContains(new_staff_response, self.prospect.company_name)
+
+    def test_supervisor_can_mark_five_no_answer_prospect_invalid(self):
+        self.prospect.workflow_status = Prospect.WORKFLOW_SUPERVISOR_ACTION
+        self.prospect.system_action_note = "Attempted five times with no answer."
+        self.prospect.save(update_fields=["workflow_status", "system_action_note", "updated_at"])
+        self.client.force_login(self.supervisor)
+        response = self.client.post(
+            f"/supervisor/prospects/{self.prospect.pk}/manage/",
+            {
+                "assigned_to": self.staff.pk,
+                "supervisor_notes": "Invalid after repeated unanswered attempts.",
+                "action": "mark_invalid",
+            },
+        )
+        self.assertRedirects(response, "/supervisor/prospects/invalid/")
+        self.prospect.refresh_from_db()
+        self.assertEqual(self.prospect.workflow_status, Prospect.WORKFLOW_INVALID_NUMBER)
+        self.assertIn("marked invalid", self.prospect.system_action_note.lower())
+        invalid_response = self.client.get("/supervisor/prospects/invalid/")
+        self.assertContains(invalid_response, self.prospect.company_name)
 
     def test_scheduled_outcome_still_saves_when_invite_send_fails(self):
         with patch("leadgen.services.send_meeting_invitation", side_effect=RuntimeError("send failed")):

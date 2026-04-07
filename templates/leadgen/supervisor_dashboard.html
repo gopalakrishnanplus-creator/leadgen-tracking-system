@@ -13,6 +13,8 @@
     <article class="stat-card"><span>{{ finance_manager_count }}</span><p>Active finance managers</p></article>
     <article class="stat-card"><span>{{ pending_review_count }}</span><p>Pending prospect reviews</p></article>
     <article class="stat-card"><span>{{ accepted_count }}</span><p>Accepted prospects</p></article>
+    <article class="stat-card"><span>{{ invalid_number_count }}</span><p>Invalid numbers</p></article>
+    <article class="stat-card"><span>{{ supervisor_action_count }}</span><p>Need supervisor action</p></article>
     <article class="stat-card"><span>{{ scheduled_count }}</span><p>Scheduled meetings</p></article>
     <article class="stat-card"><span>{{ follow_up_count }}</span><p>Prospects in follow-up</p></article>
     <article class="stat-card"><span>{{ overdue_meeting_count }}</span><p>Meetings awaiting outcome update</p></article>
@@ -28,6 +30,8 @@
         <div class="button-row">
             <a class="button button-primary" href="{% url 'supervisor_prospect_review' %}">Open prospect review</a>
             <a class="button" href="{% url 'supervisor_prospect_create' %}">Add prospect</a>
+            <a class="button" href="{% url 'supervisor_invalid_prospect_list' %}">Invalid numbers</a>
+            <a class="button" href="{% url 'supervisor_action_prospect_list' %}">Five unanswered attempts</a>
         </div>
     </div>
 </section>
