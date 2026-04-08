@@ -293,6 +293,12 @@ def supervisor_prospect_review(request):
 
 
 @role_required(User.ROLE_SUPERVISOR)
+def supervisor_prospect_list(request):
+    prospects = Prospect.objects.select_related("assigned_to", "created_by").order_by("-created_at")
+    return render(request, "leadgen/supervisor_prospect_list.html", {"prospects": prospects})
+
+
+@role_required(User.ROLE_SUPERVISOR)
 def supervisor_invalid_prospect_list(request):
     prospects = Prospect.objects.filter(workflow_status=Prospect.WORKFLOW_INVALID_NUMBER).select_related("assigned_to")
     return render(request, "leadgen/supervisor_invalid_prospect_list.html", {"prospects": prospects})
@@ -414,6 +420,26 @@ def review_prospect(request, prospect_id):
         messages.success(request, "Prospect review updated.")
         return redirect("supervisor_prospect_review")
     return render(request, "leadgen/review_prospect.html", {"prospect": prospect, "form": form})
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def supervisor_prospect_delete(request, prospect_id):
+    prospect = get_object_or_404(Prospect.objects.select_related("assigned_to"), pk=prospect_id)
+    if request.method == "POST":
+        company_name = prospect.company_name
+        contact_name = prospect.contact_name
+        prospect.delete()
+        messages.success(request, f"Prospect deleted: {company_name} / {contact_name}.")
+        return redirect("supervisor_prospect_list")
+    return render(
+        request,
+        "leadgen/confirm_delete.html",
+        {
+            "object": prospect,
+            "title": "Delete prospect",
+            "description": "This will permanently remove the prospect and its meeting/status history from the system.",
+        },
+    )
 
 
 @role_required(User.ROLE_SUPERVISOR)

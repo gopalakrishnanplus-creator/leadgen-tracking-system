@@ -28,6 +28,7 @@
             <h2>Review incoming prospects, reassign staff ownership, and add new ones</h2>
         </div>
         <div class="button-row">
+            <a class="button" href="{% url 'supervisor_prospect_list' %}">All prospects</a>
             <a class="button button-primary" href="{% url 'supervisor_prospect_review' %}">Open prospect review</a>
             <a class="button" href="{% url 'supervisor_prospect_create' %}">Add prospect</a>
             <a class="button" href="{% url 'supervisor_invalid_prospect_list' %}">Invalid numbers</a>

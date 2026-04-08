@@ -1042,4 +1042,27 @@ class LeadgenWorkflowTests(TestCase):
         self.assertContains(response, self.prospect.company_name)
         self.assertNotContains(response, "Awaiting Review Co")
 
+    def test_supervisor_can_open_all_prospects_page(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.get("/supervisor/prospects/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.prospect.company_name)
+        self.assertContains(response, self.staff.name)
+
+    def test_supervisor_can_delete_any_prospect(self):
+        prospect = Prospect.objects.create(
+            company_name="Delete Me Co",
+            contact_name="Delete Person",
+            linkedin_url="https://linkedin.com/in/delete-person",
+            phone_number="+919812349999",
+            assigned_to=self.other_staff,
+            created_by=self.staff,
+            approval_status=Prospect.APPROVAL_ACCEPTED,
+            workflow_status=Prospect.WORKFLOW_READY_TO_CALL,
+        )
+        self.client.force_login(self.supervisor)
+        response = self.client.post(f"/supervisor/prospects/{prospect.pk}/delete/")
+        self.assertRedirects(response, "/supervisor/prospects/")
+        self.assertFalse(Prospect.objects.filter(pk=prospect.pk).exists())
+
 # Create your tests here.

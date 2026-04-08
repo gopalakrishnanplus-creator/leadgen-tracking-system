@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}All Prospects{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">Supervisor</p>
+        <h1>All assigned prospects</h1>
+        <p class="note">View and remove any prospect assigned to the lead gen team.</p>
+    </div>
+    <div class="button-row">
+        <a class="button button-primary" href="{% url 'supervisor_prospect_create' %}">Add prospect</a>
+        <a class="button" href="{% url 'supervisor_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>Company</th>
+                <th>Prospect</th>
+                <th>Phone</th>
+                <th>LinkedIn</th>
+                <th>Assigned staff</th>
+                <th>Approval</th>
+                <th>Workflow</th>
+                <th>Latest CRM status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for prospect in prospects %}
+            <tr>
+                <td>{{ prospect.company_name }}</td>
+                <td>{{ prospect.contact_name }}</td>
+                <td>{{ prospect.phone_number }}</td>
+                <td><a href="{{ prospect.linkedin_url }}" target="_blank" rel="noreferrer">Open</a></td>
+                <td>{{ prospect.assigned_to.name }}</td>
+                <td>{{ prospect.get_approval_status_display }}</td>
+                <td>{{ prospect.get_workflow_status_display }}</td>
+                <td>{{ prospect.get_latest_crm_status_display }}</td>
+                <td>
+                    <a href="{% url 'supervisor_prospect_delete' prospect.id %}">Delete</a>
+                </td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="9">No prospects found.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}
