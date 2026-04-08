@@ -41,6 +41,7 @@ from .services import (
     log_whatsapp_reminder,
     send_email,
     send_due_meeting_reminder_emails,
+    send_meeting_invitation,
     send_test_email_diagnostic,
     send_due_invoice_notifications,
     update_meeting_outcome,
@@ -251,6 +252,47 @@ class LeadgenWorkflowTests(TestCase):
         invite = build_calendar_invite(meeting, SystemSetting.load()).decode("utf-8")
         self.assertIn("https://teams.microsoft.com/meet/46370354924443?p=I1IIFzfeGnIxTIGznU", invite)
         self.assertIn("Meeting Platform: Teams meeting", invite)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
+    def test_meeting_invitation_email_uses_new_subject_and_only_meeting_link_point(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 30, 15, 0),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        mail.outbox = []
+
+        send_meeting_invitation(meeting)
+
+        self.assertEqual(len(mail.outbox), 1)
+        message = mail.outbox[0]
+        self.assertEqual(
+            message.subject,
+            "20-min: Outcome-Linked Campaign – Discussion with Acme",
+        )
+        self.assertIn("Meeting link:", message.body)
+        self.assertNotIn("Prospect:", message.body)
+        self.assertNotIn("Company:", message.body)
+        self.assertNotIn("LinkedIn:", message.body)
+        self.assertNotIn("Scheduled for:", message.body)
+        self.assertNotIn("Lead gen staff:", message.body)
+        self.assertNotIn("Meeting platform:", message.body)
+        html_alternative = message.alternatives[0]
+        html_body = getattr(html_alternative, "content", html_alternative[0])
+        self.assertIn("Meeting link:", html_body)
+        self.assertNotIn("Prospect:", html_body)
+        self.assertNotIn("Company:", html_body)
+        self.assertNotIn("LinkedIn:", html_body)
+        self.assertNotIn("Scheduled for:", html_body)
+        self.assertNotIn("Lead gen staff:", html_body)
+        self.assertNotIn("Meeting platform:", html_body)
 
     def test_log_whatsapp_reminder_creates_proof_record(self):
         meeting = apply_call_outcome(

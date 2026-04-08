@@ -1,19 +1,8 @@
 <p>Hello,</p>
 <p>A meeting has been scheduled with {{ meeting.prospect.contact_name }} from {{ meeting.prospect.company_name }}.</p>
 <ul>
-    <li>Prospect: {{ meeting.prospect.contact_name }}</li>
-    <li>Company: {{ meeting.prospect.company_name }}</li>
-    <li>LinkedIn: {{ meeting.prospect.linkedin_url }}</li>
-    <li>Scheduled for: {{ meeting.scheduled_for }}</li>
-    <li>Lead gen staff: {{ meeting.scheduled_by.name }}</li>
-    <li>Meeting platform: {{ meeting.get_meeting_platform_display }}</li>
     {% if meeting.meeting_link %}
         <li>Meeting link: <a href="{{ meeting.meeting_link }}">{{ meeting.meeting_link }}</a></li>
     {% endif %}
-    {% for line in meeting.meeting_access_lines %}
-        {% if line != meeting.meeting_link %}
-            <li>{{ line }}</li>
-        {% endif %}
-    {% endfor %}
 </ul>
 <p>The calendar invitation is attached.</p>

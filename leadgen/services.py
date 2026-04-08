@@ -548,7 +548,7 @@ def send_meeting_invitation(meeting):
         {"meeting": meeting, "settings_obj": settings_obj},
     )
     send_email(
-        subject=f"Meeting invitation: {meeting.prospect.company_name} / {meeting.prospect.contact_name}",
+        subject=f"20-min: Outcome-Linked Campaign – Discussion with {meeting.prospect.company_name}",
         html_body=html_body,
         text_body=text_body,
         to_emails=[meeting.prospect_email],
