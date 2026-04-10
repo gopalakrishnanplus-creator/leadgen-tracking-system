@@ -30,6 +30,14 @@ class MultiFileInput(forms.ClearableFileInput):
     allow_multiple_selected = True
 
 
+def installment_textarea_field(label):
+    return forms.CharField(
+        required=False,
+        label=label,
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+
+
 class FixedRoleUserFormMixin:
     target_role = None
 
@@ -478,26 +486,44 @@ class ContractCollectionForm(StyledFormMixin, forms.ModelForm):
     installment_1_invoice_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 1 invoice date")
     installment_1_expected_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 1 expected collection date")
     installment_1_revised_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 1 revised collection date")
+    installment_1_contract_summary = installment_textarea_field("Installment 1 contract summary")
+    installment_1_service_description = installment_textarea_field("Installment 1 invoiced service description")
+    installment_1_legal_due_reason = installment_textarea_field("Installment 1 why the invoice is legally due")
     installment_2_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 2 amount")
     installment_2_invoice_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 2 invoice date")
     installment_2_expected_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 2 expected collection date")
     installment_2_revised_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 2 revised collection date")
+    installment_2_contract_summary = installment_textarea_field("Installment 2 contract summary")
+    installment_2_service_description = installment_textarea_field("Installment 2 invoiced service description")
+    installment_2_legal_due_reason = installment_textarea_field("Installment 2 why the invoice is legally due")
     installment_3_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 3 amount")
     installment_3_invoice_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 3 invoice date")
     installment_3_expected_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 3 expected collection date")
     installment_3_revised_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 3 revised collection date")
+    installment_3_contract_summary = installment_textarea_field("Installment 3 contract summary")
+    installment_3_service_description = installment_textarea_field("Installment 3 invoiced service description")
+    installment_3_legal_due_reason = installment_textarea_field("Installment 3 why the invoice is legally due")
     installment_4_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 4 amount")
     installment_4_invoice_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 4 invoice date")
     installment_4_expected_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 4 expected collection date")
     installment_4_revised_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 4 revised collection date")
+    installment_4_contract_summary = installment_textarea_field("Installment 4 contract summary")
+    installment_4_service_description = installment_textarea_field("Installment 4 invoiced service description")
+    installment_4_legal_due_reason = installment_textarea_field("Installment 4 why the invoice is legally due")
     installment_5_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 5 amount")
     installment_5_invoice_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 5 invoice date")
     installment_5_expected_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 5 expected collection date")
     installment_5_revised_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 5 revised collection date")
+    installment_5_contract_summary = installment_textarea_field("Installment 5 contract summary")
+    installment_5_service_description = installment_textarea_field("Installment 5 invoiced service description")
+    installment_5_legal_due_reason = installment_textarea_field("Installment 5 why the invoice is legally due")
     installment_6_amount = forms.DecimalField(required=False, min_value=0, decimal_places=2, max_digits=14, label="Installment 6 amount")
     installment_6_invoice_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 6 invoice date")
     installment_6_expected_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 6 expected collection date")
     installment_6_revised_collection_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}), label="Installment 6 revised collection date")
+    installment_6_contract_summary = installment_textarea_field("Installment 6 contract summary")
+    installment_6_service_description = installment_textarea_field("Installment 6 invoiced service description")
+    installment_6_legal_due_reason = installment_textarea_field("Installment 6 why the invoice is legally due")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -525,6 +551,9 @@ class ContractCollectionForm(StyledFormMixin, forms.ModelForm):
                     self.fields[f"installment_{position}_expected_collection_date"].disabled = True
                 if installment.revised_collection_date is not None:
                     self.fields[f"installment_{position}_revised_collection_date"].initial = installment.revised_collection_date
+                self.fields[f"installment_{position}_contract_summary"].initial = installment.contract_summary
+                self.fields[f"installment_{position}_service_description"].initial = installment.invoiced_service_description
+                self.fields[f"installment_{position}_legal_due_reason"].initial = installment.legal_due_reason
             if self.instance.contract_value is not None:
                 self.fields["contract_value"].disabled = True
                 self.fields["contract_value"].help_text = "Contract value can only be set once."
@@ -566,9 +595,48 @@ class ContractCollectionForm(StyledFormMixin, forms.ModelForm):
             invoice_date = cleaned_data.get(f"installment_{position}_invoice_date")
             expected_date = cleaned_data.get(f"installment_{position}_expected_collection_date")
             revised_date = cleaned_data.get(f"installment_{position}_revised_collection_date")
-            if any(value not in (None, "") for value in [amount, invoice_date, expected_date, revised_date]):
+            contract_summary = (cleaned_data.get(f"installment_{position}_contract_summary") or "").strip()
+            service_description = (cleaned_data.get(f"installment_{position}_service_description") or "").strip()
+            legal_due_reason = (cleaned_data.get(f"installment_{position}_legal_due_reason") or "").strip()
+            if any(
+                value not in (None, "")
+                for value in [
+                    amount,
+                    invoice_date,
+                    expected_date,
+                    revised_date,
+                    contract_summary,
+                    service_description,
+                    legal_due_reason,
+                ]
+            ):
                 if amount in (None, ""):
                     self.add_error(f"installment_{position}_amount", "Installment amount is required when installment dates are provided.")
+                if invoice_date in (None, ""):
+                    self.add_error(
+                        f"installment_{position}_invoice_date",
+                        "Invoice date is required when installment details are provided.",
+                    )
+                if expected_date in (None, ""):
+                    self.add_error(
+                        f"installment_{position}_expected_collection_date",
+                        "Expected collection date is required when installment details are provided.",
+                    )
+                if not contract_summary:
+                    self.add_error(
+                        f"installment_{position}_contract_summary",
+                        "Contract summary is required when installment details are provided.",
+                    )
+                if not service_description:
+                    self.add_error(
+                        f"installment_{position}_service_description",
+                        "Invoiced service description is required when installment details are provided.",
+                    )
+                if not legal_due_reason:
+                    self.add_error(
+                        f"installment_{position}_legal_due_reason",
+                        "Legal due reason is required when installment details are provided.",
+                    )
                 installments.append(
                     {
                         "position": position,
@@ -576,6 +644,9 @@ class ContractCollectionForm(StyledFormMixin, forms.ModelForm):
                         "invoice_date": invoice_date,
                         "expected_collection_date": expected_date,
                         "revised_collection_date": revised_date,
+                        "contract_summary": contract_summary,
+                        "invoiced_service_description": service_description,
+                        "legal_due_reason": legal_due_reason,
                     }
                 )
         cleaned_data["installment_rows"] = installments

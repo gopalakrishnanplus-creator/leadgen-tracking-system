@@ -871,11 +871,41 @@ class LeadgenWorkflowTests(TestCase):
                 "installment_1_invoice_date": "2026-04-10",
                 "installment_1_expected_collection_date": "2026-04-20",
                 "installment_1_revised_collection_date": "",
+                "installment_1_contract_summary": "Master Services Agreement between Inditech and Acme dated April 1, 2026",
+                "installment_1_service_description": "Outcome-linked campaign strategy and activation services for Q2",
+                "installment_1_legal_due_reason": "Invoice is due under milestone 1 acceptance confirmed by the client.",
             }
         )
         self.assertTrue(form.is_valid(), form.errors.as_json())
         self.assertEqual(form.cleaned_data["contact_rows"][0]["name"], "Jane Doe")
         self.assertEqual(form.cleaned_data["installment_rows"][0]["position"], 1)
+        self.assertEqual(
+            form.cleaned_data["installment_rows"][0]["contract_summary"],
+            "Master Services Agreement between Inditech and Acme dated April 1, 2026",
+        )
+
+    def test_contract_form_requires_invoice_reference_fields_for_each_installment(self):
+        form = ContractCollectionForm(
+            data={
+                "company_name": "Acme Contracts",
+                "sales_manager": self.sales_manager.pk,
+                "contract_value": "150000.00",
+                "contact_1_name": "Jane Doe",
+                "contact_1_email": "jane@example.com",
+                "contact_1_whatsapp": "9999999999",
+                "installment_1_amount": "50000.00",
+                "installment_1_invoice_date": "2026-04-10",
+                "installment_1_expected_collection_date": "2026-04-20",
+                "installment_1_revised_collection_date": "",
+                "installment_1_contract_summary": "",
+                "installment_1_service_description": "",
+                "installment_1_legal_due_reason": "",
+            }
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("installment_1_contract_summary", form.errors)
+        self.assertIn("installment_1_service_description", form.errors)
+        self.assertIn("installment_1_legal_due_reason", form.errors)
 
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
     def test_send_due_invoice_notifications_sends_email_for_today(self):
@@ -892,6 +922,9 @@ class LeadgenWorkflowTests(TestCase):
             installment_amount="25000.00",
             invoice_date=timezone.localdate(),
             expected_collection_date=timezone.localdate(),
+            contract_summary="Agreement between Inditech and Invoice Co dated April 1, 2026",
+            invoiced_service_description="Campaign setup and launch services",
+            legal_due_reason="Milestone one deliverables were accepted by the client.",
         )
         sent_count = send_due_invoice_notifications(timezone.localdate())
         installment.refresh_from_db()
@@ -899,6 +932,9 @@ class LeadgenWorkflowTests(TestCase):
         self.assertIsNotNone(installment.invoice_notification_sent_at)
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("Invoice to be raised today", mail.outbox[0].subject)
+        self.assertIn("Agreement between Inditech and Invoice Co dated April 1, 2026", mail.outbox[0].body)
+        self.assertIn("Campaign setup and launch services", mail.outbox[0].body)
+        self.assertIn("Milestone one deliverables were accepted by the client.", mail.outbox[0].body)
 
     @override_settings(
         SENDGRID_API_KEY="test-sendgrid-key",

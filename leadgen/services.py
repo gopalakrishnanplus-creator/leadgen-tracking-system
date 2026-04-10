@@ -926,6 +926,9 @@ def sync_contract_collection_data(contract_collection, cleaned_data, uploaded_fi
         if installment.expected_collection_date is None and row["expected_collection_date"] is not None:
             installment.expected_collection_date = row["expected_collection_date"]
         installment.revised_collection_date = row["revised_collection_date"]
+        installment.contract_summary = row["contract_summary"]
+        installment.invoiced_service_description = row["invoiced_service_description"]
+        installment.legal_due_reason = row["legal_due_reason"]
         installment.save()
 
     if contract_collection.source_sales_conversation_id and contract_collection.sales_manager_id:

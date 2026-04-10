@@ -8,6 +8,9 @@ Installment amount: Rs {{ installment.installment_amount }}
 Invoice date: {{ installment.invoice_date }}
 Expected collection date: {{ installment.expected_collection_date|default:"-" }}
 Revised collection date: {{ installment.revised_collection_date|default:"-" }}
+Contract summary: {{ installment.contract_summary|default:"-" }}
+Invoiced service description: {{ installment.invoiced_service_description|default:"-" }}
+Why the invoice is legally due: {{ installment.legal_due_reason|default:"-" }}
 Contract value: {% if contract.contract_value %}Rs {{ contract.contract_value }}{% else %}-{% endif %}
 
 Contacts:

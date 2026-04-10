@@ -8,6 +8,9 @@
     <li>Invoice date: {{ installment.invoice_date }}</li>
     <li>Expected collection date: {{ installment.expected_collection_date|default:"-" }}</li>
     <li>Revised collection date: {{ installment.revised_collection_date|default:"-" }}</li>
+    <li>Contract summary: {{ installment.contract_summary|default:"-" }}</li>
+    <li>Invoiced service description: {{ installment.invoiced_service_description|default:"-" }}</li>
+    <li>Why the invoice is legally due: {{ installment.legal_due_reason|default:"-" }}</li>
     <li>Contract value: {% if contract.contract_value %}Rs {{ contract.contract_value }}{% else %}-{% endif %}</li>
 </ul>
 <p>Contacts:</p>
