@@ -659,6 +659,8 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(user.pk, self.supervisor.pk)
         user = adapter._authorized_user_for_email("gopala.krishnan@inditech.co.in")
         self.assertEqual(user.pk, self.supervisor.pk)
+        user = adapter._authorized_user_for_email("leesaamit@gmail.com")
+        self.assertEqual(user.pk, self.supervisor.pk)
 
     def test_login_page_posts_to_google_provider(self):
         response = self.client.get("/login/")

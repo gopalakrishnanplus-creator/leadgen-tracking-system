@@ -7,7 +7,21 @@ from django.shortcuts import redirect
 from .models import User
 
 
+DEFAULT_SUPERVISOR_ALIASES = {
+    "gopala.krishnan@inditech.co.in",
+    "gkinchina@gmail.com",
+    "bhavesh.kataria@inditech.co.in",
+    "leesaamit@gmail.com",
+}
+
+
 class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
+    def _supervisor_allowed_emails(self):
+        return {
+            *DEFAULT_SUPERVISOR_ALIASES,
+            *(email.strip().lower() for email in settings.SUPERVISOR_ALLOWED_EMAILS if email),
+        }
+
     def _normalized_email(self, sociallogin):
         return (
             sociallogin.account.extra_data.get("email")
@@ -39,7 +53,7 @@ class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
         normalized = (email or "").strip().lower()
         if not normalized:
             return None
-        if normalized in settings.SUPERVISOR_ALLOWED_EMAILS:
+        if normalized in self._supervisor_allowed_emails():
             return self._supervisor_user()
         user = User.objects.filter(email__iexact=normalized).first()
         if user:
@@ -60,7 +74,7 @@ class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
                 messages.error(request, "Your account is inactive.")
                 raise ImmediateHttpResponse(redirect("login"))
             if user.is_supervisor:
-                if external_email not in settings.SUPERVISOR_ALLOWED_EMAILS:
+                if external_email not in self._supervisor_allowed_emails():
                     messages.error(request, "This Google account is not authorized for supervisor access.")
                     raise ImmediateHttpResponse(redirect("login"))
                 return
