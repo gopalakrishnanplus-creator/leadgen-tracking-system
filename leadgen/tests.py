@@ -236,6 +236,87 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(self.prospect.total_call_attempts, 1)
         self.assertEqual(self.prospect.total_connected_calls, 1)
 
+    def test_import_matches_numeric_excel_phone_cells_to_plain_digit_staff_and_prospect_numbers(self):
+        numeric_staff = User.objects.create(
+            email="numericstaff@example.com",
+            username="numericstaff@example.com",
+            role=User.ROLE_STAFF,
+            name="Numeric Staff",
+            calling_number="2263083600",
+        )
+        numeric_staff.set_unusable_password()
+        numeric_staff.save()
+        numeric_prospect = Prospect.objects.create(
+            company_name="Numeric Import Co",
+            contact_name="Numeric Prospect",
+            linkedin_url="https://linkedin.com/in/numeric-prospect",
+            phone_number="9899377578",
+            assigned_to=numeric_staff,
+            created_by=self.supervisor,
+            approval_status=Prospect.APPROVAL_ACCEPTED,
+            workflow_status=Prospect.WORKFLOW_READY_TO_CALL,
+        )
+
+        self._import_rows(
+            [
+                [
+                    "CA-NUMERIC-1",
+                    datetime(2026, 3, 20, 13, 14),
+                    datetime(2026, 3, 20, 13, 15),
+                    2263083600.0,
+                    9899377578.0,
+                    "outbound",
+                    "no-answer",
+                ]
+            ]
+        )
+
+        log = CallLog.objects.get(call_sid="CA-NUMERIC-1")
+        self.assertEqual(log.staff, numeric_staff)
+        self.assertEqual(log.prospect, numeric_prospect)
+        report = build_daily_target_report(target_date=datetime(2026, 3, 20).date(), tz_name="Asia/Kolkata")
+        staff_row = next(item for item in report["staff_rows"] if item["staff"] == numeric_staff)
+        self.assertEqual(staff_row["actual_attempts"], 1)
+
+    def test_import_matches_india_country_code_variants_for_prospect_numbers(self):
+        local_number_staff = User.objects.create(
+            email="localnumberstaff@example.com",
+            username="localnumberstaff@example.com",
+            role=User.ROLE_STAFF,
+            name="Local Number Staff",
+            calling_number="9240940704",
+        )
+        local_number_staff.set_unusable_password()
+        local_number_staff.save()
+        local_number_prospect = Prospect.objects.create(
+            company_name="Country Code Import Co",
+            contact_name="Country Code Prospect",
+            linkedin_url="https://linkedin.com/in/country-code-prospect",
+            phone_number="9004584090",
+            assigned_to=local_number_staff,
+            created_by=self.supervisor,
+            approval_status=Prospect.APPROVAL_ACCEPTED,
+            workflow_status=Prospect.WORKFLOW_READY_TO_CALL,
+        )
+
+        self._import_rows(
+            [
+                [
+                    "CA-COUNTRYCODE-1",
+                    datetime(2026, 3, 20, 12, 14),
+                    datetime(2026, 3, 20, 12, 16),
+                    9240940704.0,
+                    919004584090.0,
+                    "outbound",
+                    "completed",
+                ]
+            ]
+        )
+
+        log = CallLog.objects.get(call_sid="CA-COUNTRYCODE-1")
+        self.assertEqual(log.staff, local_number_staff)
+        self.assertEqual(log.prospect, local_number_prospect)
+
     def test_calendar_invite_includes_selected_meeting_link(self):
         meeting = apply_call_outcome(
             self.prospect,

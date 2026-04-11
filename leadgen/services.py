@@ -1,7 +1,7 @@
 import logging
 import base64
 import socket
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -60,15 +60,46 @@ REMINDER_GRACE_WINDOWS = {
 
 
 def normalize_phone(value):
+    digits = phone_digits(value)
+    return f"+{digits}" if digits else ""
+
+
+def phone_digits(value):
     if value is None:
         return ""
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+        return "".join(ch for ch in format(value, "f") if ch.isdigit())
     text = str(value).strip()
     if not text:
         return ""
+    try:
+        decimal_value = Decimal(text.replace(",", ""))
+    except (InvalidOperation, ValueError):
+        decimal_value = None
+    if decimal_value is not None and decimal_value == decimal_value.to_integral_value():
+        return str(int(decimal_value))
     if text.startswith("+"):
-        return "+" + "".join(ch for ch in text[1:] if ch.isdigit())
-    digits = "".join(ch for ch in text if ch.isdigit())
-    return f"+{digits}" if digits else ""
+        return "".join(ch for ch in text[1:] if ch.isdigit())
+    return "".join(ch for ch in text if ch.isdigit())
+
+
+def phone_lookup_variants(value):
+    digits = phone_digits(value)
+    if not digits:
+        return set()
+    variants = {digits, f"+{digits}"}
+    if len(digits) == 10:
+        variants.add(f"91{digits}")
+        variants.add(f"+91{digits}")
+    if len(digits) == 12 and digits.startswith("91"):
+        local_digits = digits[2:]
+        variants.add(local_digits)
+        variants.add(f"+{local_digits}")
+    return variants
 
 
 def parse_report_datetime(value, tz_name):
@@ -279,10 +310,16 @@ def import_exotel_report(batch):
         if crm_status not in dict(CallLog.STATUS_CHOICES):
             crm_status = CallLog.STATUS_FAILED
 
-        staff = User.objects.filter(role=User.ROLE_STAFF, calling_number=from_number).first()
+        staff = User.objects.filter(
+            role=User.ROLE_STAFF,
+            calling_number__in=phone_lookup_variants(row_data["From"]),
+        ).first()
         prospect = None
         if staff:
-            prospect = Prospect.objects.filter(assigned_to=staff, phone_number=to_number).first()
+            prospect = Prospect.objects.filter(
+                assigned_to=staff,
+                phone_number__in=phone_lookup_variants(row_data["To"]),
+            ).first()
         matched = bool(staff and prospect)
         defaults = {
             "batch": batch,
