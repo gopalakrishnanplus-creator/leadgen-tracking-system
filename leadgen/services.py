@@ -919,10 +919,10 @@ def get_or_create_contract_collection_from_sales_conversation(sales_conversation
     return contract_collection
 
 
-def sync_contract_collection_data(contract_collection, cleaned_data, uploaded_files=None):
+def sync_contract_collection_data(contract_collection, cleaned_data, uploaded_files=None, allow_locked_field_edits=False):
     uploaded_files = uploaded_files or {}
     contract_collection.sales_manager = cleaned_data.get("sales_manager")
-    if contract_collection.contract_value is None:
+    if allow_locked_field_edits or contract_collection.contract_value is None:
         contract_collection.contract_value = cleaned_data.get("contract_value")
     contract_collection.save()
 
@@ -955,12 +955,17 @@ def sync_contract_collection_data(contract_collection, cleaned_data, uploaded_fi
                 contract_collection=contract_collection,
                 position=row["position"],
             )
-        if installment.installment_amount is None and row["installment_amount"] is not None:
+        if (allow_locked_field_edits or installment.installment_amount is None) and row["installment_amount"] is not None:
             installment.installment_amount = row["installment_amount"]
-        if installment.invoice_date is None and row["invoice_date"] is not None:
+        if row["invoice_date"] is not None and (
+            allow_locked_field_edits or installment.invoice_date is None
+        ):
+            if installment.invoice_date != row["invoice_date"]:
+                installment.invoice_notification_sent_at = None
             installment.invoice_date = row["invoice_date"]
-            installment.invoice_notification_sent_at = None
-        if installment.expected_collection_date is None and row["expected_collection_date"] is not None:
+        if row["expected_collection_date"] is not None and (
+            allow_locked_field_edits or installment.expected_collection_date is None
+        ):
             installment.expected_collection_date = row["expected_collection_date"]
         installment.revised_collection_date = row["revised_collection_date"]
         installment.contract_summary = row["contract_summary"]

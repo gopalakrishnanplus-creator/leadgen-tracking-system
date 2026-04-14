@@ -525,7 +525,8 @@ class ContractCollectionForm(StyledFormMixin, forms.ModelForm):
     installment_6_service_description = installment_textarea_field("Installment 6 invoiced service description")
     installment_6_legal_due_reason = installment_textarea_field("Installment 6 why the invoice is legally due")
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, allow_locked_field_edits=False, **kwargs):
+        self.allow_locked_field_edits = allow_locked_field_edits
         super().__init__(*args, **kwargs)
         self.fields["sales_manager"].queryset = User.objects.filter(
             role=User.ROLE_SALES_MANAGER,
@@ -542,21 +543,22 @@ class ContractCollectionForm(StyledFormMixin, forms.ModelForm):
             for position, installment in installments.items():
                 if installment.installment_amount is not None:
                     self.fields[f"installment_{position}_amount"].initial = installment.installment_amount
-                    self.fields[f"installment_{position}_amount"].disabled = True
+                    self.fields[f"installment_{position}_amount"].disabled = not self.allow_locked_field_edits
                 if installment.invoice_date is not None:
                     self.fields[f"installment_{position}_invoice_date"].initial = installment.invoice_date
-                    self.fields[f"installment_{position}_invoice_date"].disabled = True
+                    self.fields[f"installment_{position}_invoice_date"].disabled = not self.allow_locked_field_edits
                 if installment.expected_collection_date is not None:
                     self.fields[f"installment_{position}_expected_collection_date"].initial = installment.expected_collection_date
-                    self.fields[f"installment_{position}_expected_collection_date"].disabled = True
+                    self.fields[f"installment_{position}_expected_collection_date"].disabled = not self.allow_locked_field_edits
                 if installment.revised_collection_date is not None:
                     self.fields[f"installment_{position}_revised_collection_date"].initial = installment.revised_collection_date
                 self.fields[f"installment_{position}_contract_summary"].initial = installment.contract_summary
                 self.fields[f"installment_{position}_service_description"].initial = installment.invoiced_service_description
                 self.fields[f"installment_{position}_legal_due_reason"].initial = installment.legal_due_reason
             if self.instance.contract_value is not None:
-                self.fields["contract_value"].disabled = True
-                self.fields["contract_value"].help_text = "Contract value can only be set once."
+                self.fields["contract_value"].disabled = not self.allow_locked_field_edits
+                if not self.allow_locked_field_edits:
+                    self.fields["contract_value"].help_text = "Contract value can only be set once."
             if self.instance.files.exists():
                 self.fields["contract_files"].disabled = True
                 self.fields["contract_files"].help_text = "Contract files can only be uploaded once."

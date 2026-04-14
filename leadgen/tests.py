@@ -990,6 +990,118 @@ class LeadgenWorkflowTests(TestCase):
         self.assertIn("installment_1_service_description", form.errors)
         self.assertIn("installment_1_legal_due_reason", form.errors)
 
+    def test_supervisor_can_edit_locked_contract_fields_on_existing_contract(self):
+        contract_collection = ContractCollection.objects.create(
+            company_name="Editable Contract Co",
+            sales_manager=self.sales_manager,
+            contract_value="100000.00",
+            created_by=self.supervisor,
+        )
+        contract_collection.contacts.create(position=1, name="Jane Doe", email="jane@example.com", whatsapp_number="9999999999")
+        installment = ContractCollectionInstallment.objects.create(
+            contract_collection=contract_collection,
+            position=1,
+            installment_amount="25000.00",
+            invoice_date=datetime(2026, 4, 10).date(),
+            expected_collection_date=datetime(2026, 4, 20).date(),
+            contract_summary="Initial contract summary",
+            invoiced_service_description="Initial service description",
+            legal_due_reason="Initial legal due reason",
+        )
+
+        self.client.force_login(self.supervisor)
+        response = self.client.post(
+            f"/contracts/{contract_collection.pk}/",
+            {
+                "form_type": "terms",
+                "company_name": contract_collection.company_name,
+                "sales_manager": self.sales_manager.pk,
+                "contract_value": "125000.00",
+                "contact_1_name": "Jane Doe",
+                "contact_1_email": "jane@example.com",
+                "contact_1_whatsapp": "9999999999",
+                "contact_2_name": "",
+                "contact_2_email": "",
+                "contact_2_whatsapp": "",
+                "contact_3_name": "",
+                "contact_3_email": "",
+                "contact_3_whatsapp": "",
+                "installment_1_amount": "30000.00",
+                "installment_1_invoice_date": "2026-04-12",
+                "installment_1_expected_collection_date": "2026-04-25",
+                "installment_1_revised_collection_date": "",
+                "installment_1_contract_summary": "Updated contract summary",
+                "installment_1_service_description": "Updated service description",
+                "installment_1_legal_due_reason": "Updated legal due reason",
+                "installment_2_amount": "",
+                "installment_2_invoice_date": "",
+                "installment_2_expected_collection_date": "",
+                "installment_2_revised_collection_date": "",
+                "installment_2_contract_summary": "",
+                "installment_2_service_description": "",
+                "installment_2_legal_due_reason": "",
+                "installment_3_amount": "",
+                "installment_3_invoice_date": "",
+                "installment_3_expected_collection_date": "",
+                "installment_3_revised_collection_date": "",
+                "installment_3_contract_summary": "",
+                "installment_3_service_description": "",
+                "installment_3_legal_due_reason": "",
+                "installment_4_amount": "",
+                "installment_4_invoice_date": "",
+                "installment_4_expected_collection_date": "",
+                "installment_4_revised_collection_date": "",
+                "installment_4_contract_summary": "",
+                "installment_4_service_description": "",
+                "installment_4_legal_due_reason": "",
+                "installment_5_amount": "",
+                "installment_5_invoice_date": "",
+                "installment_5_expected_collection_date": "",
+                "installment_5_revised_collection_date": "",
+                "installment_5_contract_summary": "",
+                "installment_5_service_description": "",
+                "installment_5_legal_due_reason": "",
+                "installment_6_amount": "",
+                "installment_6_invoice_date": "",
+                "installment_6_expected_collection_date": "",
+                "installment_6_revised_collection_date": "",
+                "installment_6_contract_summary": "",
+                "installment_6_service_description": "",
+                "installment_6_legal_due_reason": "",
+            },
+        )
+        self.assertRedirects(response, f"/contracts/{contract_collection.pk}/")
+        contract_collection.refresh_from_db()
+        installment.refresh_from_db()
+        self.assertEqual(str(contract_collection.contract_value), "125000.00")
+        self.assertEqual(str(installment.installment_amount), "30000.00")
+        self.assertEqual(str(installment.invoice_date), "2026-04-12")
+        self.assertEqual(str(installment.expected_collection_date), "2026-04-25")
+        self.assertEqual(installment.contract_summary, "Updated contract summary")
+
+    def test_existing_contract_form_keeps_locked_fields_disabled_without_supervisor_override(self):
+        contract_collection = ContractCollection.objects.create(
+            company_name="Locked Contract Co",
+            sales_manager=self.sales_manager,
+            contract_value="100000.00",
+            created_by=self.supervisor,
+        )
+        ContractCollectionInstallment.objects.create(
+            contract_collection=contract_collection,
+            position=1,
+            installment_amount="25000.00",
+            invoice_date=datetime(2026, 4, 10).date(),
+            expected_collection_date=datetime(2026, 4, 20).date(),
+            contract_summary="Initial contract summary",
+            invoiced_service_description="Initial service description",
+            legal_due_reason="Initial legal due reason",
+        )
+        form = ContractCollectionForm(instance=contract_collection)
+        self.assertTrue(form.fields["contract_value"].disabled)
+        self.assertTrue(form.fields["installment_1_amount"].disabled)
+        self.assertTrue(form.fields["installment_1_invoice_date"].disabled)
+        self.assertTrue(form.fields["installment_1_expected_collection_date"].disabled)
+
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
     def test_send_due_invoice_notifications_sends_email_for_today(self):
         contract_collection = ContractCollection.objects.create(

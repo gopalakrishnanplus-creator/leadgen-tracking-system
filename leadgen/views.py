@@ -833,7 +833,11 @@ def contracts_dashboard(request):
 
 @roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER)
 def contract_collection_create(request):
-    form = ContractCollectionForm(request.POST or None, request.FILES or None)
+    form = ContractCollectionForm(
+        request.POST or None,
+        request.FILES or None,
+        allow_locked_field_edits=request.user.is_supervisor,
+    )
     form = _configure_contract_form(form, request.user)
     if request.method == "POST" and form.is_valid():
         contract_collection = form.save(commit=False)
@@ -841,7 +845,12 @@ def contract_collection_create(request):
             contract_collection.sales_manager = request.user
         contract_collection.created_by = request.user
         contract_collection.save()
-        sync_contract_collection_data(contract_collection, form.cleaned_data, _uploaded_contract_files(request))
+        sync_contract_collection_data(
+            contract_collection,
+            form.cleaned_data,
+            _uploaded_contract_files(request),
+            allow_locked_field_edits=request.user.is_supervisor,
+        )
         messages.success(request, "Contract added to contracts and collections.")
         return redirect("contract_collection_update", contract_id=contract_collection.pk)
     return render(
@@ -864,12 +873,20 @@ def contract_collection_update(request, contract_id):
     contract_collection = _contract_collection_for_user_or_404(request.user, contract_id)
     can_edit_terms = request.user.is_supervisor or request.user.is_sales_manager
     can_edit_finance = request.user.is_finance_manager
-    terms_form = ContractCollectionForm(instance=contract_collection)
+    terms_form = ContractCollectionForm(
+        instance=contract_collection,
+        allow_locked_field_edits=request.user.is_supervisor,
+    )
     terms_form = _configure_contract_form(terms_form, request.user)
     finance_form = FinanceCollectionUpdateForm(contract_collection=contract_collection)
 
     if request.method == "POST" and can_edit_terms and request.POST.get("form_type") == "terms":
-        terms_form = ContractCollectionForm(request.POST or None, request.FILES or None, instance=contract_collection)
+        terms_form = ContractCollectionForm(
+            request.POST or None,
+            request.FILES or None,
+            instance=contract_collection,
+            allow_locked_field_edits=request.user.is_supervisor,
+        )
         terms_form = _configure_contract_form(terms_form, request.user)
         finance_form = FinanceCollectionUpdateForm(contract_collection=contract_collection)
         if terms_form.is_valid():
@@ -877,13 +894,21 @@ def contract_collection_update(request, contract_id):
             if request.user.is_sales_manager:
                 updated_contract.sales_manager = request.user
             updated_contract.save()
-            sync_contract_collection_data(updated_contract, terms_form.cleaned_data, _uploaded_contract_files(request))
+            sync_contract_collection_data(
+                updated_contract,
+                terms_form.cleaned_data,
+                _uploaded_contract_files(request),
+                allow_locked_field_edits=request.user.is_supervisor,
+            )
             messages.success(request, "Contract details updated.")
             return redirect("contract_collection_update", contract_id=contract_collection.pk)
 
     if request.method == "POST" and can_edit_finance and request.POST.get("form_type") == "finance":
         finance_form = FinanceCollectionUpdateForm(request.POST or None, contract_collection=contract_collection)
-        terms_form = ContractCollectionForm(instance=contract_collection)
+        terms_form = ContractCollectionForm(
+            instance=contract_collection,
+            allow_locked_field_edits=request.user.is_supervisor,
+        )
         terms_form = _configure_contract_form(terms_form, request.user)
         if finance_form.is_valid():
             sync_finance_collection_data(contract_collection, finance_form.cleaned_data)
