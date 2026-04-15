@@ -34,6 +34,7 @@ urlpatterns = [
     path("supervisor/prospects/invalid/", views.supervisor_invalid_prospect_list, name="supervisor_invalid_prospect_list"),
     path("supervisor/prospects/supervisor-action/", views.supervisor_action_prospect_list, name="supervisor_action_prospect_list"),
     path("supervisor/prospects/add/", views.supervisor_prospect_create, name="supervisor_prospect_create"),
+    path("supervisor/prospects/<int:prospect_id>/move/", views.supervisor_move_prospect, name="supervisor_move_prospect"),
     path("supervisor/prospects/<int:prospect_id>/delete/", views.supervisor_prospect_delete, name="supervisor_prospect_delete"),
     path("supervisor/prospects/<int:prospect_id>/manage/", views.supervisor_action_prospect_manage, name="supervisor_action_prospect_manage"),
     path("supervisor/prospects/<int:prospect_id>/review/", views.review_prospect, name="review_prospect"),

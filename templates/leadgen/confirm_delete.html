@@ -13,6 +13,9 @@
     </p>
     <form method="post">
         {% csrf_token %}
+        {% if next_url %}
+            <input type="hidden" name="next" value="{{ next_url }}">
+        {% endif %}
         <button class="button button-danger" type="submit">Confirm</button>
     </form>
 </section>

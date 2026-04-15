@@ -26,6 +26,7 @@ from .models import (
     Meeting,
     MeetingReminder,
     Prospect,
+    ProspectStatusUpdate,
     SalesConversation,
     SupervisorAccessEmail,
     SystemSetting,
@@ -1031,6 +1032,35 @@ class LeadgenWorkflowTests(TestCase):
         self.assertIn("solution_files", form.errors)
         self.assertIn("proposal_files", form.errors)
 
+    def test_sales_conversation_form_accepts_pdf_uploads(self):
+        form = SalesConversationForm(
+            data={
+                "company_name": "Acme Sales",
+                "assigned_sales_manager": self.sales_manager.pk,
+                "conversation_status": SalesConversation.STATUS_ENGAGED,
+                "proposal_status": SalesConversation.PROPOSAL_SOLUTION_NEEDED,
+                "contract_signed": "",
+                "comments": "",
+                "brands_input": "Brand A",
+                "contact_1_name": "Jane Doe",
+                "contact_1_email": "jane@example.com",
+                "contact_1_whatsapp": "9999999999",
+            },
+            files=MultiValueDict(
+                {
+                    "proposal_files": [
+                        SimpleUploadedFile("proposal.pdf", b"%PDF-1.4 proposal", content_type="application/pdf")
+                    ],
+                    "solution_files": [
+                        SimpleUploadedFile("solution.pdf", b"%PDF-1.4 solution", content_type="application/pdf")
+                    ],
+                }
+            ),
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(len(form.cleaned_data["proposal_files"]), 1)
+        self.assertEqual(len(form.cleaned_data["solution_files"]), 1)
+
     @override_settings(MAX_UPLOAD_FILE_SIZE=10)
     def test_contract_form_rejects_files_over_10mb_limit(self):
         form = ContractCollectionForm(
@@ -1050,6 +1080,27 @@ class LeadgenWorkflowTests(TestCase):
         )
         self.assertFalse(form.is_valid())
         self.assertIn("contract_files", form.errors)
+
+    def test_contract_form_accepts_pdf_uploads(self):
+        form = ContractCollectionForm(
+            data={
+                "company_name": "Acme Contracts",
+                "sales_manager": self.sales_manager.pk,
+                "contract_value": "150000.00",
+                "contact_1_name": "Jane Doe",
+                "contact_1_email": "jane@example.com",
+                "contact_1_whatsapp": "9999999999",
+            },
+            files=MultiValueDict(
+                {
+                    "contract_files": [
+                        SimpleUploadedFile("contract.pdf", b"%PDF-1.4 contract", content_type="application/pdf")
+                    ],
+                }
+            ),
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(len(form.cleaned_data["contract_files"]), 1)
 
     def test_supervisor_can_edit_locked_contract_fields_on_existing_contract(self):
         contract_collection = ContractCollection.objects.create(
@@ -1452,12 +1503,138 @@ class LeadgenWorkflowTests(TestCase):
         self.assertContains(response, self.prospect.company_name)
         self.assertNotContains(response, "Awaiting Review Co")
 
+    def test_supervisor_staff_prospect_list_shows_move_and_delete_actions(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.get(f"/supervisor/staff/{self.staff.pk}/prospects/?view=all")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f"/supervisor/prospects/{self.prospect.pk}/move/")
+        self.assertContains(response, f"/supervisor/prospects/{self.prospect.pk}/delete/")
+
+    def test_supervisor_can_move_prospect_from_staff_assigned_list(self):
+        self.client.force_login(self.supervisor)
+        next_url = f"/supervisor/staff/{self.staff.pk}/prospects/?view=all"
+        response = self.client.post(
+            f"/supervisor/prospects/{self.prospect.pk}/move/?next={next_url}",
+            {
+                "assigned_to": self.other_staff.pk,
+                "supervisor_notes": "Move to another caller.",
+                "next": next_url,
+            },
+        )
+        self.assertRedirects(response, next_url)
+        self.prospect.refresh_from_db()
+        self.assertEqual(self.prospect.assigned_to, self.other_staff)
+        self.assertEqual(self.prospect.supervisor_notes, "Move to another caller.")
+
+    def test_supervisor_can_filter_staff_prospects_to_yesterday_calls(self):
+        target_date = datetime(2026, 4, 14).date()
+        started_at = timezone.make_aware(datetime(2026, 4, 14, 11, 0))
+        batch = CallImportBatch.objects.create(
+            import_date=target_date,
+            uploaded_file=SimpleUploadedFile("calls.xlsx", b"placeholder"),
+            imported_by=self.supervisor,
+        )
+        CallLog.objects.create(
+            call_sid="YESTERDAY-CALL-1",
+            batch=batch,
+            staff=self.staff,
+            prospect=self.prospect,
+            started_at=started_at,
+            ended_at=started_at + timedelta(minutes=2),
+            from_number=self.staff.calling_number,
+            to_number=self.prospect.phone_number,
+            direction="outbound",
+            crm_status=CallLog.STATUS_COMPLETED,
+            was_connected=True,
+            matched=True,
+            raw_data={},
+        )
+        ProspectStatusUpdate.objects.create(
+            prospect=self.prospect,
+            staff=self.staff,
+            outcome=ProspectStatusUpdate.OUTCOME_FOLLOW_UP,
+            reason="Call connected yesterday.",
+        )
+        ProspectStatusUpdate.objects.filter(prospect=self.prospect, staff=self.staff).update(created_at=started_at)
+        meeting = Meeting.objects.create(
+            prospect=self.prospect,
+            scheduled_by=self.staff,
+            scheduled_for=timezone.make_aware(datetime(2026, 4, 16, 15, 0)),
+            prospect_email="prospect@example.com",
+            meeting_platform=Meeting.PLATFORM_TEAMS,
+        )
+        Meeting.objects.filter(pk=meeting.pk).update(created_at=started_at)
+
+        untouched = Prospect.objects.create(
+            company_name="No Call Yesterday Co",
+            contact_name="Other Prospect",
+            linkedin_url="https://linkedin.com/in/no-call-yesterday",
+            phone_number="+919812340009",
+            assigned_to=self.staff,
+            created_by=self.staff,
+            approval_status=Prospect.APPROVAL_ACCEPTED,
+            workflow_status=Prospect.WORKFLOW_READY_TO_CALL,
+        )
+        self.client.force_login(self.supervisor)
+        with patch("leadgen.views._yesterday_bounds", return_value=(target_date, started_at.replace(hour=0, minute=0, second=0, microsecond=0), started_at.replace(hour=23, minute=59, second=59, microsecond=999999))):
+            response = self.client.get(f"/supervisor/staff/{self.staff.pk}/prospects/?view=yesterday_calls")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.prospect.company_name)
+        self.assertContains(response, "Call connected yesterday.")
+        self.assertContains(response, "Apr 16, 2026 3:00 p.m.")
+        self.assertNotContains(response, untouched.company_name)
+
     def test_supervisor_can_open_all_prospects_page(self):
         self.client.force_login(self.supervisor)
         response = self.client.get("/supervisor/prospects/")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.prospect.company_name)
         self.assertContains(response, self.staff.name)
+
+    def test_daily_target_report_includes_manual_status_update_counts(self):
+        target_date = datetime(2026, 4, 14).date()
+        started_at = timezone.make_aware(datetime(2026, 4, 14, 11, 0))
+        batch = CallImportBatch.objects.create(
+            import_date=target_date,
+            uploaded_file=SimpleUploadedFile("calls.xlsx", b"placeholder"),
+            imported_by=self.supervisor,
+        )
+        CallLog.objects.create(
+            call_sid="REPORT-CALL-1",
+            batch=batch,
+            staff=self.staff,
+            prospect=self.prospect,
+            started_at=started_at,
+            ended_at=started_at + timedelta(minutes=2),
+            from_number=self.staff.calling_number,
+            to_number=self.prospect.phone_number,
+            direction="outbound",
+            crm_status=CallLog.STATUS_COMPLETED,
+            was_connected=True,
+            matched=True,
+            raw_data={},
+        )
+        follow_up = ProspectStatusUpdate.objects.create(
+            prospect=self.prospect,
+            staff=self.staff,
+            outcome=ProspectStatusUpdate.OUTCOME_FOLLOW_UP,
+            reason="Follow up booked.",
+        )
+        scheduled = ProspectStatusUpdate.objects.create(
+            prospect=self.prospect,
+            staff=self.staff,
+            outcome=ProspectStatusUpdate.OUTCOME_SCHEDULED,
+            reason="Meeting booked.",
+        )
+        ProspectStatusUpdate.objects.filter(pk=follow_up.pk).update(created_at=started_at)
+        ProspectStatusUpdate.objects.filter(pk=scheduled.pk).update(created_at=started_at + timedelta(minutes=5))
+
+        report = build_daily_target_report(target_date=target_date, tz_name="Asia/Kolkata")
+        row = next(item for item in report["staff_rows"] if item["staff"] == self.staff)
+        self.assertEqual(row["actual_attempts"], 1)
+        self.assertEqual(row["follow_up_updates"], 1)
+        self.assertEqual(row["declined_updates"], 0)
+        self.assertEqual(row["scheduled_updates"], 1)
 
     def test_supervisor_can_delete_any_prospect(self):
         prospect = Prospect.objects.create(

@@ -32,6 +32,26 @@ class MultiFileInput(forms.ClearableFileInput):
     allow_multiple_selected = True
 
 
+class MultiFileField(forms.FileField):
+    widget = MultiFileInput
+
+    def clean(self, data, initial=None):
+        if not data:
+            return []
+        if not isinstance(data, (list, tuple)):
+            data = [data]
+        cleaned_files = []
+        errors = []
+        for item in data:
+            try:
+                cleaned_files.append(super().clean(item, initial))
+            except ValidationError as exc:
+                errors.extend(exc.error_list)
+        if errors:
+            raise ValidationError(errors)
+        return cleaned_files
+
+
 def validate_uploaded_file_sizes(files, field_label):
     max_size = getattr(settings, "MAX_UPLOAD_FILE_SIZE", 10 * 1024 * 1024)
     over_limit = [uploaded_file.name for uploaded_file in files if uploaded_file.size > max_size]
@@ -377,15 +397,13 @@ class SalesConversationForm(StyledFormMixin, forms.ModelForm):
         widget=forms.Textarea(attrs={"rows": 3, "placeholder": "One brand per line or comma separated"}),
         label="Brands",
     )
-    solution_files = forms.FileField(
+    solution_files = MultiFileField(
         required=False,
-        widget=MultiFileInput(),
         label="Solution files",
         help_text="Maximum 10 MB per file.",
     )
-    proposal_files = forms.FileField(
+    proposal_files = MultiFileField(
         required=False,
-        widget=MultiFileInput(),
         label="Proposal files",
         help_text="Maximum 10 MB per file.",
     )
@@ -468,8 +486,14 @@ class SalesConversationForm(StyledFormMixin, forms.ModelForm):
         if not contacts:
             raise ValidationError("At least one contact person is required.")
         cleaned_data["contact_rows"] = contacts
-        validate_uploaded_file_sizes(self.files.getlist("solution_files"), "solution files")
-        validate_uploaded_file_sizes(self.files.getlist("proposal_files"), "proposal files")
+        for field_name, label in (
+            ("solution_files", "solution files"),
+            ("proposal_files", "proposal files"),
+        ):
+            try:
+                validate_uploaded_file_sizes(self.files.getlist(field_name), label)
+            except ValidationError as exc:
+                self.add_error(field_name, exc)
         return cleaned_data
 
 
@@ -494,9 +518,8 @@ class ContractCollectionForm(StyledFormMixin, forms.ModelForm):
         empty_label="Unassigned",
         label="Sales manager",
     )
-    contract_files = forms.FileField(
+    contract_files = MultiFileField(
         required=False,
-        widget=MultiFileInput(),
         label="Contract files",
         help_text="Maximum 10 MB per file.",
     )
@@ -685,7 +708,10 @@ class ContractCollectionForm(StyledFormMixin, forms.ModelForm):
                     }
                 )
         cleaned_data["installment_rows"] = installments
-        validate_uploaded_file_sizes(self.files.getlist("contract_files"), "contract files")
+        try:
+            validate_uploaded_file_sizes(self.files.getlist("contract_files"), "contract files")
+        except ValidationError as exc:
+            self.add_error("contract_files", exc)
         return cleaned_data
 
 

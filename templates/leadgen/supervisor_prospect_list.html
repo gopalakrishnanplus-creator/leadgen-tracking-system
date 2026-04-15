@@ -5,7 +5,7 @@
     <div>
         <p class="eyebrow">Supervisor</p>
         <h1>All assigned prospects</h1>
-        <p class="note">View and remove any prospect assigned to the lead gen team.</p>
+        <p class="note">View, reassign, or remove any prospect assigned to the lead gen team.</p>
     </div>
     <div class="button-row">
         <a class="button button-primary" href="{% url 'supervisor_prospect_create' %}">Add prospect</a>
@@ -39,7 +39,9 @@
                 <td>{{ prospect.get_workflow_status_display }}</td>
                 <td>{{ prospect.get_latest_crm_status_display }}</td>
                 <td>
-                    <a href="{% url 'supervisor_prospect_delete' prospect.id %}">Delete</a>
+                    <a href="{% url 'supervisor_move_prospect' prospect.id %}?next={{ request.get_full_path|urlencode }}">Move</a>
+                    <span class="note"> | </span>
+                    <a href="{% url 'supervisor_prospect_delete' prospect.id %}?next={{ request.get_full_path|urlencode }}">Delete</a>
                 </td>
             </tr>
         {% empty %}

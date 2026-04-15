@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Move Prospect{% endblock %}
+{% block content %}
+<section class="panel form-panel">
+    <p class="eyebrow">Supervisor</p>
+    <h1>Move prospect</h1>
+    <p><strong>{{ prospect.company_name }}</strong> / {{ prospect.contact_name }}</p>
+    <p class="note">Current owner: {{ prospect.assigned_to.name }}</p>
+    <form method="post">
+        {% csrf_token %}
+        {% if next_url %}
+            <input type="hidden" name="next" value="{{ next_url }}">
+        {% endif %}
+        {% if form.non_field_errors %}
+            <div class="message error">{{ form.non_field_errors }}</div>
+        {% endif %}
+        <p>{{ form.assigned_to.errors }}{{ form.assigned_to.label_tag }} {{ form.assigned_to }}</p>
+        <p>{{ form.supervisor_notes.errors }}{{ form.supervisor_notes.label_tag }} {{ form.supervisor_notes }}</p>
+        <div class="button-row">
+            <button class="button button-primary" type="submit">Save reassignment</button>
+            <a class="button" href="{{ next_url|default:request.META.HTTP_REFERER|default:'/' }}">Cancel</a>
+        </div>
+    </form>
+</section>
+{% endblock %}

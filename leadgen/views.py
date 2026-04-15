@@ -1,11 +1,15 @@
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from django.contrib import messages
 from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
+from django.db.models import Prefetch
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 
 from .decorators import role_required, roles_required, supervisor_access_required
 from .forms import (
@@ -83,6 +87,8 @@ STAFF_HIDDEN_WORKFLOWS = {
     Prospect.WORKFLOW_INVALID_NUMBER,
     Prospect.WORKFLOW_SUPERVISOR_ACTION,
 }
+
+YESTERDAY_CALLS_FILTER = "yesterday_calls"
 
 
 @login_required
@@ -232,11 +238,67 @@ def _visible_staff_prospects_queryset(staff_user):
     return Prospect.objects.filter(assigned_to=staff_user).exclude(workflow_status__in=STAFF_HIDDEN_WORKFLOWS)
 
 
-def _filtered_staff_prospects_queryset(staff_user, status_filter):
-    prospects = _visible_staff_prospects_queryset(staff_user).order_by("-created_at")
+def _local_day_bounds(target_date, tz_name):
+    tz = ZoneInfo(tz_name)
+    start_dt = timezone.make_aware(datetime.combine(target_date, datetime.min.time()), tz)
+    end_dt = timezone.make_aware(datetime.combine(target_date, datetime.max.time()), tz)
+    return start_dt, end_dt
+
+
+def _yesterday_bounds(tz_name):
+    tz = ZoneInfo(tz_name)
+    target_date = timezone.localtime(timezone.now(), tz).date() - timedelta(days=1)
+    start_dt, end_dt = _local_day_bounds(target_date, tz_name)
+    return target_date, start_dt, end_dt
+
+
+def _safe_next_url(request, default_url):
+    next_url = request.POST.get("next") or request.GET.get("next") or ""
+    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return next_url
+    return default_url
+
+
+def _filtered_staff_prospects_queryset(staff_user, status_filter, include_hidden=False):
+    prospects = Prospect.objects.filter(assigned_to=staff_user).select_related("assigned_to", "created_by")
+    if not include_hidden:
+        prospects = prospects.exclude(workflow_status__in=STAFF_HIDDEN_WORKFLOWS)
     if status_filter == "accepted":
-        return prospects.filter(approval_status=Prospect.APPROVAL_ACCEPTED)
-    return prospects
+        prospects = prospects.filter(approval_status=Prospect.APPROVAL_ACCEPTED)
+    elif status_filter == YESTERDAY_CALLS_FILTER:
+        _, start_dt, end_dt = _yesterday_bounds(SystemSetting.load().default_timezone)
+        prospects = prospects.filter(call_logs__started_at__range=(start_dt, end_dt)).distinct()
+    return prospects.order_by("-latest_call_attempt_at", "-created_at").prefetch_related(
+        Prefetch("call_logs", queryset=CallLog.objects.order_by("-started_at", "-created_at")),
+        Prefetch("status_updates", queryset=ProspectStatusUpdate.objects.order_by("-created_at")),
+        Prefetch("meetings", queryset=Meeting.objects.order_by("-created_at", "-scheduled_for")),
+    )
+
+
+def _build_staff_prospect_rows(prospects, status_filter):
+    review_date = None
+    start_dt = end_dt = None
+    if status_filter == YESTERDAY_CALLS_FILTER:
+        review_date, start_dt, end_dt = _yesterday_bounds(SystemSetting.load().default_timezone)
+
+    rows = []
+    for prospect in prospects:
+        call_logs = list(prospect.call_logs.all())
+        status_updates = list(prospect.status_updates.all())
+        meetings = list(prospect.meetings.all())
+        if start_dt and end_dt:
+            call_logs = [item for item in call_logs if item.started_at and start_dt <= item.started_at <= end_dt]
+            status_updates = [item for item in status_updates if start_dt <= item.created_at <= end_dt]
+            meetings = [item for item in meetings if start_dt <= item.created_at <= end_dt]
+        rows.append(
+            {
+                "prospect": prospect,
+                "latest_call_log": call_logs[0] if call_logs else None,
+                "latest_status_update": status_updates[0] if status_updates else None,
+                "latest_meeting": meetings[0] if meetings else None,
+            }
+        )
+    return rows, review_date
 
 
 @role_required(User.ROLE_SUPERVISOR)
@@ -502,12 +564,14 @@ def review_prospect(request, prospect_id):
 @role_required(User.ROLE_SUPERVISOR)
 def supervisor_prospect_delete(request, prospect_id):
     prospect = get_object_or_404(Prospect.objects.select_related("assigned_to"), pk=prospect_id)
+    fallback_url = reverse("supervisor_prospect_list")
+    next_url = _safe_next_url(request, fallback_url)
     if request.method == "POST":
         company_name = prospect.company_name
         contact_name = prospect.contact_name
         prospect.delete()
         messages.success(request, f"Prospect deleted: {company_name} / {contact_name}.")
-        return redirect("supervisor_prospect_list")
+        return redirect(next_url)
     return render(
         request,
         "leadgen/confirm_delete.html",
@@ -515,6 +579,36 @@ def supervisor_prospect_delete(request, prospect_id):
             "object": prospect,
             "title": "Delete prospect",
             "description": "This will permanently remove the prospect and its meeting/status history from the system.",
+            "next_url": next_url,
+        },
+    )
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def supervisor_move_prospect(request, prospect_id):
+    prospect = get_object_or_404(Prospect.objects.select_related("assigned_to"), pk=prospect_id)
+    fallback_url = reverse("supervisor_staff_prospect_list", args=[prospect.assigned_to_id])
+    next_url = _safe_next_url(request, fallback_url)
+    form = SupervisorProspectActionForm(
+        request.POST or None,
+        initial={
+            "assigned_to": prospect.assigned_to,
+            "supervisor_notes": prospect.supervisor_notes,
+        },
+    )
+    if request.method == "POST" and form.is_valid():
+        prospect.assigned_to = form.cleaned_data["assigned_to"]
+        prospect.supervisor_notes = form.cleaned_data["supervisor_notes"]
+        prospect.save(update_fields=["assigned_to", "supervisor_notes", "updated_at"])
+        messages.success(request, "Prospect reassigned.")
+        return redirect(next_url)
+    return render(
+        request,
+        "leadgen/supervisor_move_prospect.html",
+        {
+            "prospect": prospect,
+            "form": form,
+            "next_url": next_url,
         },
     )
 
@@ -597,7 +691,7 @@ def supervisor_reports(request):
 @role_required(User.ROLE_SUPERVISOR)
 def supervisor_daily_targets(request):
     settings_obj = SystemSetting.load()
-    target_date = timezone.localdate() - timedelta(days=1)
+    target_date = timezone.localtime(timezone.now(), ZoneInfo(settings_obj.default_timezone)).date() - timedelta(days=1)
     report = build_daily_target_report(target_date=target_date, tz_name=settings_obj.default_timezone)
     return render(request, "leadgen/supervisor_daily_targets.html", {"report": report})
 
@@ -613,14 +707,16 @@ def staff_dashboard(request):
 def staff_prospect_list(request):
     status_filter = request.GET.get("view", "all")
     prospects = _filtered_staff_prospects_queryset(request.user, status_filter)
+    prospect_rows, review_date = _build_staff_prospect_rows(prospects, status_filter)
     return render(
         request,
         "leadgen/staff_prospect_list.html",
         {
-            "prospects": prospects,
+            "prospect_rows": prospect_rows,
             "dashboard_owner": request.user,
             "is_supervisor_view": False,
             "status_filter": status_filter,
+            "review_date": review_date,
         },
     )
 
@@ -629,15 +725,21 @@ def staff_prospect_list(request):
 def supervisor_staff_prospect_list(request, user_id):
     staff_member = _get_staff_or_404(user_id)
     status_filter = request.GET.get("view", "all")
-    prospects = _filtered_staff_prospects_queryset(staff_member, status_filter)
+    prospects = _filtered_staff_prospects_queryset(
+        staff_member,
+        status_filter,
+        include_hidden=status_filter == YESTERDAY_CALLS_FILTER,
+    )
+    prospect_rows, review_date = _build_staff_prospect_rows(prospects, status_filter)
     return render(
         request,
         "leadgen/staff_prospect_list.html",
         {
-            "prospects": prospects,
+            "prospect_rows": prospect_rows,
             "dashboard_owner": staff_member,
             "is_supervisor_view": True,
             "status_filter": status_filter,
+            "review_date": review_date,
         },
     )
 

@@ -7,18 +7,26 @@
         <h1>
             {% if status_filter == "accepted" %}
                 Accepted prospects
+            {% elif status_filter == "yesterday_calls" %}
+                Calls made yesterday
             {% else %}
                 Assigned prospects
             {% endif %}
         </h1>
         <p class="note">{{ dashboard_owner.name }}</p>
+        {% if review_date %}
+            <p class="note">Review date: {{ review_date }}</p>
+        {% endif %}
     </div>
     <div class="button-row">
         {% if not is_supervisor_view %}
             <a class="button button-primary" href="{% url 'staff_prospect_create' %}">Add prospect</a>
         {% endif %}
-        <a class="button {% if status_filter != 'accepted' %}button-primary{% endif %}" href="{% if is_supervisor_view %}{% url 'supervisor_staff_prospect_list' dashboard_owner.id %}?view=all{% else %}{% url 'staff_prospect_list' %}?view=all{% endif %}">All assigned</a>
+        <a class="button {% if status_filter == 'all' %}button-primary{% endif %}" href="{% if is_supervisor_view %}{% url 'supervisor_staff_prospect_list' dashboard_owner.id %}?view=all{% else %}{% url 'staff_prospect_list' %}?view=all{% endif %}">All assigned</a>
         <a class="button {% if status_filter == 'accepted' %}button-primary{% endif %}" href="{% if is_supervisor_view %}{% url 'supervisor_staff_prospect_list' dashboard_owner.id %}?view=accepted{% else %}{% url 'staff_prospect_list' %}?view=accepted{% endif %}">Accepted only</a>
+        {% if is_supervisor_view %}
+            <a class="button {% if status_filter == 'yesterday_calls' %}button-primary{% endif %}" href="{% url 'supervisor_staff_prospect_list' dashboard_owner.id %}?view=yesterday_calls">Calls made yesterday</a>
+        {% endif %}
         {% if is_supervisor_view %}
             <a class="button" href="{% url 'supervisor_staff_dashboard' dashboard_owner.id %}">Back to dashboard</a>
         {% endif %}
@@ -34,30 +42,66 @@
                 <th>Approval</th>
                 <th>Workflow</th>
                 <th>Latest CRM status</th>
+                <th>Latest staff update</th>
+                <th>Meeting</th>
                 <th></th>
             </tr>
         </thead>
         <tbody>
-        {% for prospect in prospects %}
+        {% for row in prospect_rows %}
             <tr>
-                <td>{{ prospect.company_name }}</td>
-                <td>{{ prospect.contact_name }}</td>
-                <td>{{ prospect.phone_number }}</td>
-                <td>{{ prospect.get_approval_status_display }}</td>
-                <td>{{ prospect.get_workflow_status_display }}</td>
-                <td>{{ prospect.get_latest_crm_status_display }}</td>
+                <td>{{ row.prospect.company_name }}</td>
+                <td>{{ row.prospect.contact_name }}</td>
+                <td>{{ row.prospect.phone_number }}</td>
+                <td>{{ row.prospect.get_approval_status_display }}</td>
+                <td>{{ row.prospect.get_workflow_status_display }}</td>
                 <td>
-                    {% if prospect.approval_status == 'accepted' and not is_supervisor_view %}
-                        <a href="{% url 'update_call_outcome' prospect.id %}">Update call result</a>
-                    {% elif prospect.approval_status == 'accepted' and is_supervisor_view %}
-                        Ready to call
+                    {{ row.prospect.get_latest_crm_status_display }}
+                    {% if row.latest_call_log %}
+                        <div class="note">
+                            {{ row.latest_call_log.started_at|date:"M j, Y g:i a" }} /
+                            {{ row.latest_call_log.get_crm_status_display }}
+                        </div>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if row.latest_status_update %}
+                        {{ row.latest_status_update.get_outcome_display }}
+                        {% if row.latest_status_update.reason %}
+                            <div class="note">{{ row.latest_status_update.reason }}</div>
+                        {% endif %}
+                        {% if row.latest_status_update.follow_up_date %}
+                            <div class="note">Follow-up: {{ row.latest_status_update.follow_up_date }}</div>
+                        {% endif %}
+                    {% else %}
+                        <span class="note">No manual update logged.</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if row.latest_meeting %}
+                        {{ row.latest_meeting.get_status_display }}
+                        <div class="note">{{ row.latest_meeting.scheduled_for|date:"M j, Y g:i a" }}</div>
+                    {% else %}
+                        <span class="note">No meeting logged.</span>
+                    {% endif %}
+                </td>
+                <td>
+                    {% if is_supervisor_view %}
+                        <a href="{% url 'supervisor_move_prospect' row.prospect.id %}?next={{ request.get_full_path|urlencode }}">Move</a>
+                        <span class="note"> | </span>
+                        <a href="{% url 'supervisor_prospect_delete' row.prospect.id %}?next={{ request.get_full_path|urlencode }}">Delete</a>
+                        {% if row.prospect.approval_status == 'accepted' %}
+                            <div class="note">Ready to call</div>
+                        {% endif %}
+                    {% elif row.prospect.approval_status == 'accepted' %}
+                        <a href="{% url 'update_call_outcome' row.prospect.id %}">Update call result</a>
                     {% else %}
                         Waiting for review
                     {% endif %}
                 </td>
             </tr>
         {% empty %}
-            <tr><td colspan="7">No prospects assigned.</td></tr>
+            <tr><td colspan="9">No prospects assigned.</td></tr>
         {% endfor %}
         </tbody>
     </table>

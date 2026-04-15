@@ -18,7 +18,11 @@
                 <th>Lead gen staff</th>
                 <th>Yesterday target</th>
                 <th>Actual call attempts</th>
+                <th>Follow-up updates</th>
+                <th>Declines</th>
+                <th>Meetings scheduled</th>
                 <th>Difference</th>
+                <th></th>
             </tr>
         </thead>
         <tbody>
@@ -26,18 +30,28 @@
             <tr>
                 <td>{{ row.staff.name }}</td>
                 <td>{{ row.target_count }}</td>
-                <td>{{ row.actual_attempts }}</td>
+                <td>
+                    {% if row.actual_attempts %}
+                        <a href="{% url 'supervisor_staff_prospect_list' row.staff.id %}?view=yesterday_calls">{{ row.actual_attempts }}</a>
+                    {% else %}
+                        0
+                    {% endif %}
+                </td>
+                <td>{{ row.follow_up_updates }}</td>
+                <td>{{ row.declined_updates }}</td>
+                <td>{{ row.scheduled_updates }}</td>
                 <td>{{ row.delta }}</td>
+                <td><a href="{% url 'supervisor_staff_prospect_list' row.staff.id %}?view=yesterday_calls">Review calls</a></td>
             </tr>
         {% empty %}
-            <tr><td colspan="4">No active lead gen staff found.</td></tr>
+            <tr><td colspan="8">No active lead gen staff found.</td></tr>
         {% endfor %}
         </tbody>
     </table>
 </section>
 <section class="panel">
     <p class="note">
-        Target is based on prospects that were still active for calling plus prospects that were actually attempted yesterday and therefore formed part of the day's workload.
+        Target is based on prospects that were still active for calling plus prospects that were actually attempted yesterday and therefore formed part of the day's workload. Click a call-attempt count or review link to inspect the staff-entered call outcomes and any meetings logged for yesterday's calls.
     </p>
 </section>
 {% endblock %}

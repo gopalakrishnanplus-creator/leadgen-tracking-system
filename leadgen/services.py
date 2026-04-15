@@ -269,13 +269,23 @@ def build_daily_target_report(target_date, tz_name):
             Q(workflow_status__in=ACTIVE_CALLING_WORKFLOWS)
             | Q(call_logs__started_at__range=(start_dt, end_dt))
         ).distinct()
+        status_updates = ProspectStatusUpdate.objects.filter(
+            staff=staff,
+            created_at__range=(start_dt, end_dt),
+        )
         actual_attempts = CallLog.objects.filter(staff=staff, started_at__range=(start_dt, end_dt)).count()
+        follow_up_updates = status_updates.filter(outcome=ProspectStatusUpdate.OUTCOME_FOLLOW_UP).count()
+        declined_updates = status_updates.filter(outcome=ProspectStatusUpdate.OUTCOME_DECLINED).count()
+        scheduled_updates = status_updates.filter(outcome=ProspectStatusUpdate.OUTCOME_SCHEDULED).count()
         staff_rows.append(
             {
                 "staff": staff,
                 "target_count": target_queryset.count(),
                 "actual_attempts": actual_attempts,
                 "delta": actual_attempts - target_queryset.count(),
+                "follow_up_updates": follow_up_updates,
+                "declined_updates": declined_updates,
+                "scheduled_updates": scheduled_updates,
             }
         )
 
