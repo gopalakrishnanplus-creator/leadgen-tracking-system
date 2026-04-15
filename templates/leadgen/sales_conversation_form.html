@@ -48,7 +48,7 @@
     <section class="two-col">
         <div class="panel form-panel">
             <h2>Solution files</h2>
-            <p>{{ form.solution_files.errors }}{{ form.solution_files.label_tag }} {{ form.solution_files }}</p>
+            <p>{{ form.solution_files.errors }}{{ form.solution_files.label_tag }} {{ form.solution_files }}{% if form.solution_files.help_text %}<span class="note">{{ form.solution_files.help_text }}</span>{% endif %}</p>
             {% if existing_solution_files %}
                 <div class="file-list">
                     {% for item in existing_solution_files %}
@@ -61,7 +61,7 @@
         </div>
         <div class="panel form-panel">
             <h2>Proposal files</h2>
-            <p>{{ form.proposal_files.errors }}{{ form.proposal_files.label_tag }} {{ form.proposal_files }}</p>
+            <p>{{ form.proposal_files.errors }}{{ form.proposal_files.label_tag }} {{ form.proposal_files }}{% if form.proposal_files.help_text %}<span class="note">{{ form.proposal_files.help_text }}</span>{% endif %}</p>
             {% if existing_proposal_files %}
                 <div class="file-list">
                     {% for item in existing_proposal_files %}

@@ -7,6 +7,7 @@ from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
+from django.utils.datastructures import MultiValueDict
 from openpyxl import Workbook
 
 from .adapters import LeadgenSocialAccountAdapter
@@ -989,6 +990,52 @@ class LeadgenWorkflowTests(TestCase):
         self.assertIn("installment_1_contract_summary", form.errors)
         self.assertIn("installment_1_service_description", form.errors)
         self.assertIn("installment_1_legal_due_reason", form.errors)
+
+    @override_settings(MAX_UPLOAD_FILE_SIZE=10)
+    def test_sales_conversation_form_rejects_files_over_10mb_limit(self):
+        form = SalesConversationForm(
+            data={
+                "company_name": "Acme Sales",
+                "assigned_sales_manager": self.sales_manager.pk,
+                "conversation_status": SalesConversation.STATUS_ENGAGED,
+                "proposal_status": SalesConversation.PROPOSAL_SOLUTION_NEEDED,
+                "contract_signed": "",
+                "comments": "",
+                "brands_input": "Brand A",
+                "contact_1_name": "Jane Doe",
+                "contact_1_email": "jane@example.com",
+                "contact_1_whatsapp": "9999999999",
+            },
+            files=MultiValueDict(
+                {
+                    "solution_files": [SimpleUploadedFile("large-solution.pdf", b"12345678901")],
+                    "proposal_files": [SimpleUploadedFile("large-proposal.pdf", b"12345678901")],
+                }
+            ),
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("solution_files", form.errors)
+        self.assertIn("proposal_files", form.errors)
+
+    @override_settings(MAX_UPLOAD_FILE_SIZE=10)
+    def test_contract_form_rejects_files_over_10mb_limit(self):
+        form = ContractCollectionForm(
+            data={
+                "company_name": "Acme Contracts",
+                "sales_manager": self.sales_manager.pk,
+                "contract_value": "150000.00",
+                "contact_1_name": "Jane Doe",
+                "contact_1_email": "jane@example.com",
+                "contact_1_whatsapp": "9999999999",
+            },
+            files=MultiValueDict(
+                {
+                    "contract_files": [SimpleUploadedFile("large-contract.pdf", b"12345678901")],
+                }
+            ),
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("contract_files", form.errors)
 
     def test_supervisor_can_edit_locked_contract_fields_on_existing_contract(self):
         contract_collection = ContractCollection.objects.create(

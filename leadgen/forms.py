@@ -1,4 +1,5 @@
 from django import forms
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 
@@ -28,6 +29,16 @@ class StyledFormMixin:
 
 class MultiFileInput(forms.ClearableFileInput):
     allow_multiple_selected = True
+
+
+def validate_uploaded_file_sizes(files, field_label):
+    max_size = getattr(settings, "MAX_UPLOAD_FILE_SIZE", 10 * 1024 * 1024)
+    over_limit = [uploaded_file.name for uploaded_file in files if uploaded_file.size > max_size]
+    if over_limit:
+        max_size_mb = max_size / (1024 * 1024)
+        raise ValidationError(
+            f"Each file in {field_label} must be {max_size_mb:.0f} MB or smaller. Oversized files: {', '.join(over_limit)}."
+        )
 
 
 def installment_textarea_field(label):
@@ -353,11 +364,13 @@ class SalesConversationForm(StyledFormMixin, forms.ModelForm):
         required=False,
         widget=MultiFileInput(),
         label="Solution files",
+        help_text="Maximum 10 MB per file.",
     )
     proposal_files = forms.FileField(
         required=False,
         widget=MultiFileInput(),
         label="Proposal files",
+        help_text="Maximum 10 MB per file.",
     )
 
     class Meta:
@@ -438,6 +451,8 @@ class SalesConversationForm(StyledFormMixin, forms.ModelForm):
         if not contacts:
             raise ValidationError("At least one contact person is required.")
         cleaned_data["contact_rows"] = contacts
+        validate_uploaded_file_sizes(self.files.getlist("solution_files"), "solution files")
+        validate_uploaded_file_sizes(self.files.getlist("proposal_files"), "proposal files")
         return cleaned_data
 
 
@@ -466,6 +481,7 @@ class ContractCollectionForm(StyledFormMixin, forms.ModelForm):
         required=False,
         widget=MultiFileInput(),
         label="Contract files",
+        help_text="Maximum 10 MB per file.",
     )
 
     class Meta:
@@ -652,6 +668,7 @@ class ContractCollectionForm(StyledFormMixin, forms.ModelForm):
                     }
                 )
         cleaned_data["installment_rows"] = installments
+        validate_uploaded_file_sizes(self.files.getlist("contract_files"), "contract files")
         return cleaned_data
 
 
