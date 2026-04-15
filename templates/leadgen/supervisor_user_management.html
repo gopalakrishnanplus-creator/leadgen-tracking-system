@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}Manage Users{% endblock %}
+{% block content %}
+<section class="hero">
+    <div>
+        <p class="eyebrow">Supervisor</p>
+        <h1>Manage users</h1>
+        <p class="note">Use one page to manage supervisor access, lead gen staff, sales managers, and finance managers.</p>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'supervisor_dashboard' %}">Back to dashboard</a>
+        <a class="button button-primary" href="{% url 'staff_create' %}">Add lead gen staff</a>
+        <a class="button" href="{% url 'sales_manager_create' %}">Add sales manager</a>
+        <a class="button" href="{% url 'finance_manager_create' %}">Add finance manager</a>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Lead gen supervisors</p>
+            <h2>Google accounts that open the single supervisor workspace</h2>
+        </div>
+    </div>
+    <form method="post" class="nested-panel">
+        {% csrf_token %}
+        {{ supervisor_access_form.non_field_errors }}
+        <label for="{{ supervisor_access_form.email.id_for_label }}">Add supervisor access email</label>
+        {{ supervisor_access_form.email }}
+        {% for error in supervisor_access_form.email.errors %}
+            <div class="message error">{{ error }}</div>
+        {% endfor %}
+        <div class="button-row">
+            <button class="button button-primary" type="submit">Add lead gen supervisor</button>
+        </div>
+    </form>
+    <table>
+        <thead>
+            <tr>
+                <th>Email</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for access_email in supervisor_access_emails %}
+            <tr>
+                <td>{{ access_email.email }}</td>
+                <td>{% if access_email.is_active %}Active{% else %}Inactive{% endif %}</td>
+                <td class="actions">
+                    {% if access_email.is_active %}
+                        <a href="{% url 'supervisor_access_email_delete' access_email.id %}">Remove</a>
+                    {% endif %}
+                </td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="3">No supervisor access emails configured yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Lead gen staff</p>
+            <h2>Calling-team users and staff dashboards</h2>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Calling number</th>
+                <th>WhatsApp</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for staff in staff_members %}
+            <tr>
+                <td>{{ staff.name }}</td>
+                <td>{{ staff.email }}</td>
+                <td>{{ staff.calling_number }}</td>
+                <td>{{ staff.whatsapp_number|default:"-" }}</td>
+                <td>{% if staff.is_active %}Active{% else %}Inactive{% endif %}</td>
+                <td class="actions">
+                    <a href="{% url 'supervisor_staff_dashboard' staff.id %}">Dashboard</a>
+                    <a href="{% url 'staff_update' staff.id %}">Edit</a>
+                    <a href="{% url 'staff_delete' staff.id %}">Deactivate</a>
+                </td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="6">No lead gen staff added yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Sales managers</p>
+            <h2>Users who own sales pipeline and contract follow-through</h2>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>WhatsApp</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for sales_manager in sales_managers %}
+            <tr>
+                <td>{{ sales_manager.name }}</td>
+                <td>{{ sales_manager.email }}</td>
+                <td>{{ sales_manager.whatsapp_number|default:"-" }}</td>
+                <td>{% if sales_manager.is_active %}Active{% else %}Inactive{% endif %}</td>
+                <td class="actions">
+                    <a href="{% url 'sales_manager_update' sales_manager.id %}">Edit</a>
+                    <a href="{% url 'sales_manager_delete' sales_manager.id %}">Deactivate</a>
+                </td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="5">No sales managers added yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Finance managers</p>
+            <h2>Users who record collections against invoiced installments</h2>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>WhatsApp</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for finance_manager in finance_managers %}
+            <tr>
+                <td>{{ finance_manager.name }}</td>
+                <td>{{ finance_manager.email }}</td>
+                <td>{{ finance_manager.whatsapp_number|default:"-" }}</td>
+                <td>{% if finance_manager.is_active %}Active{% else %}Inactive{% endif %}</td>
+                <td class="actions">
+                    <a href="{% url 'finance_manager_update' finance_manager.id %}">Edit</a>
+                    <a href="{% url 'finance_manager_delete' finance_manager.id %}">Deactivate</a>
+                </td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="5">No finance managers added yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

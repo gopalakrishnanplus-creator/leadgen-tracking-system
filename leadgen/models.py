@@ -93,6 +93,23 @@ class SystemSetting(models.Model):
         return "System settings"
 
 
+class SupervisorAccessEmail(models.Model):
+    email = models.EmailField(unique=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["email"]
+
+    def save(self, *args, **kwargs):
+        self.email = (self.email or "").strip().lower()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.email
+
+
 class Prospect(models.Model):
     APPROVAL_PENDING = "pending"
     APPROVAL_ACCEPTED = "accepted"

@@ -9,6 +9,12 @@ urlpatterns = [
     path("login/", views.login_page, name="login"),
     path("logout/", views.logout_view, name="logout"),
     path("supervisor/", views.supervisor_dashboard, name="supervisor_dashboard"),
+    path("supervisor/users/", views.supervisor_user_management, name="supervisor_user_management"),
+    path(
+        "supervisor/users/supervisor-access/<int:access_email_id>/delete/",
+        views.supervisor_access_email_delete,
+        name="supervisor_access_email_delete",
+    ),
     path("supervisor/staff/", views.staff_list, name="staff_list"),
     path("supervisor/staff/add/", views.staff_create, name="staff_create"),
     path("supervisor/staff/<int:user_id>/dashboard/", views.supervisor_staff_dashboard, name="supervisor_staff_dashboard"),

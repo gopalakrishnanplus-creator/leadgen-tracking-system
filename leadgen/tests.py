@@ -27,6 +27,7 @@ from .models import (
     MeetingReminder,
     Prospect,
     SalesConversation,
+    SupervisorAccessEmail,
     SystemSetting,
     User,
 )
@@ -61,6 +62,17 @@ class LeadgenWorkflowTests(TestCase):
         )
         self.supervisor.set_unusable_password()
         self.supervisor.save()
+        for email in [
+            "bhavesh.kataria@inditech.co.in",
+            "gopala.krishnan@inditech.co.in",
+            "gkinchina@gmail.com",
+            "leesaamit@gmail.com",
+            "vamshi.alle@inditech.co.in",
+        ]:
+            SupervisorAccessEmail.objects.update_or_create(
+                email=email,
+                defaults={"is_active": True},
+            )
         self.staff = User.objects.create(
             email="staff@example.com",
             username="staff@example.com",
@@ -646,14 +658,6 @@ class LeadgenWorkflowTests(TestCase):
         self.assertContains(supervisor_response, self.prospect.company_name)
         self.assertContains(supervisor_response, "Attempted five times with no answer.")
 
-    @override_settings(
-        SUPERVISOR_EMAIL="bhavesh.kataria@inditech.co.in",
-        SUPERVISOR_ALLOWED_EMAILS=[
-            "gopala.krishnan@inditech.co.in",
-            "gkinchina@gmail.com",
-            "bhavesh.kataria@inditech.co.in",
-        ],
-    )
     def test_supervisor_alias_maps_to_single_supervisor_user(self):
         adapter = LeadgenSocialAccountAdapter()
         user = adapter._authorized_user_for_email("gkinchina@gmail.com")
@@ -661,6 +665,8 @@ class LeadgenWorkflowTests(TestCase):
         user = adapter._authorized_user_for_email("gopala.krishnan@inditech.co.in")
         self.assertEqual(user.pk, self.supervisor.pk)
         user = adapter._authorized_user_for_email("leesaamit@gmail.com")
+        self.assertEqual(user.pk, self.supervisor.pk)
+        user = adapter._authorized_user_for_email("vamshi.alle@inditech.co.in")
         self.assertEqual(user.pk, self.supervisor.pk)
 
     def test_login_page_posts_to_google_provider(self):
@@ -1320,6 +1326,49 @@ class LeadgenWorkflowTests(TestCase):
         response = self.client.get("/supervisor/staff/")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, f"/supervisor/staff/{self.staff.pk}/dashboard/")
+
+    def test_supervisor_can_open_manage_users_page(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.get("/supervisor/users/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Manage users")
+        self.assertContains(response, "vamshi.alle@inditech.co.in")
+        self.assertContains(response, self.staff.name)
+        self.assertContains(response, self.sales_manager.email)
+        self.assertContains(response, self.finance_manager.email)
+
+    def test_supervisor_can_add_supervisor_access_email(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.post("/supervisor/users/", {"email": "new.supervisor@example.com"})
+        self.assertRedirects(response, "/supervisor/users/")
+        self.assertTrue(
+            SupervisorAccessEmail.objects.filter(email="new.supervisor@example.com", is_active=True).exists()
+        )
+
+    def test_supervisor_can_deactivate_supervisor_access_email(self):
+        access_email = SupervisorAccessEmail.objects.create(email="temporary.supervisor@example.com", is_active=True)
+        self.client.force_login(self.supervisor)
+        response = self.client.post(f"/supervisor/users/supervisor-access/{access_email.pk}/delete/")
+        self.assertRedirects(response, "/supervisor/users/")
+        access_email.refresh_from_db()
+        self.assertFalse(access_email.is_active)
+
+    def test_supervisor_dashboard_removes_crossed_out_sections(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.get("/supervisor/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Manage users")
+        self.assertNotContains(response, "Active sales managers")
+        self.assertNotContains(response, "Active finance managers")
+        self.assertNotContains(response, "Accepted prospects")
+        self.assertNotContains(response, "All prospects")
+        self.assertNotContains(response, "Add prospect")
+        self.assertNotContains(response, "Five unanswered attempts")
+        self.assertNotContains(response, "Compare yesterday's target with imported call attempts for each lead gen staff member")
+        self.assertNotContains(response, "Track WhatsApp proofs, automated reminder emails, and missed reminder steps")
+        self.assertNotContains(response, "Open any lead gen staff dashboard from one place")
+        self.assertNotContains(response, "Move conducted meetings straight into sales follow-through")
+        self.assertNotContains(response, "Recent imported calls")
 
     def test_supervisor_staff_dashboard_shows_staff_name(self):
         self.client.force_login(self.supervisor)

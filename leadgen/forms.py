@@ -11,6 +11,7 @@ from .models import (
     MeetingReminder,
     Prospect,
     SalesConversation,
+    SupervisorAccessEmail,
     SystemSetting,
     User,
 )
@@ -188,6 +189,22 @@ class FinanceManagerUpdateForm(FixedRoleUserFormMixin, StyledFormMixin, forms.Mo
         if commit:
             user.save()
         return user
+
+
+class SupervisorAccessEmailForm(StyledFormMixin, forms.ModelForm):
+    reactivated_instance = None
+
+    class Meta:
+        model = SupervisorAccessEmail
+        fields = ["email"]
+
+    def clean_email(self):
+        email = (self.cleaned_data.get("email") or "").strip().lower()
+        existing = SupervisorAccessEmail.objects.exclude(pk=self.instance.pk).filter(email=email).first()
+        if existing and existing.is_active:
+            raise ValidationError("This supervisor access email already exists.")
+        self.reactivated_instance = existing
+        return email
 
 
 class ProspectCreateForm(StyledFormMixin, forms.ModelForm):

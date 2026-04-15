@@ -4,23 +4,19 @@ from django.conf import settings
 from django.contrib import messages
 from django.shortcuts import redirect
 
-from .models import User
-
-
-DEFAULT_SUPERVISOR_ALIASES = {
-    "gopala.krishnan@inditech.co.in",
-    "gkinchina@gmail.com",
-    "bhavesh.kataria@inditech.co.in",
-    "leesaamit@gmail.com",
-}
+from .models import SupervisorAccessEmail, User
 
 
 class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
     def _supervisor_allowed_emails(self):
-        return {
-            *DEFAULT_SUPERVISOR_ALIASES,
+        configured_emails = {
+            settings.SUPERVISOR_EMAIL,
             *(email.strip().lower() for email in settings.SUPERVISOR_ALLOWED_EMAILS if email),
         }
+        database_emails = set(
+            SupervisorAccessEmail.objects.filter(is_active=True).values_list("email", flat=True)
+        )
+        return database_emails or configured_emails
 
     def _normalized_email(self, sociallogin):
         return (

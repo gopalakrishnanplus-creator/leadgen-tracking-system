@@ -17,9 +17,7 @@
                 <nav class="main-nav">
                     {% if request.user.is_supervisor %}
                         <a href="{% url 'supervisor_dashboard' %}">Dashboard</a>
-                        <a href="{% url 'staff_list' %}">Staff</a>
-                        <a href="{% url 'sales_manager_list' %}">Sales Managers</a>
-                        <a href="{% url 'finance_manager_list' %}">Finance Managers</a>
+                        <a href="{% url 'supervisor_user_management' %}">Manage Users</a>
                         <a href="{% url 'sales_pipeline_dashboard' %}">Sales Pipeline</a>
                         <a href="{% url 'contracts_dashboard' %}">Contracts</a>
                         <a href="{% url 'pending_collections' %}">Pending Collections</a>

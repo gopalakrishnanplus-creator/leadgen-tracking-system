@@ -19,6 +19,7 @@ from .forms import (
     MeetingReminderLogForm,
     ProspectCreateForm,
     SupervisorProspectActionForm,
+    SupervisorAccessEmailForm,
     ProspectReviewForm,
     ReportFilterForm,
     SalesConversationFilterForm,
@@ -39,6 +40,7 @@ from .models import (
     ProspectStatusUpdate,
     SalesConversation,
     SalesConversationFile,
+    SupervisorAccessEmail,
     SystemSetting,
     User,
 )
@@ -100,11 +102,9 @@ def supervisor_dashboard(request):
         status=Meeting.STATUS_SCHEDULED,
         scheduled_for__lt=timezone.now(),
     )
-    recent_calls = CallLog.objects.filter(started_at__isnull=False).select_related("staff", "prospect")[:8]
     context = {
         "staff_count": User.objects.filter(role=User.ROLE_STAFF, is_active=True).count(),
         "pending_review_count": Prospect.objects.filter(approval_status=Prospect.APPROVAL_PENDING).count(),
-        "accepted_count": Prospect.objects.filter(approval_status=Prospect.APPROVAL_ACCEPTED).count(),
         "invalid_number_count": Prospect.objects.filter(workflow_status=Prospect.WORKFLOW_INVALID_NUMBER).count(),
         "supervisor_action_count": Prospect.objects.filter(workflow_status=Prospect.WORKFLOW_SUPERVISOR_ACTION).count(),
         "scheduled_count": Meeting.objects.filter(status=Meeting.STATUS_SCHEDULED).count(),
@@ -115,13 +115,60 @@ def supervisor_dashboard(request):
             status=Meeting.STATUS_SCHEDULED,
             scheduled_for__gte=timezone.now(),
         )[:5],
-        "recent_calls": recent_calls,
-        "sales_manager_count": User.objects.filter(role=User.ROLE_SALES_MANAGER, is_active=True).count(),
-        "finance_manager_count": User.objects.filter(role=User.ROLE_FINANCE_MANAGER, is_active=True).count(),
         "active_sales_pipeline_count": SalesConversation.objects.filter(contract_signed=False).count(),
         "active_contract_count": ContractCollection.objects.count(),
     }
     return render(request, "leadgen/supervisor_dashboard.html", context)
+
+
+def _supervisor_user_management_context(access_form=None):
+    return {
+        "supervisor_access_form": access_form or SupervisorAccessEmailForm(),
+        "supervisor_access_emails": SupervisorAccessEmail.objects.order_by("email"),
+        "staff_members": User.objects.filter(role=User.ROLE_STAFF).order_by("name", "email"),
+        "sales_managers": User.objects.filter(role=User.ROLE_SALES_MANAGER).order_by("name", "email"),
+        "finance_managers": User.objects.filter(role=User.ROLE_FINANCE_MANAGER).order_by("name", "email"),
+    }
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def supervisor_user_management(request):
+    access_form = SupervisorAccessEmailForm(request.POST or None)
+    if request.method == "POST":
+        if access_form.is_valid():
+            reactivated_instance = access_form.reactivated_instance
+            if reactivated_instance is not None:
+                reactivated_instance.is_active = True
+                reactivated_instance.save(update_fields=["is_active", "updated_at"])
+            else:
+                access_form.save()
+            messages.success(request, "Supervisor access updated.")
+            return redirect("supervisor_user_management")
+        messages.error(request, "Please correct the supervisor access email and try again.")
+    return render(
+        request,
+        "leadgen/supervisor_user_management.html",
+        _supervisor_user_management_context(access_form),
+    )
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def supervisor_access_email_delete(request, access_email_id):
+    access_email = get_object_or_404(SupervisorAccessEmail, pk=access_email_id)
+    if request.method == "POST":
+        access_email.is_active = False
+        access_email.save(update_fields=["is_active", "updated_at"])
+        messages.success(request, "Supervisor access removed.")
+        return redirect("supervisor_user_management")
+    return render(
+        request,
+        "leadgen/confirm_delete.html",
+        {
+            "object": access_email,
+            "title": "Remove supervisor access",
+            "description": "This will stop this Google email from opening the supervisor dashboard.",
+        },
+    )
 
 
 @role_required(User.ROLE_SUPERVISOR)
@@ -136,7 +183,7 @@ def staff_create(request):
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, "Lead gen staff account created.")
-        return redirect("staff_list")
+        return redirect("supervisor_user_management")
     return render(request, "leadgen/staff_form.html", {"form": form, "title": "Add lead gen staff"})
 
 
@@ -195,7 +242,7 @@ def staff_update(request, user_id):
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, "Lead gen staff updated.")
-        return redirect("staff_list")
+        return redirect("supervisor_user_management")
     return render(request, "leadgen/staff_form.html", {"form": form, "title": "Edit lead gen staff"})
 
 
@@ -206,7 +253,7 @@ def staff_delete(request, user_id):
         staff_member.is_active = False
         staff_member.save(update_fields=["is_active"])
         messages.success(request, "Lead gen staff deactivated.")
-        return redirect("staff_list")
+        return redirect("supervisor_user_management")
     return render(request, "leadgen/confirm_delete.html", {"object": staff_member, "title": "Deactivate lead gen staff"})
 
 
@@ -222,7 +269,7 @@ def sales_manager_create(request):
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, "Sales manager account created.")
-        return redirect("sales_manager_list")
+        return redirect("supervisor_user_management")
     return render(request, "leadgen/sales_manager_form.html", {"form": form, "title": "Add sales manager"})
 
 
@@ -233,7 +280,7 @@ def sales_manager_update(request, user_id):
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, "Sales manager updated.")
-        return redirect("sales_manager_list")
+        return redirect("supervisor_user_management")
     return render(request, "leadgen/sales_manager_form.html", {"form": form, "title": "Edit sales manager"})
 
 
@@ -244,7 +291,7 @@ def sales_manager_delete(request, user_id):
         sales_manager.is_active = False
         sales_manager.save(update_fields=["is_active"])
         messages.success(request, "Sales manager deactivated.")
-        return redirect("sales_manager_list")
+        return redirect("supervisor_user_management")
     return render(request, "leadgen/confirm_delete.html", {"object": sales_manager, "title": "Deactivate sales manager"})
 
 
@@ -260,7 +307,7 @@ def finance_manager_create(request):
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, "Finance manager account created.")
-        return redirect("finance_manager_list")
+        return redirect("supervisor_user_management")
     return render(request, "leadgen/finance_manager_form.html", {"form": form, "title": "Add finance manager"})
 
 
@@ -271,7 +318,7 @@ def finance_manager_update(request, user_id):
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, "Finance manager updated.")
-        return redirect("finance_manager_list")
+        return redirect("supervisor_user_management")
     return render(request, "leadgen/finance_manager_form.html", {"form": form, "title": "Edit finance manager"})
 
 
@@ -282,7 +329,7 @@ def finance_manager_delete(request, user_id):
         finance_manager.is_active = False
         finance_manager.save(update_fields=["is_active"])
         messages.success(request, "Finance manager deactivated.")
-        return redirect("finance_manager_list")
+        return redirect("supervisor_user_management")
     return render(request, "leadgen/confirm_delete.html", {"object": finance_manager, "title": "Deactivate finance manager"})
 
 

@@ -4,15 +4,12 @@
 <section class="hero">
     <div>
         <p class="eyebrow">Supervisor dashboard</p>
-        <h1>Control staff, approvals, imports, and meetings</h1>
+        <h1>Control users, approvals, meetings, and collections</h1>
     </div>
 </section>
 <section class="stats-grid">
     <article class="stat-card"><span>{{ staff_count }}</span><p>Active staff</p></article>
-    <article class="stat-card"><span>{{ sales_manager_count }}</span><p>Active sales managers</p></article>
-    <article class="stat-card"><span>{{ finance_manager_count }}</span><p>Active finance managers</p></article>
     <article class="stat-card"><span>{{ pending_review_count }}</span><p>Pending prospect reviews</p></article>
-    <article class="stat-card"><span>{{ accepted_count }}</span><p>Accepted prospects</p></article>
     <article class="stat-card"><span>{{ invalid_number_count }}</span><p>Invalid numbers</p></article>
     <article class="stat-card"><span>{{ supervisor_action_count }}</span><p>Need supervisor action</p></article>
     <article class="stat-card"><span>{{ scheduled_count }}</span><p>Scheduled meetings</p></article>
@@ -24,60 +21,23 @@
 <section class="panel">
     <div class="section-head">
         <div>
+            <p class="eyebrow">User management</p>
+            <h2>Add or deactivate lead gen staff, sales managers, finance managers, and supervisor access emails</h2>
+        </div>
+        <div class="button-row">
+            <a class="button button-primary" href="{% url 'supervisor_user_management' %}">Manage users</a>
+        </div>
+    </div>
+</section>
+<section class="panel">
+    <div class="section-head">
+        <div>
             <p class="eyebrow">Prospects</p>
-            <h2>Review incoming prospects, reassign staff ownership, and add new ones</h2>
+            <h2>Review incoming prospects, reassign staff ownership, and manage invalid numbers</h2>
         </div>
         <div class="button-row">
-            <a class="button" href="{% url 'supervisor_prospect_list' %}">All prospects</a>
             <a class="button button-primary" href="{% url 'supervisor_prospect_review' %}">Open prospect review</a>
-            <a class="button" href="{% url 'supervisor_prospect_create' %}">Add prospect</a>
             <a class="button" href="{% url 'supervisor_invalid_prospect_list' %}">Invalid numbers</a>
-            <a class="button" href="{% url 'supervisor_action_prospect_list' %}">Five unanswered attempts</a>
-        </div>
-    </div>
-</section>
-<section class="panel">
-    <div class="section-head">
-        <div>
-            <p class="eyebrow">Daily targets</p>
-            <h2>Compare yesterday's target with imported call attempts for each lead gen staff member</h2>
-        </div>
-        <div class="button-row">
-            <a class="button button-primary" href="{% url 'supervisor_daily_targets' %}">Yesterday targets vs attempts</a>
-        </div>
-    </div>
-</section>
-<section class="panel">
-    <div class="section-head">
-        <div>
-            <p class="eyebrow">Reminder messages</p>
-            <h2>Track WhatsApp proofs, automated reminder emails, and missed reminder steps</h2>
-        </div>
-        <div class="button-row">
-            <a class="button button-primary" href="{% url 'supervisor_reminder_dashboard' %}">Open reminder messages</a>
-        </div>
-    </div>
-</section>
-<section class="panel">
-    <div class="section-head">
-        <div>
-            <p class="eyebrow">Lead gen team</p>
-            <h2>Open any lead gen staff dashboard from one place</h2>
-        </div>
-        <div class="button-row">
-            <a class="button button-primary" href="{% url 'staff_list' %}">See lead gen staff list</a>
-        </div>
-    </div>
-</section>
-<section class="panel">
-    <div class="section-head">
-        <div>
-            <p class="eyebrow">Sales pipeline</p>
-            <h2>Move conducted meetings straight into sales follow-through</h2>
-        </div>
-        <div class="button-row">
-            <a class="button button-primary" href="{% url 'sales_pipeline_dashboard' %}">Open sales pipeline</a>
-            <a class="button" href="{% url 'sales_conversation_create' %}">Add new sales conversation</a>
         </div>
     </div>
 </section>
@@ -130,24 +90,5 @@
             </tbody>
         </table>
     </div>
-</section>
-<section class="panel">
-    <h2>Recent imported calls</h2>
-    <table>
-        <thead><tr><th>Staff</th><th>Prospect</th><th>When</th><th>Status</th><th>Duration</th></tr></thead>
-        <tbody>
-        {% for call in recent_calls %}
-            <tr>
-                <td>{% if call.staff %}{{ call.staff.name }}{% else %}-{% endif %}</td>
-                <td>{% if call.prospect %}{{ call.prospect.company_name }} / {{ call.prospect.contact_name }}{% else %}Unmatched{% endif %}</td>
-                <td>{{ call.started_at|default:"-" }}</td>
-                <td>{{ call.get_crm_status_display }}</td>
-                <td>{{ call.duration_seconds }} sec</td>
-            </tr>
-        {% empty %}
-            <tr><td colspan="5">No imported calls yet.</td></tr>
-        {% endfor %}
-        </tbody>
-    </table>
 </section>
 {% endblock %}
