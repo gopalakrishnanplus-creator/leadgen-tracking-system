@@ -94,7 +94,19 @@ class SystemSetting(models.Model):
 
 
 class SupervisorAccessEmail(models.Model):
+    ACCESS_SYSTEM_ADMIN = "system_admin"
+    ACCESS_LEADGEN_SUPERVISOR = "leadgen_supervisor"
+    ACCESS_CHOICES = [
+        (ACCESS_SYSTEM_ADMIN, "System admin"),
+        (ACCESS_LEADGEN_SUPERVISOR, "Lead gen supervisor"),
+    ]
+
     email = models.EmailField(unique=True)
+    access_level = models.CharField(
+        max_length=32,
+        choices=ACCESS_CHOICES,
+        default=ACCESS_LEADGEN_SUPERVISOR,
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -105,6 +117,14 @@ class SupervisorAccessEmail(models.Model):
     def save(self, *args, **kwargs):
         self.email = (self.email or "").strip().lower()
         super().save(*args, **kwargs)
+
+    @property
+    def is_system_admin(self):
+        return self.access_level == self.ACCESS_SYSTEM_ADMIN
+
+    @property
+    def is_leadgen_supervisor(self):
+        return self.access_level == self.ACCESS_LEADGEN_SUPERVISOR
 
     def __str__(self):
         return self.email

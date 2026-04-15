@@ -5,27 +5,63 @@
     <div>
         <p class="eyebrow">Supervisor</p>
         <h1>Manage users</h1>
-        <p class="note">Use one page to manage supervisor access, lead gen staff, sales managers, and finance managers.</p>
+        <p class="note">
+            {% if is_system_admin_view %}
+                System admin view: manage all user classes and supervisor access.
+            {% else %}
+                Lead gen supervisor view: manage lead gen staff only.
+            {% endif %}
+        </p>
     </div>
     <div class="button-row">
         <a class="button" href="{% url 'supervisor_dashboard' %}">Back to dashboard</a>
         <a class="button button-primary" href="{% url 'staff_create' %}">Add lead gen staff</a>
-        <a class="button" href="{% url 'sales_manager_create' %}">Add sales manager</a>
-        <a class="button" href="{% url 'finance_manager_create' %}">Add finance manager</a>
+        {% if is_system_admin_view %}
+            <a class="button" href="{% url 'sales_manager_create' %}">Add sales manager</a>
+            <a class="button" href="{% url 'finance_manager_create' %}">Add finance manager</a>
+        {% endif %}
     </div>
+</section>
+
+{% if is_system_admin_view %}
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">System admin</p>
+            <h2>Google accounts with full system-wide administration rights</h2>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Email</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for access_email in system_admin_access_emails %}
+            <tr>
+                <td>{{ access_email.email }}</td>
+                <td>{% if access_email.is_active %}Active{% else %}Inactive{% endif %}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="2">No system admin emails configured yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
 </section>
 
 <section class="panel">
     <div class="section-head">
         <div>
             <p class="eyebrow">Lead gen supervisors</p>
-            <h2>Google accounts that open the single supervisor workspace</h2>
+            <h2>Google accounts that can manage lead gen staff and the lead gen dashboard</h2>
         </div>
     </div>
     <form method="post" class="nested-panel">
         {% csrf_token %}
         {{ supervisor_access_form.non_field_errors }}
-        <label for="{{ supervisor_access_form.email.id_for_label }}">Add supervisor access email</label>
+        <label for="{{ supervisor_access_form.email.id_for_label }}">Add lead gen supervisor email</label>
         {{ supervisor_access_form.email }}
         {% for error in supervisor_access_form.email.errors %}
             <div class="message error">{{ error }}</div>
@@ -43,7 +79,7 @@
             </tr>
         </thead>
         <tbody>
-        {% for access_email in supervisor_access_emails %}
+        {% for access_email in leadgen_supervisor_access_emails %}
             <tr>
                 <td>{{ access_email.email }}</td>
                 <td>{% if access_email.is_active %}Active{% else %}Inactive{% endif %}</td>
@@ -54,11 +90,12 @@
                 </td>
             </tr>
         {% empty %}
-            <tr><td colspan="3">No supervisor access emails configured yet.</td></tr>
+            <tr><td colspan="3">No lead gen supervisors configured yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>
 </section>
+{% endif %}
 
 <section class="panel">
     <div class="section-head">
@@ -99,6 +136,7 @@
     </table>
 </section>
 
+{% if is_system_admin_view %}
 <section class="panel">
     <div class="section-head">
         <div>
@@ -170,4 +208,5 @@
         </tbody>
     </table>
 </section>
+{% endif %}
 {% endblock %}

@@ -8,15 +8,40 @@ from .models import SupervisorAccessEmail, User
 
 
 class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
-    def _supervisor_allowed_emails(self):
-        configured_emails = {
+    def _supervisor_access_map(self):
+        database_entries = SupervisorAccessEmail.objects.filter(is_active=True)
+        if database_entries.exists():
+            return {entry.email: entry.access_level for entry in database_entries}
+
+        access_map = {}
+        system_admin_emails = getattr(settings, "SYSTEM_ADMIN_EMAILS", ["gopala.krishnan@inditech.co.in"])
+        for email in system_admin_emails:
+            normalized = (email or "").strip().lower()
+            if normalized:
+                access_map[normalized] = SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN
+
+        configured_supervisor_emails = {
             settings.SUPERVISOR_EMAIL,
             *(email.strip().lower() for email in settings.SUPERVISOR_ALLOWED_EMAILS if email),
         }
-        database_emails = set(
-            SupervisorAccessEmail.objects.filter(is_active=True).values_list("email", flat=True)
-        )
-        return database_emails or configured_emails
+        for email in configured_supervisor_emails:
+            normalized = (email or "").strip().lower()
+            if normalized:
+                access_map.setdefault(normalized, SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR)
+        return access_map
+
+    def _supervisor_allowed_emails(self):
+        return set(self._supervisor_access_map().keys())
+
+    def _remember_supervisor_access(self, request, email):
+        normalized = (email or "").strip().lower()
+        access_level = self._supervisor_access_map().get(normalized)
+        if access_level:
+            request.session["supervisor_access_email"] = normalized
+            request.session["supervisor_access_level"] = access_level
+        else:
+            request.session.pop("supervisor_access_email", None)
+            request.session.pop("supervisor_access_level", None)
 
     def _normalized_email(self, sociallogin):
         return (
@@ -73,10 +98,12 @@ class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
                 if external_email not in self._supervisor_allowed_emails():
                     messages.error(request, "This Google account is not authorized for supervisor access.")
                     raise ImmediateHttpResponse(redirect("login"))
+                self._remember_supervisor_access(request, external_email)
                 return
             if self._authorized_user_for_email(external_email) is None or user.email.lower() != external_email:
                 messages.error(request, "Your Google account is not authorized for this system.")
                 raise ImmediateHttpResponse(redirect("login"))
+            self._remember_supervisor_access(request, None)
             return
 
         user = self._authorized_user_for_email(external_email)
@@ -86,6 +113,10 @@ class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
         if not user.is_active:
             messages.error(request, "Your account is inactive.")
             raise ImmediateHttpResponse(redirect("login"))
+        if user.is_supervisor:
+            self._remember_supervisor_access(request, external_email)
+        else:
+            self._remember_supervisor_access(request, None)
         sociallogin.connect(request, user)
 
     def is_open_for_signup(self, request, sociallogin):

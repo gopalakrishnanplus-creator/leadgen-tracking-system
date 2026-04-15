@@ -30,3 +30,19 @@ def roles_required(*roles):
         return wrapped
 
     return decorator
+
+
+def supervisor_access_required(*access_levels):
+    def decorator(view_func):
+        @login_required
+        @wraps(view_func)
+        def wrapped(request, *args, **kwargs):
+            if not getattr(request.user, "is_supervisor", False):
+                return HttpResponseForbidden("You do not have access to this page.")
+            if getattr(request, "supervisor_access_level", None) not in set(access_levels):
+                return HttpResponseForbidden("You do not have access to this page.")
+            return view_func(request, *args, **kwargs)
+
+        return wrapped
+
+    return decorator

@@ -7,7 +7,7 @@ from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
-from .decorators import role_required, roles_required
+from .decorators import role_required, roles_required, supervisor_access_required
 from .forms import (
     CallOutcomeForm,
     ContractCollectionForm,
@@ -102,9 +102,11 @@ def supervisor_dashboard(request):
         status=Meeting.STATUS_SCHEDULED,
         scheduled_for__lt=timezone.now(),
     )
+    recent_calls = CallLog.objects.filter(started_at__isnull=False).select_related("staff", "prospect")[:8]
     context = {
         "staff_count": User.objects.filter(role=User.ROLE_STAFF, is_active=True).count(),
         "pending_review_count": Prospect.objects.filter(approval_status=Prospect.APPROVAL_PENDING).count(),
+        "accepted_count": Prospect.objects.filter(approval_status=Prospect.APPROVAL_ACCEPTED).count(),
         "invalid_number_count": Prospect.objects.filter(workflow_status=Prospect.WORKFLOW_INVALID_NUMBER).count(),
         "supervisor_action_count": Prospect.objects.filter(workflow_status=Prospect.WORKFLOW_SUPERVISOR_ACTION).count(),
         "scheduled_count": Meeting.objects.filter(status=Meeting.STATUS_SCHEDULED).count(),
@@ -115,26 +117,41 @@ def supervisor_dashboard(request):
             status=Meeting.STATUS_SCHEDULED,
             scheduled_for__gte=timezone.now(),
         )[:5],
+        "recent_calls": recent_calls,
+        "sales_manager_count": User.objects.filter(role=User.ROLE_SALES_MANAGER, is_active=True).count(),
+        "finance_manager_count": User.objects.filter(role=User.ROLE_FINANCE_MANAGER, is_active=True).count(),
         "active_sales_pipeline_count": SalesConversation.objects.filter(contract_signed=False).count(),
         "active_contract_count": ContractCollection.objects.count(),
     }
     return render(request, "leadgen/supervisor_dashboard.html", context)
 
 
-def _supervisor_user_management_context(access_form=None):
+def _supervisor_user_management_context(request, access_form=None):
     return {
+        "is_system_admin_view": getattr(request, "is_system_admin", False),
+        "is_leadgen_supervisor_view": getattr(request, "is_leadgen_supervisor", False),
         "supervisor_access_form": access_form or SupervisorAccessEmailForm(),
-        "supervisor_access_emails": SupervisorAccessEmail.objects.order_by("email"),
+        "system_admin_access_emails": SupervisorAccessEmail.objects.filter(
+            access_level=SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN
+        ).order_by("email"),
+        "leadgen_supervisor_access_emails": SupervisorAccessEmail.objects.filter(
+            access_level=SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR
+        ).order_by("email"),
         "staff_members": User.objects.filter(role=User.ROLE_STAFF).order_by("name", "email"),
         "sales_managers": User.objects.filter(role=User.ROLE_SALES_MANAGER).order_by("name", "email"),
         "finance_managers": User.objects.filter(role=User.ROLE_FINANCE_MANAGER).order_by("name", "email"),
     }
 
 
-@role_required(User.ROLE_SUPERVISOR)
+@supervisor_access_required(
+    SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN,
+    SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
+)
 def supervisor_user_management(request):
     access_form = SupervisorAccessEmailForm(request.POST or None)
     if request.method == "POST":
+        if not request.is_system_admin:
+            return redirect("supervisor_user_management")
         if access_form.is_valid():
             reactivated_instance = access_form.reactivated_instance
             if reactivated_instance is not None:
@@ -148,13 +165,17 @@ def supervisor_user_management(request):
     return render(
         request,
         "leadgen/supervisor_user_management.html",
-        _supervisor_user_management_context(access_form),
+        _supervisor_user_management_context(request, access_form),
     )
 
 
-@role_required(User.ROLE_SUPERVISOR)
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
 def supervisor_access_email_delete(request, access_email_id):
-    access_email = get_object_or_404(SupervisorAccessEmail, pk=access_email_id)
+    access_email = get_object_or_404(
+        SupervisorAccessEmail,
+        pk=access_email_id,
+        access_level=SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
+    )
     if request.method == "POST":
         access_email.is_active = False
         access_email.save(update_fields=["is_active", "updated_at"])
@@ -177,7 +198,10 @@ def staff_list(request):
     return render(request, "leadgen/staff_list.html", {"staff_members": staff_members})
 
 
-@role_required(User.ROLE_SUPERVISOR)
+@supervisor_access_required(
+    SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN,
+    SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
+)
 def staff_create(request):
     form = StaffCreateForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
@@ -235,7 +259,10 @@ def _get_finance_manager_or_404(user_id):
     return get_object_or_404(User, pk=user_id, role=User.ROLE_FINANCE_MANAGER)
 
 
-@role_required(User.ROLE_SUPERVISOR)
+@supervisor_access_required(
+    SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN,
+    SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
+)
 def staff_update(request, user_id):
     staff_member = _get_staff_or_404(user_id)
     form = StaffUpdateForm(request.POST or None, instance=staff_member)
@@ -246,7 +273,10 @@ def staff_update(request, user_id):
     return render(request, "leadgen/staff_form.html", {"form": form, "title": "Edit lead gen staff"})
 
 
-@role_required(User.ROLE_SUPERVISOR)
+@supervisor_access_required(
+    SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN,
+    SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
+)
 def staff_delete(request, user_id):
     staff_member = _get_staff_or_404(user_id)
     if request.method == "POST":
@@ -257,13 +287,13 @@ def staff_delete(request, user_id):
     return render(request, "leadgen/confirm_delete.html", {"object": staff_member, "title": "Deactivate lead gen staff"})
 
 
-@role_required(User.ROLE_SUPERVISOR)
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
 def sales_manager_list(request):
     sales_managers = User.objects.filter(role=User.ROLE_SALES_MANAGER).order_by("name", "email")
     return render(request, "leadgen/sales_manager_list.html", {"sales_managers": sales_managers})
 
 
-@role_required(User.ROLE_SUPERVISOR)
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
 def sales_manager_create(request):
     form = SalesManagerCreateForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
@@ -273,7 +303,7 @@ def sales_manager_create(request):
     return render(request, "leadgen/sales_manager_form.html", {"form": form, "title": "Add sales manager"})
 
 
-@role_required(User.ROLE_SUPERVISOR)
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
 def sales_manager_update(request, user_id):
     sales_manager = _get_sales_manager_or_404(user_id)
     form = SalesManagerUpdateForm(request.POST or None, instance=sales_manager)
@@ -284,7 +314,7 @@ def sales_manager_update(request, user_id):
     return render(request, "leadgen/sales_manager_form.html", {"form": form, "title": "Edit sales manager"})
 
 
-@role_required(User.ROLE_SUPERVISOR)
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
 def sales_manager_delete(request, user_id):
     sales_manager = _get_sales_manager_or_404(user_id)
     if request.method == "POST":
@@ -295,13 +325,13 @@ def sales_manager_delete(request, user_id):
     return render(request, "leadgen/confirm_delete.html", {"object": sales_manager, "title": "Deactivate sales manager"})
 
 
-@role_required(User.ROLE_SUPERVISOR)
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
 def finance_manager_list(request):
     finance_managers = User.objects.filter(role=User.ROLE_FINANCE_MANAGER).order_by("name", "email")
     return render(request, "leadgen/finance_manager_list.html", {"finance_managers": finance_managers})
 
 
-@role_required(User.ROLE_SUPERVISOR)
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
 def finance_manager_create(request):
     form = FinanceManagerCreateForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
@@ -311,7 +341,7 @@ def finance_manager_create(request):
     return render(request, "leadgen/finance_manager_form.html", {"form": form, "title": "Add finance manager"})
 
 
-@role_required(User.ROLE_SUPERVISOR)
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
 def finance_manager_update(request, user_id):
     finance_manager = _get_finance_manager_or_404(user_id)
     form = FinanceManagerUpdateForm(request.POST or None, instance=finance_manager)
@@ -322,7 +352,7 @@ def finance_manager_update(request, user_id):
     return render(request, "leadgen/finance_manager_form.html", {"form": form, "title": "Edit finance manager"})
 
 
-@role_required(User.ROLE_SUPERVISOR)
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
 def finance_manager_delete(request, user_id):
     finance_manager = _get_finance_manager_or_404(user_id)
     if request.method == "POST":
