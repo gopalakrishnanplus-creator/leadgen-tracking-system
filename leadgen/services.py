@@ -817,6 +817,12 @@ def default_sales_manager():
     return None
 
 
+def business_localdate(tz_name=None, now=None):
+    tz = ZoneInfo(tz_name or SystemSetting.load().default_timezone)
+    current_time = now or timezone.now()
+    return timezone.localtime(current_time, tz).date()
+
+
 def active_finance_manager_emails():
     return list(
         User.objects.filter(role=User.ROLE_FINANCE_MANAGER, is_active=True)
@@ -1007,7 +1013,7 @@ def sync_finance_collection_data(contract_collection, cleaned_data):
 
 
 def build_pending_collections(contract_query_set, today=None):
-    today = today or timezone.localdate()
+    today = today or business_localdate()
     installments = ContractCollectionInstallment.objects.select_related(
         "contract_collection",
         "contract_collection__sales_manager",
@@ -1062,8 +1068,8 @@ def send_invoice_due_email(installment):
     )
 
 
-def send_due_invoice_notifications(target_date=None):
-    target_date = target_date or timezone.localdate()
+def send_due_invoice_notifications(target_date=None, now=None):
+    target_date = target_date or business_localdate(now=now)
     installments = ContractCollectionInstallment.objects.select_related(
         "contract_collection",
         "contract_collection__sales_manager",

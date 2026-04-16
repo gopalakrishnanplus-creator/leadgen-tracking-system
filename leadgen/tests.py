@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from django.db import IntegrityError
 from django.core import mail
@@ -34,6 +35,7 @@ from .models import (
 )
 from .services import (
     apply_call_outcome,
+    business_localdate,
     build_calendar_invite,
     build_daily_target_report,
     build_pending_collections,
@@ -1242,6 +1244,36 @@ class LeadgenWorkflowTests(TestCase):
         self.assertIn("Agreement between Inditech and Invoice Co dated April 1, 2026", mail.outbox[0].body)
         self.assertIn("Campaign setup and launch services", mail.outbox[0].body)
         self.assertIn("Milestone one deliverables were accepted by the client.", mail.outbox[0].body)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_send_due_invoice_notifications_uses_business_timezone_date(self):
+        contract_collection = ContractCollection.objects.create(
+            company_name="India Immunologicals",
+            sales_manager=self.sales_manager,
+            contract_value="250000.00",
+            created_by=self.supervisor,
+        )
+        contract_collection.contacts.create(position=1, name="Jane Doe", email="jane@example.com")
+        installment = ContractCollectionInstallment.objects.create(
+            contract_collection=contract_collection,
+            position=2,
+            installment_amount="100000.00",
+            invoice_date=datetime(2026, 4, 16).date(),
+            expected_collection_date=datetime(2026, 4, 20).date(),
+            contract_summary="Agreement between Inditech and India Immunologicals dated April 1, 2026",
+            invoiced_service_description="Installment 2 campaign services",
+            legal_due_reason="Installment 2 is due under the signed contract milestones.",
+        )
+        utc_now = timezone.make_aware(datetime(2026, 4, 15, 19, 0), ZoneInfo("UTC"))
+
+        self.assertEqual(business_localdate("Asia/Kolkata", now=utc_now), datetime(2026, 4, 16).date())
+        sent_count = send_due_invoice_notifications(now=utc_now)
+
+        installment.refresh_from_db()
+        self.assertEqual(sent_count, 1)
+        self.assertIsNotNone(installment.invoice_notification_sent_at)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("India Immunologicals", mail.outbox[0].subject)
 
     @override_settings(
         SENDGRID_API_KEY="test-sendgrid-key",
