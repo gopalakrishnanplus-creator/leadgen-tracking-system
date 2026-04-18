@@ -414,7 +414,7 @@ def build_calendar_invite(meeting, settings_obj):
     tz = ZoneInfo(settings_obj.default_timezone)
     start = meeting.scheduled_for.astimezone(tz)
     end = start + timedelta(minutes=30)
-    organizer_email = (settings_obj.supervisor_sender_email or "").strip().lower()
+    organizer_email = (settings.DEFAULT_FROM_EMAIL or settings_obj.supervisor_sender_email or "").strip().lower()
 
     calendar = Calendar()
     calendar.add("prodid", "-//Leadgen Tracking System//inditech.co.in//")
@@ -445,8 +445,6 @@ def build_calendar_invite(meeting, settings_obj):
     organizer = vCalAddress(f"MAILTO:{organizer_email}")
     organizer.params["cn"] = vText(settings_obj.supervisor_name)
     organizer.params["role"] = vText("CHAIR")
-    if settings.DEFAULT_FROM_EMAIL and settings.DEFAULT_FROM_EMAIL.lower() != organizer_email:
-        organizer.params["sent-by"] = vCalAddress(f"MAILTO:{settings.DEFAULT_FROM_EMAIL.lower()}")
     event["organizer"] = organizer
     for email in meeting.recipient_emails:
         normalized_email = (email or "").strip().lower()

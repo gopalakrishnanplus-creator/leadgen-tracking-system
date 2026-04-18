@@ -573,9 +573,12 @@ class LeadgenWorkflowTests(TestCase):
         normalized_invite = invite.replace("\r\n ", "")
 
         self.assertIn("ORGANIZER;CN=\"Bhavesh Kataria\";ROLE=CHAIR", normalized_invite)
-        self.assertIn("SENT-BY=", normalized_invite)
-        self.assertIn("products@inditech.co.in", normalized_invite)
+        self.assertIn("MAILTO:products@inditech.co.in", normalized_invite)
         self.assertEqual(normalized_invite.count("MAILTO:bhavesh.kataria@inditech.co.in"), 1)
+        self.assertIn(
+            "ATTENDEE;CN=bhavesh.kataria@inditech.co.in;ROLE=REQ-PARTICIPANT:MAILTO:bhavesh.kataria@inditech.co.in",
+            normalized_invite,
+        )
         self.assertIn(
             "ATTENDEE;CN=amit@inditech.co.in;ROLE=REQ-PARTICIPANT:MAILTO:amit@inditech.co.in",
             normalized_invite,
