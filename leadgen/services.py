@@ -31,6 +31,7 @@ from .models import (
     SalesConversationBrand,
     SalesConversationContact,
     SalesConversationFile,
+    SupervisorAccessEmail,
     SystemSetting,
     User,
 )
@@ -706,11 +707,16 @@ def send_meeting_reminder_email(meeting, reminder_type):
         text_template,
         {"meeting": meeting, "settings_obj": settings_obj},
     )
+    recipients = unique_emails(
+        [meeting.prospect_email],
+        active_leadgen_supervisor_emails(),
+    )
     send_email(
         subject=f"20-min: Outcome-Linked Campaign - Discussion with {meeting.prospect.company_name}",
         html_body=html_body,
         text_body=text_body,
-        to_emails=[meeting.prospect_email],
+        to_emails=[recipients[0]],
+        cc_emails=recipients[1:],
     )
     return MeetingReminder.objects.create(
         meeting=meeting,
@@ -826,6 +832,17 @@ def business_localdate(tz_name=None, now=None):
 def active_finance_manager_emails():
     return list(
         User.objects.filter(role=User.ROLE_FINANCE_MANAGER, is_active=True)
+        .exclude(email="")
+        .values_list("email", flat=True)
+    )
+
+
+def active_leadgen_supervisor_emails():
+    return list(
+        SupervisorAccessEmail.objects.filter(
+            access_level=SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
+            is_active=True,
+        )
         .exclude(email="")
         .values_list("email", flat=True)
     )

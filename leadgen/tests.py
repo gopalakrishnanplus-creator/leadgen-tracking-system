@@ -478,6 +478,16 @@ class LeadgenWorkflowTests(TestCase):
         )
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("Outcome-Linked Campaign", mail.outbox[0].subject)
+        self.assertCountEqual(
+            mail.outbox[0].cc,
+            list(
+                SupervisorAccessEmail.objects.filter(
+                    access_level=SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
+                    is_active=True,
+                ).values_list("email", flat=True)
+            ),
+        )
+        self.assertNotIn("gopala.krishnan@inditech.co.in", mail.outbox[0].cc)
 
     def test_reminder_dashboard_marks_missed_whatsapp_steps(self):
         meeting = apply_call_outcome(
