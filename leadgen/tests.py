@@ -556,6 +556,31 @@ class LeadgenWorkflowTests(TestCase):
         self.assertIn("https://teams.microsoft.com/meet/46370354924443?p=I1IIFzfeGnIxTIGznU", invite)
         self.assertIn("Meeting Platform: Teams meeting", invite)
 
+    def test_calendar_invite_does_not_duplicate_organizer_as_attendee(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 30, 15, 0),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        invite = build_calendar_invite(meeting, SystemSetting.load()).decode("utf-8")
+        normalized_invite = invite.replace("\r\n ", "")
+
+        self.assertIn("ORGANIZER;CN=\"Bhavesh Kataria\";ROLE=CHAIR", normalized_invite)
+        self.assertIn("SENT-BY=", normalized_invite)
+        self.assertIn("products@inditech.co.in", normalized_invite)
+        self.assertEqual(normalized_invite.count("MAILTO:bhavesh.kataria@inditech.co.in"), 1)
+        self.assertIn(
+            "ATTENDEE;CN=amit@inditech.co.in;ROLE=REQ-PARTICIPANT:MAILTO:amit@inditech.co.in",
+            normalized_invite,
+        )
+
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
     def test_meeting_invitation_email_uses_new_subject_and_only_meeting_link_point(self):
         meeting = apply_call_outcome(
