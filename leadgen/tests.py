@@ -181,6 +181,63 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(meeting.meeting_platform, Meeting.PLATFORM_ZOOM)
         self.assertEqual(meeting.meeting_link, "https://us02web.zoom.us/j/81585703258?pwd=BlJ5Tbhbqo9P2HNPjsQDLtJZDjB7H9.1")
 
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
+    def test_short_notice_meeting_sends_day_before_reminder_immediately(self):
+        fixed_now = timezone.make_aware(datetime(2026, 3, 30, 9, 0), ZoneInfo("Asia/Kolkata"))
+        with patch("django.utils.timezone.now", return_value=fixed_now):
+            with self.captureOnCommitCallbacks(execute=True):
+                meeting = apply_call_outcome(
+                    self.prospect,
+                    self.staff,
+                    {
+                        "outcome": "scheduled",
+                        "scheduled_for": datetime(2026, 3, 30, 15, 0),
+                        "prospect_email": "prospect@example.com",
+                        "meeting_platform": Meeting.PLATFORM_TEAMS,
+                        "reason": "",
+                        "follow_up_date": None,
+                    },
+                )
+
+        self.assertEqual(
+            MeetingReminder.objects.filter(
+                meeting=meeting,
+                reminder_type=MeetingReminder.TYPE_EMAIL_DAY_BEFORE,
+            ).count(),
+            1,
+        )
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertEqual(mail.outbox[0].subject, "20-min: Outcome-Linked Campaign – Discussion with Acme")
+        self.assertEqual(mail.outbox[1].subject, "20-min: Outcome-Linked Campaign - Discussion with Acme")
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
+    def test_meeting_within_one_hour_does_not_send_day_before_reminder_immediately(self):
+        fixed_now = timezone.make_aware(datetime(2026, 3, 30, 14, 30), ZoneInfo("Asia/Kolkata"))
+        with patch("django.utils.timezone.now", return_value=fixed_now):
+            with self.captureOnCommitCallbacks(execute=True):
+                meeting = apply_call_outcome(
+                    self.prospect,
+                    self.staff,
+                    {
+                        "outcome": "scheduled",
+                        "scheduled_for": datetime(2026, 3, 30, 15, 0),
+                        "prospect_email": "prospect@example.com",
+                        "meeting_platform": Meeting.PLATFORM_TEAMS,
+                        "reason": "",
+                        "follow_up_date": None,
+                    },
+                )
+
+        self.assertEqual(
+            MeetingReminder.objects.filter(
+                meeting=meeting,
+                reminder_type=MeetingReminder.TYPE_EMAIL_DAY_BEFORE,
+            ).count(),
+            0,
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].subject, "20-min: Outcome-Linked Campaign – Discussion with Acme")
+
     def test_scheduled_outcome_recipients_include_sales_manager_supervisor_staff_and_prospect(self):
         meeting = apply_call_outcome(
             self.prospect,
@@ -311,6 +368,45 @@ class LeadgenWorkflowTests(TestCase):
             2,
         )
         self.assertEqual(len(mail.outbox), 1)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
+    def test_reschedule_meeting_within_24_hours_sends_day_before_reminder_immediately(self):
+        initial_now = timezone.make_aware(datetime(2026, 4, 22, 9, 0), ZoneInfo("Asia/Kolkata"))
+        with patch("django.utils.timezone.now", return_value=initial_now):
+            with self.captureOnCommitCallbacks(execute=True):
+                meeting = apply_call_outcome(
+                    self.prospect,
+                    self.staff,
+                    {
+                        "outcome": "scheduled",
+                        "scheduled_for": datetime(2026, 4, 24, 17, 30),
+                        "prospect_email": "prospect@example.com",
+                        "meeting_platform": Meeting.PLATFORM_TEAMS,
+                        "reason": "",
+                        "follow_up_date": None,
+                    },
+                )
+
+        mail.outbox = []
+        reschedule_now = timezone.make_aware(datetime(2026, 4, 23, 13, 0), ZoneInfo("Asia/Kolkata"))
+        with patch("django.utils.timezone.now", return_value=reschedule_now):
+            with self.captureOnCommitCallbacks(execute=True):
+                new_meeting = reschedule_meeting(
+                    meeting,
+                    timezone.make_aware(datetime(2026, 4, 23, 17, 30)),
+                    updated_by=self.supervisor,
+                )
+
+        self.assertEqual(
+            MeetingReminder.objects.filter(
+                meeting=new_meeting,
+                reminder_type=MeetingReminder.TYPE_EMAIL_DAY_BEFORE,
+            ).count(),
+            1,
+        )
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertEqual(mail.outbox[0].subject, "20-min: Outcome-Linked Campaign – Discussion with Acme")
+        self.assertEqual(mail.outbox[1].subject, "20-min: Outcome-Linked Campaign - Discussion with Acme")
 
     @override_settings(ALLOWED_HOSTS=["testserver", "localhost", "127.0.0.1"])
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")

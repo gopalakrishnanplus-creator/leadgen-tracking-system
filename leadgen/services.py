@@ -638,6 +638,8 @@ def meeting_reminder_due_at(meeting, reminder_type, tz_name):
     if reminder_type == MeetingReminder.TYPE_WHATSAPP_INITIAL:
         return created_local
     if reminder_type == MeetingReminder.TYPE_EMAIL_DAY_BEFORE:
+        if timedelta(hours=1) < (scheduled_local - created_local) <= timedelta(hours=24):
+            return created_local
         return scheduled_local - timedelta(hours=24)
     if reminder_type == MeetingReminder.TYPE_EMAIL_SAME_DAY:
         return timezone.make_aware(
@@ -751,6 +753,29 @@ def send_due_meeting_reminder_emails(now=None):
                     continue
                 reminders_sent += 1
     return reminders_sent
+
+
+def _send_immediate_day_before_reminder_after_commit(meeting_id):
+    try:
+        meeting = Meeting.objects.select_related("prospect", "scheduled_by").prefetch_related("reminders").get(pk=meeting_id)
+        if meeting.status != Meeting.STATUS_SCHEDULED:
+            return
+        settings_obj = SystemSetting.load()
+        existing = reminder_log_map(meeting)
+        if MeetingReminder.TYPE_EMAIL_DAY_BEFORE in existing:
+            return
+        tz = ZoneInfo(settings_obj.default_timezone)
+        now_local = timezone.localtime(timezone.now(), tz)
+        scheduled_local = meeting.scheduled_for.astimezone(tz)
+        time_until_meeting = scheduled_local - now_local
+        if not (timedelta(hours=1) < time_until_meeting <= timedelta(hours=24)):
+            return
+        send_meeting_reminder_email(meeting, MeetingReminder.TYPE_EMAIL_DAY_BEFORE)
+    except Exception:
+        logger.exception(
+            "Failed to send immediate 24-hour reminder email for meeting_id=%s",
+            meeting_id,
+        )
 
 
 def build_reminder_dashboard(tz_name, now=None):
@@ -1182,6 +1207,7 @@ def apply_call_outcome(prospect, staff, cleaned_data):
     )
     if meeting:
         transaction.on_commit(lambda: _send_meeting_invitation_after_commit(meeting.pk))
+        transaction.on_commit(lambda: _send_immediate_day_before_reminder_after_commit(meeting.pk))
     return meeting
 
 
@@ -1258,4 +1284,5 @@ def reschedule_meeting(meeting, rescheduled_for, updated_by=None):
         prospect_email=meeting.prospect_email,
     )
     transaction.on_commit(lambda: _send_meeting_invitation_after_commit(new_meeting.pk))
+    transaction.on_commit(lambda: _send_immediate_day_before_reminder_after_commit(new_meeting.pk))
     return new_meeting
