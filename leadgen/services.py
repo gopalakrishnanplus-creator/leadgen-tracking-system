@@ -1220,3 +1220,42 @@ def update_meeting_outcome(meeting, status, updated_by=None):
         prospect_email=meeting.prospect_email,
     )
     transaction.on_commit(lambda: _send_did_not_happen_email_after_commit(meeting.pk))
+
+
+@transaction.atomic
+def reschedule_meeting(meeting, rescheduled_for, updated_by=None):
+    settings_obj = SystemSetting.load()
+    if timezone.is_naive(rescheduled_for):
+        rescheduled_for = timezone.make_aware(rescheduled_for, ZoneInfo(settings_obj.default_timezone))
+
+    meeting.status = Meeting.STATUS_RESCHEDULED
+    meeting.outcome_updated_at = timezone.now()
+    meeting.save(update_fields=["status", "outcome_updated_at", "updated_at"])
+
+    new_meeting = Meeting.objects.create(
+        prospect=meeting.prospect,
+        scheduled_by=meeting.scheduled_by,
+        scheduled_for=rescheduled_for,
+        prospect_email=meeting.prospect_email,
+        meeting_platform=meeting.meeting_platform,
+        recipient_emails=meeting.recipient_emails,
+    )
+
+    meeting.prospect.workflow_status = Prospect.WORKFLOW_SCHEDULED
+    meeting.prospect.prospect_email = meeting.prospect_email
+    meeting.prospect.follow_up_date = None
+    meeting.prospect.follow_up_reason = ""
+    meeting.prospect.save(
+        update_fields=["workflow_status", "prospect_email", "follow_up_date", "follow_up_reason", "updated_at"]
+    )
+
+    ProspectStatusUpdate.objects.create(
+        prospect=meeting.prospect,
+        staff=meeting.scheduled_by,
+        outcome=ProspectStatusUpdate.OUTCOME_SCHEDULED,
+        reason="Meeting rescheduled",
+        scheduled_for=rescheduled_for,
+        prospect_email=meeting.prospect_email,
+    )
+    transaction.on_commit(lambda: _send_meeting_invitation_after_commit(new_meeting.pk))
+    return new_meeting

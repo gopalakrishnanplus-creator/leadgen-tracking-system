@@ -2,6 +2,7 @@ from django import forms
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
+from django.utils import timezone
 
 from .models import (
     CallImportBatch,
@@ -348,6 +349,13 @@ class ImportBatchForm(StyledFormMixin, forms.ModelForm):
 
 
 class MeetingStatusUpdateForm(StyledFormMixin, forms.ModelForm):
+    rescheduled_for = forms.DateTimeField(
+        required=False,
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}),
+        input_formats=["%Y-%m-%dT%H:%M"],
+        label="Reschedule to",
+    )
+
     class Meta:
         model = Meeting
         fields = ["status"]
@@ -357,7 +365,17 @@ class MeetingStatusUpdateForm(StyledFormMixin, forms.ModelForm):
         self.fields["status"].choices = [
             (Meeting.STATUS_HAPPENED, "Meeting happened"),
             (Meeting.STATUS_DID_NOT_HAPPEN, "Did not happen"),
+            (Meeting.STATUS_RESCHEDULED, "Reschedule meeting"),
         ]
+        if self.instance.pk:
+            self.fields["rescheduled_for"].initial = timezone.localtime(self.instance.scheduled_for).strftime("%Y-%m-%dT%H:%M")
+
+    def clean(self):
+        cleaned_data = super().clean()
+        status = cleaned_data.get("status")
+        if status == Meeting.STATUS_RESCHEDULED and not cleaned_data.get("rescheduled_for"):
+            self.add_error("rescheduled_for", "A new meeting date and time is required.")
+        return cleaned_data
 
 
 class SystemSettingForm(StyledFormMixin, forms.ModelForm):

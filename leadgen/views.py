@@ -58,6 +58,7 @@ from .services import (
     get_or_create_contract_collection_from_sales_conversation,
     import_exotel_report,
     log_whatsapp_reminder,
+    reschedule_meeting,
     send_due_invoice_notifications,
     sync_contract_collection_data,
     sync_finance_collection_data,
@@ -653,8 +654,12 @@ def update_meeting_status(request, meeting_id):
     meeting = get_object_or_404(Meeting.objects.select_related("prospect", "scheduled_by"), pk=meeting_id)
     form = MeetingStatusUpdateForm(request.POST or None, instance=meeting)
     if request.method == "POST" and form.is_valid():
-        update_meeting_outcome(meeting, form.cleaned_data["status"], updated_by=request.user)
-        messages.success(request, "Meeting status updated.")
+        if form.cleaned_data["status"] == Meeting.STATUS_RESCHEDULED:
+            reschedule_meeting(meeting, form.cleaned_data["rescheduled_for"], updated_by=request.user)
+            messages.success(request, "Meeting rescheduled and a new invitation sent.")
+        else:
+            update_meeting_outcome(meeting, form.cleaned_data["status"], updated_by=request.user)
+            messages.success(request, "Meeting status updated.")
         return redirect("supervisor_meeting_list")
     return render(request, "leadgen/update_meeting_status.html", {"meeting": meeting, "form": form})
 

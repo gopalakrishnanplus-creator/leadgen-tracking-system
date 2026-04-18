@@ -7,8 +7,26 @@
     <p>{{ meeting.prospect.company_name }} / {{ meeting.prospect.contact_name }} / {{ meeting.scheduled_for }}</p>
     <form method="post">
         {% csrf_token %}
-        {{ form.as_p }}
+        {% if form.non_field_errors %}
+            <div class="message error">{{ form.non_field_errors }}</div>
+        {% endif %}
+        <p>{{ form.status.errors }}{{ form.status.label_tag }} {{ form.status }}</p>
+        <div id="reschedule-field"{% if form.status.value != 'rescheduled' %} style="display:none;"{% endif %}>
+            <p>{{ form.rescheduled_for.errors }}{{ form.rescheduled_for.label_tag }} {{ form.rescheduled_for }}</p>
+        </div>
         <button class="button button-primary" type="submit">Save</button>
     </form>
 </section>
+<script>
+(() => {
+  const statusField = document.getElementById("id_status");
+  const rescheduleField = document.getElementById("reschedule-field");
+  if (!statusField || !rescheduleField) return;
+  const sync = () => {
+    rescheduleField.style.display = statusField.value === "rescheduled" ? "block" : "none";
+  };
+  statusField.addEventListener("change", sync);
+  sync();
+})();
+</script>
 {% endblock %}

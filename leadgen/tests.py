@@ -15,6 +15,7 @@ from .adapters import LeadgenSocialAccountAdapter
 from .forms import (
     ContractCollectionForm,
     FinanceManagerCreateForm,
+    MeetingStatusUpdateForm,
     ProspectCreateForm,
     SalesConversationForm,
     SalesManagerCreateForm,
@@ -49,6 +50,7 @@ from .services import (
     send_meeting_invitation,
     send_test_email_diagnostic,
     send_due_invoice_notifications,
+    reschedule_meeting,
     update_meeting_outcome,
 )
 
@@ -241,6 +243,106 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(sales_conversation.assigned_sales_manager, self.sales_manager)
         self.assertEqual(sales_conversation.contacts.count(), 1)
         self.assertEqual(sales_conversation.contacts.first().name, self.prospect.contact_name)
+
+    def test_meeting_status_form_requires_new_datetime_for_reschedule(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 4, 23, 17, 30),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        form = MeetingStatusUpdateForm(data={"status": Meeting.STATUS_RESCHEDULED}, instance=meeting)
+        self.assertFalse(form.is_valid())
+        self.assertIn("rescheduled_for", form.errors)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
+    def test_reschedule_meeting_creates_new_scheduled_meeting_and_new_invite_cycle(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 4, 23, 17, 30),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        MeetingReminder.objects.create(
+            meeting=meeting,
+            reminder_type=MeetingReminder.TYPE_EMAIL_DAY_BEFORE,
+            recipient_number="",
+            sent_at=timezone.now(),
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            new_meeting = reschedule_meeting(
+                meeting,
+                timezone.make_aware(datetime(2026, 4, 24, 12, 0)),
+                updated_by=self.supervisor,
+            )
+
+        meeting.refresh_from_db()
+        new_meeting.refresh_from_db()
+        self.prospect.refresh_from_db()
+        self.assertEqual(meeting.status, Meeting.STATUS_RESCHEDULED)
+        self.assertEqual(new_meeting.status, Meeting.STATUS_SCHEDULED)
+        self.assertEqual(new_meeting.prospect, self.prospect)
+        self.assertEqual(new_meeting.scheduled_by, self.staff)
+        self.assertEqual(new_meeting.prospect_email, "prospect@example.com")
+        self.assertEqual(new_meeting.meeting_platform, Meeting.PLATFORM_TEAMS)
+        self.assertEqual(new_meeting.reminders.count(), 0)
+        self.assertEqual(meeting.reminders.count(), 1)
+        self.assertEqual(self.prospect.workflow_status, Prospect.WORKFLOW_SCHEDULED)
+        self.assertIsNotNone(new_meeting.invite_sent_at)
+        self.assertEqual(Meeting.objects.count(), 2)
+        self.assertEqual(
+            ProspectStatusUpdate.objects.filter(
+                prospect=self.prospect,
+                outcome=ProspectStatusUpdate.OUTCOME_SCHEDULED,
+            ).count(),
+            2,
+        )
+        self.assertEqual(len(mail.outbox), 1)
+
+    @override_settings(ALLOWED_HOSTS=["testserver", "localhost", "127.0.0.1"])
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
+    def test_supervisor_can_reschedule_meeting_from_status_screen(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 4, 23, 17, 30),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_ZOOM,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        self.client.force_login(self.supervisor)
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/supervisor/meetings/{meeting.pk}/status/",
+                {
+                    "status": Meeting.STATUS_RESCHEDULED,
+                    "rescheduled_for": "2026-04-24T12:00",
+                },
+            )
+        self.assertRedirects(response, "/supervisor/meetings/")
+        meeting.refresh_from_db()
+        self.assertEqual(meeting.status, Meeting.STATUS_RESCHEDULED)
+        new_meeting = Meeting.objects.exclude(pk=meeting.pk).get()
+        self.assertEqual(new_meeting.status, Meeting.STATUS_SCHEDULED)
+        self.assertEqual(new_meeting.meeting_platform, Meeting.PLATFORM_ZOOM)
+        self.assertEqual(new_meeting.reminders.count(), 0)
 
     def test_import_updates_call_metrics(self):
         self._import_rows(

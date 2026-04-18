@@ -341,10 +341,12 @@ class Meeting(models.Model):
     STATUS_SCHEDULED = "scheduled"
     STATUS_HAPPENED = "happened"
     STATUS_DID_NOT_HAPPEN = "did_not_happen"
+    STATUS_RESCHEDULED = "rescheduled"
     STATUS_CHOICES = [
         (STATUS_SCHEDULED, "Scheduled"),
         (STATUS_HAPPENED, "Meeting happened"),
         (STATUS_DID_NOT_HAPPEN, "Did not happen"),
+        (STATUS_RESCHEDULED, "Rescheduled"),
     ]
 
     prospect = models.ForeignKey(Prospect, related_name="meetings", on_delete=models.CASCADE)
