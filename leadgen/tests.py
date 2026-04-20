@@ -51,6 +51,7 @@ from .services import (
     send_test_email_diagnostic,
     send_due_invoice_notifications,
     reschedule_meeting,
+    sync_contract_collection_data,
     update_meeting_outcome,
 )
 
@@ -1476,6 +1477,17 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(sent_count, 1)
         self.assertIsNotNone(installment.invoice_notification_sent_at)
         self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["finance@example.com"])
+        self.assertCountEqual(
+            mail.outbox[0].cc,
+            [
+                "bhavesh.kataria@inditech.co.in",
+                "gkinchina@gmail.com",
+                "leesaamit@gmail.com",
+                "vamshi.alle@inditech.co.in",
+                "amit@inditech.co.in",
+            ],
+        )
         self.assertIn("Invoice to be raised today", mail.outbox[0].subject)
         self.assertIn("Agreement between Inditech and Invoice Co dated April 1, 2026", mail.outbox[0].body)
         self.assertIn("Campaign setup and launch services", mail.outbox[0].body)
@@ -1510,6 +1522,79 @@ class LeadgenWorkflowTests(TestCase):
         self.assertIsNotNone(installment.invoice_notification_sent_at)
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("India Immunologicals", mail.outbox[0].subject)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_updating_invoice_date_to_today_sends_invoice_email_immediately(self):
+        contract_collection = ContractCollection.objects.create(
+            company_name="Immediate Invoice Co",
+            sales_manager=self.sales_manager,
+            contract_value="250000.00",
+            created_by=self.supervisor,
+        )
+        contract_collection.contacts.create(
+            position=1,
+            name="Jane Doe",
+            email="jane@example.com",
+            whatsapp_number="9999999999",
+        )
+        installment = ContractCollectionInstallment.objects.create(
+            contract_collection=contract_collection,
+            position=1,
+            installment_amount="50000.00",
+            invoice_date=timezone.localdate() + timedelta(days=2),
+            expected_collection_date=timezone.localdate() + timedelta(days=10),
+            contract_summary="Agreement between Inditech and Immediate Invoice Co dated April 1, 2026",
+            invoiced_service_description="Initial campaign delivery",
+            legal_due_reason="The first milestone has been completed and accepted.",
+        )
+
+        cleaned_data = {
+            "sales_manager": self.sales_manager,
+            "contract_value": contract_collection.contract_value,
+            "contact_rows": [
+                {
+                    "position": 1,
+                    "name": "Jane Doe",
+                    "email": "jane@example.com",
+                    "whatsapp_number": "9999999999",
+                }
+            ],
+            "installment_rows": [
+                {
+                    "position": 1,
+                    "installment_amount": installment.installment_amount,
+                    "invoice_date": timezone.localdate(),
+                    "expected_collection_date": installment.expected_collection_date,
+                    "revised_collection_date": None,
+                    "contract_summary": installment.contract_summary,
+                    "invoiced_service_description": installment.invoiced_service_description,
+                    "legal_due_reason": installment.legal_due_reason,
+                }
+            ],
+        }
+
+        with self.captureOnCommitCallbacks(execute=True):
+            sync_contract_collection_data(
+                contract_collection,
+                cleaned_data,
+                allow_locked_field_edits=True,
+            )
+
+        installment.refresh_from_db()
+        self.assertEqual(installment.invoice_date, timezone.localdate())
+        self.assertIsNotNone(installment.invoice_notification_sent_at)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["finance@example.com"])
+        self.assertCountEqual(
+            mail.outbox[0].cc,
+            [
+                "bhavesh.kataria@inditech.co.in",
+                "gkinchina@gmail.com",
+                "leesaamit@gmail.com",
+                "vamshi.alle@inditech.co.in",
+                "amit@inditech.co.in",
+            ],
+        )
 
     @override_settings(
         SENDGRID_API_KEY="test-sendgrid-key",

@@ -987,6 +987,8 @@ def sync_contract_collection_data(contract_collection, cleaned_data, uploaded_fi
     if allow_locked_field_edits or contract_collection.contract_value is None:
         contract_collection.contract_value = cleaned_data.get("contract_value")
     contract_collection.save()
+    today = business_localdate()
+    installments_requiring_immediate_notification = []
 
     contract_collection.contacts.all().delete()
     ContractCollectionContact.objects.bulk_create(
@@ -1034,12 +1036,20 @@ def sync_contract_collection_data(contract_collection, cleaned_data, uploaded_fi
         installment.invoiced_service_description = row["invoiced_service_description"]
         installment.legal_due_reason = row["legal_due_reason"]
         installment.save()
+        if installment.invoice_date == today and installment.invoice_notification_sent_at is None:
+            installments_requiring_immediate_notification.append(installment.pk)
 
     if contract_collection.source_sales_conversation_id and contract_collection.sales_manager_id:
         sales_conversation = contract_collection.source_sales_conversation
         if sales_conversation.assigned_sales_manager_id != contract_collection.sales_manager_id:
             sales_conversation.assigned_sales_manager = contract_collection.sales_manager
             sales_conversation.save(update_fields=["assigned_sales_manager", "updated_at"])
+    if installments_requiring_immediate_notification:
+        transaction.on_commit(
+            lambda: _send_immediate_invoice_due_notifications_after_commit(
+                installments_requiring_immediate_notification
+            )
+        )
     return contract_collection
 
 
@@ -1100,17 +1110,19 @@ def send_invoice_due_email(installment):
         "emails/invoice_due.txt",
         {"contract": contract, "installment": installment, "settings_obj": settings_obj},
     )
-    recipients = unique_emails(
-        [settings_obj.supervisor_sender_email],
-        [contract.sales_manager.email] if contract.sales_manager_id else [],
-        active_finance_manager_emails(),
+    to_emails = unique_emails(active_finance_manager_emails())
+    cc_emails = unique_emails(
+        active_leadgen_supervisor_emails(),
+        active_sales_manager_emails(),
     )
+    if not to_emails:
+        raise ValueError("No active finance manager email is configured for invoice notifications.")
     send_email(
         subject=f"Invoice to be raised today: {contract.company_name} / installment {installment.position}",
         html_body=html_body,
         text_body=text_body,
-        to_emails=[recipients[0]],
-        cc_emails=recipients[1:],
+        to_emails=to_emails,
+        cc_emails=cc_emails,
     )
 
 
@@ -1138,6 +1150,36 @@ def send_due_invoice_notifications(target_date=None, now=None):
         installment.save(update_fields=["invoice_notification_sent_at"])
         sent_count += 1
     return sent_count
+
+
+def _send_immediate_invoice_due_notifications_after_commit(installment_ids):
+    try:
+        today = business_localdate()
+        installments = ContractCollectionInstallment.objects.select_related(
+            "contract_collection",
+            "contract_collection__sales_manager",
+        ).filter(
+            pk__in=installment_ids,
+            invoice_date=today,
+            invoice_notification_sent_at__isnull=True,
+        )
+        for installment in installments:
+            try:
+                send_invoice_due_email(installment)
+            except Exception:
+                logger.exception(
+                    "Failed to send immediate invoice due email for contract_collection_id=%s installment=%s",
+                    installment.contract_collection.contract_collection_id,
+                    installment.position,
+                )
+                continue
+            installment.invoice_notification_sent_at = timezone.now()
+            installment.save(update_fields=["invoice_notification_sent_at"])
+    except Exception:
+        logger.exception(
+            "Failed to process immediate invoice due notifications for installment_ids=%s",
+            installment_ids,
+        )
 
 
 def _send_meeting_invitation_after_commit(meeting_id):
