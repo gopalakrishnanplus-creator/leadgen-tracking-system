@@ -404,6 +404,14 @@ class ReportFilterForm(StyledFormMixin, forms.Form):
         return cleaned_data
 
 
+class MeetingDateFilterForm(StyledFormMixin, forms.Form):
+    meeting_date = forms.DateField(
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+        label="Meeting date",
+    )
+
+
 class SalesConversationForm(StyledFormMixin, forms.ModelForm):
     assigned_sales_manager = forms.ModelChoiceField(
         queryset=User.objects.none(),

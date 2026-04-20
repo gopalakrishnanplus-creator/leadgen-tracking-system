@@ -4,8 +4,27 @@
 <section class="section-head">
     <div>
         <p class="eyebrow">Supervisor</p>
-        <h1>All scheduled meetings</h1>
+        <h1>Meetings</h1>
+        {% if selected_date %}
+            <p class="subhead">Showing meetings scheduled for {{ selected_date }}</p>
+        {% endif %}
     </div>
+</section>
+<section class="panel form-panel">
+    <form method="get" class="filter-grid">
+        {{ date_form.as_p }}
+        <div class="filter-actions">
+            <button class="button button-primary" type="submit">Apply date filter</button>
+            <a class="button" href="{% url 'supervisor_meeting_list' %}">Clear filter</a>
+        </div>
+    </form>
+</section>
+<section class="stats-grid">
+    <article class="stat-card"><span>{{ summary.total }}</span><p>Total meetings</p></article>
+    <article class="stat-card"><span>{{ summary.scheduled }}</span><p>Scheduled</p></article>
+    <article class="stat-card"><span>{{ summary.happened }}</span><p>Meeting happened</p></article>
+    <article class="stat-card"><span>{{ summary.did_not_happen }}</span><p>Did not happen</p></article>
+    <article class="stat-card"><span>{{ summary.rescheduled }}</span><p>Rescheduled</p></article>
 </section>
 <section class="panel">
     <table>
@@ -18,7 +37,7 @@
                 <th>Platform</th>
                 <th>Date and time</th>
                 <th>Status</th>
-                <th></th>
+                <th>Actions</th>
             </tr>
         </thead>
         <tbody>
@@ -37,9 +56,18 @@
                 <td>{{ meeting.scheduled_for }}</td>
                 <td>{{ meeting.get_status_display }}</td>
                 <td>
+                    <div class="button-row">
                     {% if meeting.status == 'scheduled' %}
                         <a href="{% url 'update_meeting_status' meeting.id %}">Update outcome</a>
                     {% endif %}
+                        <form method="post" action="{% url 'supervisor_meeting_delete' meeting.id %}" class="inline-form" onsubmit="return confirm('Delete this meeting?');">
+                            {% csrf_token %}
+                            {% if selected_date %}
+                                <input type="hidden" name="meeting_date" value="{{ selected_date|date:'Y-m-d' }}">
+                            {% endif %}
+                            <button class="nav-button" type="submit">Delete</button>
+                        </form>
+                    </div>
                 </td>
             </tr>
         {% empty %}

@@ -39,6 +39,8 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+MEETING_RESCHEDULE_REASON = "Meeting rescheduled"
+
 
 CRM_STATUS_MAP = {
     "completed": Prospect.CRM_COMPLETED,
@@ -195,7 +197,9 @@ def build_supervisor_report(start_date, end_date, tz_name):
 
     calls = CallLog.objects.filter(started_at__range=(start_dt, end_dt))
     status_updates = ProspectStatusUpdate.objects.filter(created_at__range=(start_dt, end_dt))
-    meetings_created = Meeting.objects.filter(created_at__range=(start_dt, end_dt))
+    scheduled_updates = status_updates.filter(outcome=ProspectStatusUpdate.OUTCOME_SCHEDULED)
+    new_scheduled_updates = scheduled_updates.exclude(reason=MEETING_RESCHEDULE_REASON)
+    rescheduled_updates = scheduled_updates.filter(reason=MEETING_RESCHEDULE_REASON)
     meetings_outcome = Meeting.objects.filter(outcome_updated_at__range=(start_dt, end_dt))
     imports = CallImportBatch.objects.filter(import_date__range=(start_date, end_date))
 
@@ -209,7 +213,8 @@ def build_supervisor_report(start_date, end_date, tz_name):
         "failed_count": calls.filter(crm_status=CallLog.STATUS_FAILED).count(),
         "follow_ups": status_updates.filter(outcome=ProspectStatusUpdate.OUTCOME_FOLLOW_UP).count(),
         "declines": status_updates.filter(outcome=ProspectStatusUpdate.OUTCOME_DECLINED).count(),
-        "meetings_scheduled": meetings_created.count(),
+        "meetings_scheduled": new_scheduled_updates.count(),
+        "meetings_rescheduled": rescheduled_updates.count(),
         "meetings_happened": meetings_outcome.filter(status=Meeting.STATUS_HAPPENED).count(),
         "meetings_not_happened": meetings_outcome.filter(status=Meeting.STATUS_DID_NOT_HAPPEN).count(),
         "imports_count": imports.count(),
@@ -225,7 +230,8 @@ def build_supervisor_report(start_date, end_date, tz_name):
         staff_calls = calls.filter(staff=staff)
         attempts = staff_calls.count()
         connects = staff_calls.filter(was_connected=True).count()
-        scheduled = meetings_created.filter(scheduled_by=staff).count()
+        scheduled = new_scheduled_updates.filter(staff=staff).count()
+        rescheduled = rescheduled_updates.filter(staff=staff).count()
         happened = meetings_outcome.filter(scheduled_by=staff, status=Meeting.STATUS_HAPPENED).count()
         not_happened = meetings_outcome.filter(scheduled_by=staff, status=Meeting.STATUS_DID_NOT_HAPPEN).count()
         follow_ups = status_updates.filter(staff=staff, outcome=ProspectStatusUpdate.OUTCOME_FOLLOW_UP).count()
@@ -239,6 +245,7 @@ def build_supervisor_report(start_date, end_date, tz_name):
                 "follow_ups": follow_ups,
                 "declines": declines,
                 "meetings_scheduled": scheduled,
+                "meetings_rescheduled": rescheduled,
                 "meetings_happened": happened,
                 "meetings_not_happened": not_happened,
             }
@@ -1325,10 +1332,37 @@ def reschedule_meeting(meeting, rescheduled_for, updated_by=None):
         prospect=meeting.prospect,
         staff=meeting.scheduled_by,
         outcome=ProspectStatusUpdate.OUTCOME_SCHEDULED,
-        reason="Meeting rescheduled",
+        reason=MEETING_RESCHEDULE_REASON,
         scheduled_for=rescheduled_for,
         prospect_email=meeting.prospect_email,
     )
     transaction.on_commit(lambda: _send_meeting_invitation_after_commit(new_meeting.pk))
     transaction.on_commit(lambda: _send_immediate_day_before_reminder_after_commit(new_meeting.pk))
     return new_meeting
+
+
+@transaction.atomic
+def delete_meeting(meeting):
+    prospect = meeting.prospect
+    scheduled_for_date = meeting.scheduled_for.astimezone(ZoneInfo(SystemSetting.load().default_timezone)).date()
+    deleted_was_scheduled = meeting.status == Meeting.STATUS_SCHEDULED
+    scheduled_by = meeting.scheduled_by
+    prospect_email = meeting.prospect_email
+
+    meeting.delete()
+
+    if deleted_was_scheduled and prospect.workflow_status == Prospect.WORKFLOW_SCHEDULED:
+        has_remaining_scheduled = prospect.meetings.filter(status=Meeting.STATUS_SCHEDULED).exists()
+        if not has_remaining_scheduled:
+            prospect.workflow_status = Prospect.WORKFLOW_FOLLOW_UP
+            prospect.follow_up_date = scheduled_for_date
+            prospect.follow_up_reason = "Meeting deleted by supervisor"
+            prospect.save(update_fields=["workflow_status", "follow_up_date", "follow_up_reason", "updated_at"])
+            ProspectStatusUpdate.objects.create(
+                prospect=prospect,
+                staff=scheduled_by,
+                outcome=ProspectStatusUpdate.OUTCOME_FOLLOW_UP,
+                reason="Meeting deleted by supervisor",
+                follow_up_date=scheduled_for_date,
+                prospect_email=prospect_email,
+            )

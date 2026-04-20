@@ -42,6 +42,7 @@ urlpatterns = [
     path("supervisor/meetings/", views.supervisor_meeting_list, name="supervisor_meeting_list"),
     path("supervisor/reminders/", views.supervisor_reminder_dashboard, name="supervisor_reminder_dashboard"),
     path("supervisor/meetings/<int:meeting_id>/status/", views.update_meeting_status, name="update_meeting_status"),
+    path("supervisor/meetings/<int:meeting_id>/delete/", views.supervisor_meeting_delete, name="supervisor_meeting_delete"),
     path("supervisor/settings/", views.system_settings_view, name="system_settings"),
     path("supervisor/reports/", views.supervisor_reports, name="supervisor_reports"),
     path("supervisor/daily-targets/", views.supervisor_daily_targets, name="supervisor_daily_targets"),

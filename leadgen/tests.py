@@ -783,6 +783,81 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(staff_metric["attempts"], 1)
         self.assertEqual(staff_metric["follow_ups"], 1)
 
+    def test_report_builder_separates_new_and_rescheduled_meetings(self):
+        report_date = datetime(2026, 3, 20).date()
+        new_meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 25, 15, 0),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        ProspectStatusUpdate.objects.filter(
+            prospect=self.prospect,
+            staff=self.staff,
+            outcome=ProspectStatusUpdate.OUTCOME_SCHEDULED,
+            reason="",
+        ).update(created_at=timezone.make_aware(datetime(2026, 3, 20, 9, 0)))
+        Meeting.objects.filter(pk=new_meeting.pk).update(created_at=timezone.make_aware(datetime(2026, 3, 20, 9, 0)))
+
+        reschedule_prospect = Prospect.objects.create(
+            company_name="Reschedule Co",
+            contact_name="Reschedule Person",
+            linkedin_url="https://linkedin.com/in/reschedule-person",
+            phone_number="+919812349998",
+            assigned_to=self.other_staff,
+            created_by=self.other_staff,
+            approval_status=Prospect.APPROVAL_ACCEPTED,
+            workflow_status=Prospect.WORKFLOW_READY_TO_CALL,
+        )
+        original_meeting = apply_call_outcome(
+            reschedule_prospect,
+            self.other_staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 24, 11, 0),
+                "prospect_email": "reschedule@example.com",
+                "meeting_platform": Meeting.PLATFORM_ZOOM,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        ProspectStatusUpdate.objects.filter(
+            prospect=reschedule_prospect,
+            staff=self.other_staff,
+            outcome=ProspectStatusUpdate.OUTCOME_SCHEDULED,
+            reason="",
+        ).update(created_at=timezone.make_aware(datetime(2026, 3, 18, 9, 0)))
+        Meeting.objects.filter(pk=original_meeting.pk).update(created_at=timezone.make_aware(datetime(2026, 3, 18, 9, 0)))
+
+        rescheduled_meeting = reschedule_meeting(
+            original_meeting,
+            timezone.make_aware(datetime(2026, 3, 26, 14, 0)),
+            updated_by=self.supervisor,
+        )
+        ProspectStatusUpdate.objects.filter(
+            prospect=reschedule_prospect,
+            staff=self.other_staff,
+            outcome=ProspectStatusUpdate.OUTCOME_SCHEDULED,
+            reason="Meeting rescheduled",
+        ).update(created_at=timezone.make_aware(datetime(2026, 3, 20, 10, 0)))
+        Meeting.objects.filter(pk=rescheduled_meeting.pk).update(created_at=timezone.make_aware(datetime(2026, 3, 20, 10, 0)))
+
+        report = build_supervisor_report(report_date, report_date, "Asia/Kolkata")
+        self.assertEqual(report["summary"]["meetings_scheduled"], 1)
+        self.assertEqual(report["summary"]["meetings_rescheduled"], 1)
+        staff_metric = next(item for item in report["staff_metrics"] if item["staff"] == self.staff)
+        self.assertEqual(staff_metric["meetings_scheduled"], 1)
+        self.assertEqual(staff_metric["meetings_rescheduled"], 0)
+        other_metric = next(item for item in report["staff_metrics"] if item["staff"] == self.other_staff)
+        self.assertEqual(other_metric["meetings_scheduled"], 0)
+        self.assertEqual(other_metric["meetings_rescheduled"], 1)
+
     def test_daily_target_report_returns_yesterday_target_and_attempts_per_staff(self):
         target_date = timezone.localdate()
         second_target = Prospect.objects.create(
@@ -2004,5 +2079,93 @@ class LeadgenWorkflowTests(TestCase):
         response = self.client.post(f"/supervisor/prospects/{prospect.pk}/delete/")
         self.assertRedirects(response, "/supervisor/prospects/")
         self.assertFalse(Prospect.objects.filter(pk=prospect.pk).exists())
+
+    def test_supervisor_can_filter_meetings_by_date(self):
+        same_day_meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 4, 23, 17, 30),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        happened_prospect = Prospect.objects.create(
+            company_name="Happened Co",
+            contact_name="Happened Person",
+            linkedin_url="https://linkedin.com/in/happened-person",
+            phone_number="+919812347777",
+            assigned_to=self.other_staff,
+            created_by=self.other_staff,
+            approval_status=Prospect.APPROVAL_ACCEPTED,
+            workflow_status=Prospect.WORKFLOW_READY_TO_CALL,
+        )
+        happened_meeting = Meeting.objects.create(
+            prospect=happened_prospect,
+            scheduled_by=self.other_staff,
+            scheduled_for=timezone.make_aware(datetime(2026, 4, 23, 12, 0)),
+            prospect_email="happened@example.com",
+            meeting_platform=Meeting.PLATFORM_ZOOM,
+            status=Meeting.STATUS_HAPPENED,
+            outcome_updated_at=timezone.make_aware(datetime(2026, 4, 23, 12, 45)),
+        )
+        other_day_prospect = Prospect.objects.create(
+            company_name="Other Day Co",
+            contact_name="Other Day Person",
+            linkedin_url="https://linkedin.com/in/other-day-person",
+            phone_number="+919812347778",
+            assigned_to=self.other_staff,
+            created_by=self.other_staff,
+            approval_status=Prospect.APPROVAL_ACCEPTED,
+            workflow_status=Prospect.WORKFLOW_READY_TO_CALL,
+        )
+        other_day_meeting = Meeting.objects.create(
+            prospect=other_day_prospect,
+            scheduled_by=self.other_staff,
+            scheduled_for=timezone.make_aware(datetime(2026, 4, 24, 12, 0)),
+            prospect_email="otherday@example.com",
+            meeting_platform=Meeting.PLATFORM_ZOOM,
+            status=Meeting.STATUS_SCHEDULED,
+        )
+
+        self.client.force_login(self.supervisor)
+        response = self.client.get("/supervisor/meetings/?meeting_date=2026-04-23")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, same_day_meeting.prospect.company_name)
+        self.assertContains(response, happened_meeting.prospect.company_name)
+        self.assertNotContains(response, other_day_meeting.prospect.company_name)
+        self.assertEqual(response.context["summary"]["scheduled"], 1)
+        self.assertEqual(response.context["summary"]["happened"], 1)
+        self.assertEqual(response.context["summary"]["total"], 2)
+
+    def test_supervisor_can_delete_scheduled_meeting_and_revert_prospect(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 4, 23, 17, 30),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+
+        self.client.force_login(self.supervisor)
+        response = self.client.post(f"/supervisor/meetings/{meeting.pk}/delete/", {"meeting_date": "2026-04-23"})
+
+        self.assertRedirects(response, "/supervisor/meetings/?meeting_date=2026-04-23")
+        self.assertFalse(Meeting.objects.filter(pk=meeting.pk).exists())
+        self.prospect.refresh_from_db()
+        self.assertEqual(self.prospect.workflow_status, Prospect.WORKFLOW_FOLLOW_UP)
+        self.assertEqual(self.prospect.follow_up_reason, "Meeting deleted by supervisor")
+        latest_update = self.prospect.status_updates.order_by("-created_at", "-pk").first()
+        self.assertEqual(latest_update.outcome, ProspectStatusUpdate.OUTCOME_FOLLOW_UP)
+        self.assertEqual(latest_update.reason, "Meeting deleted by supervisor")
 
 # Create your tests here.

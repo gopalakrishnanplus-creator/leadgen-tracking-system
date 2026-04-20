@@ -20,7 +20,8 @@
     <article class="stat-card"><span>{{ report.summary.connect_rate }}%</span><p>Connect rate</p></article>
     <article class="stat-card"><span>{{ report.summary.follow_ups }}</span><p>Follow-up to schedule</p></article>
     <article class="stat-card"><span>{{ report.summary.declines }}</span><p>Declines captured</p></article>
-    <article class="stat-card"><span>{{ report.summary.meetings_scheduled }}</span><p>Meetings scheduled</p></article>
+    <article class="stat-card"><span>{{ report.summary.meetings_scheduled }}</span><p>New meetings scheduled</p></article>
+    <article class="stat-card"><span>{{ report.summary.meetings_rescheduled }}</span><p>Meetings rescheduled</p></article>
     <article class="stat-card"><span>{{ report.summary.meetings_happened }}</span><p>Meetings happened</p></article>
     <article class="stat-card"><span>{{ report.summary.meetings_not_happened }}</span><p>Meetings not happened</p></article>
     <article class="stat-card"><span>{{ report.summary.avg_connected_duration|floatformat:0 }}</span><p>Avg connected call seconds</p></article>
@@ -71,7 +72,8 @@
                 <th>Connect rate</th>
                 <th>Follow-ups</th>
                 <th>Declines</th>
-                <th>Meetings scheduled</th>
+                <th>New meetings scheduled</th>
+                <th>Meetings rescheduled</th>
                 <th>Meetings happened</th>
                 <th>Meetings not happened</th>
             </tr>
@@ -86,11 +88,12 @@
                 <td>{{ row.follow_ups }}</td>
                 <td>{{ row.declines }}</td>
                 <td>{{ row.meetings_scheduled }}</td>
+                <td>{{ row.meetings_rescheduled }}</td>
                 <td>{{ row.meetings_happened }}</td>
                 <td>{{ row.meetings_not_happened }}</td>
             </tr>
         {% empty %}
-            <tr><td colspan="9">No staff activity in this period.</td></tr>
+            <tr><td colspan="10">No staff activity in this period.</td></tr>
         {% endfor %}
         </tbody>
     </table>

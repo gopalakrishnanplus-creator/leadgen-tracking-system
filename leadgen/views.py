@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from django.contrib import messages
@@ -19,6 +20,7 @@ from .forms import (
     FinanceManagerCreateForm,
     FinanceManagerUpdateForm,
     ImportBatchForm,
+    MeetingDateFilterForm,
     MeetingStatusUpdateForm,
     MeetingReminderLogForm,
     ProspectCreateForm,
@@ -55,6 +57,7 @@ from .services import (
     build_reminder_dashboard,
     build_supervisor_report,
     database_healthcheck,
+    delete_meeting,
     get_or_create_contract_collection_from_sales_conversation,
     import_exotel_report,
     log_whatsapp_reminder,
@@ -638,8 +641,32 @@ def import_batch_create(request):
 
 @role_required(User.ROLE_SUPERVISOR)
 def supervisor_meeting_list(request):
+    settings_obj = SystemSetting.load()
+    date_form = MeetingDateFilterForm(request.GET or None)
     meetings = Meeting.objects.select_related("prospect", "scheduled_by")
-    return render(request, "leadgen/supervisor_meeting_list.html", {"meetings": meetings})
+    selected_date = None
+    if date_form.is_valid():
+        selected_date = date_form.cleaned_data.get("meeting_date")
+        if selected_date:
+            start_dt, end_dt = _local_day_bounds(selected_date, settings_obj.default_timezone)
+            meetings = meetings.filter(scheduled_for__range=(start_dt, end_dt))
+    summary = {
+        "total": meetings.count(),
+        "scheduled": meetings.filter(status=Meeting.STATUS_SCHEDULED).count(),
+        "happened": meetings.filter(status=Meeting.STATUS_HAPPENED).count(),
+        "did_not_happen": meetings.filter(status=Meeting.STATUS_DID_NOT_HAPPEN).count(),
+        "rescheduled": meetings.filter(status=Meeting.STATUS_RESCHEDULED).count(),
+    }
+    return render(
+        request,
+        "leadgen/supervisor_meeting_list.html",
+        {
+            "meetings": meetings,
+            "date_form": date_form,
+            "selected_date": selected_date,
+            "summary": summary,
+        },
+    )
 
 
 @role_required(User.ROLE_SUPERVISOR)
@@ -662,6 +689,20 @@ def update_meeting_status(request, meeting_id):
             messages.success(request, "Meeting status updated.")
         return redirect("supervisor_meeting_list")
     return render(request, "leadgen/update_meeting_status.html", {"meeting": meeting, "form": form})
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def supervisor_meeting_delete(request, meeting_id):
+    if request.method != "POST":
+        raise Http404
+    meeting = get_object_or_404(Meeting.objects.select_related("prospect", "scheduled_by"), pk=meeting_id)
+    meeting_date = request.POST.get("meeting_date", "").strip()
+    delete_meeting(meeting)
+    messages.success(request, "Meeting deleted.")
+    redirect_url = reverse("supervisor_meeting_list")
+    if meeting_date:
+        redirect_url = f"{redirect_url}?{urlencode({'meeting_date': meeting_date})}"
+    return redirect(redirect_url)
 
 
 @role_required(User.ROLE_SUPERVISOR)
