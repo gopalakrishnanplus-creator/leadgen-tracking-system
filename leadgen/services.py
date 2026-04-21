@@ -954,6 +954,17 @@ def get_or_create_sales_conversation_from_meeting(meeting, created_by=None):
     return sales_conversation
 
 
+def backfill_sales_conversations_from_happened_meetings():
+    meetings = list(
+        Meeting.objects.filter(status=Meeting.STATUS_HAPPENED, sales_conversation__isnull=True)
+        .select_related("prospect", "scheduled_by")
+        .order_by("pk")
+    )
+    for meeting in meetings:
+        get_or_create_sales_conversation_from_meeting(meeting, created_by=meeting.scheduled_by)
+    return len(meetings)
+
+
 def get_or_create_contract_collection_from_sales_conversation(sales_conversation, created_by=None):
     defaults = {
         "company_name": sales_conversation.company_name,

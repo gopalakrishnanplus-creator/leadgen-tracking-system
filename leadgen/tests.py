@@ -36,6 +36,7 @@ from .models import (
 )
 from .services import (
     apply_call_outcome,
+    backfill_sales_conversations_from_happened_meetings,
     business_localdate,
     build_calendar_invite,
     build_daily_target_report,
@@ -313,6 +314,44 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(sales_conversation.assigned_sales_manager, self.sales_manager)
         self.assertEqual(sales_conversation.contacts.count(), 1)
         self.assertEqual(sales_conversation.contacts.first().name, self.prospect.contact_name)
+
+    def test_backfill_sales_conversations_from_happened_meetings_creates_missing_records(self):
+        meeting = Meeting.objects.create(
+            prospect=self.prospect,
+            scheduled_by=self.staff,
+            scheduled_for=timezone.now(),
+            prospect_email="prospect@example.com",
+            status=Meeting.STATUS_HAPPENED,
+        )
+        self.prospect.workflow_status = Prospect.WORKFLOW_MEETING_HAPPENED
+        self.prospect.save(update_fields=["workflow_status", "updated_at"])
+
+        created_count = backfill_sales_conversations_from_happened_meetings()
+
+        self.assertEqual(created_count, 1)
+        sales_conversation = SalesConversation.objects.get(source_meeting=meeting)
+        self.assertEqual(sales_conversation.company_name, self.prospect.company_name)
+        self.assertEqual(sales_conversation.contacts.first().email, "prospect@example.com")
+
+    def test_backfill_sales_conversations_from_happened_meetings_is_idempotent(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 30, 15, 0),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        update_meeting_outcome(meeting, Meeting.STATUS_HAPPENED, updated_by=self.supervisor)
+
+        created_count = backfill_sales_conversations_from_happened_meetings()
+
+        self.assertEqual(created_count, 0)
+        self.assertEqual(SalesConversation.objects.filter(source_meeting=meeting).count(), 1)
 
     def test_sales_manager_can_add_sales_conversation_directly(self):
         self.client.force_login(self.sales_manager)
