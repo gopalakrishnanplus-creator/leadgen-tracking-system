@@ -7,6 +7,9 @@ from django.shortcuts import redirect
 from .models import SupervisorAccessEmail, User
 
 
+SHARED_SUPERVISOR_USER_EMAIL = "leadgen-supervisor@workspace.internal"
+
+
 class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
     def _supervisor_access_map(self):
         database_entries = SupervisorAccessEmail.objects.filter(is_active=True)
@@ -57,10 +60,14 @@ class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
     def _supervisor_user(self):
         user = User.objects.filter(role=User.ROLE_SUPERVISOR).first()
         if user:
+            if user.email != SHARED_SUPERVISOR_USER_EMAIL or user.username != SHARED_SUPERVISOR_USER_EMAIL:
+                user.email = SHARED_SUPERVISOR_USER_EMAIL
+                user.username = SHARED_SUPERVISOR_USER_EMAIL
+                user.save(update_fields=["email", "username"])
             return user
         user = User(
-            email=settings.SUPERVISOR_EMAIL,
-            username=settings.SUPERVISOR_EMAIL,
+            email=SHARED_SUPERVISOR_USER_EMAIL,
+            username=SHARED_SUPERVISOR_USER_EMAIL,
             name=settings.SUPERVISOR_NAME,
             role=User.ROLE_SUPERVISOR,
             is_staff=True,
@@ -81,6 +88,11 @@ class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
             return self._supervisor_user()
         return None
 
+    def _rebind_social_account(self, sociallogin, user):
+        sociallogin.user = user
+        sociallogin.account.user = user
+        sociallogin.account.save(update_fields=["user"])
+
     def pre_social_login(self, request, sociallogin):
         if sociallogin.account.provider != "google":
             messages.error(request, "Only Google sign-in is supported.")
@@ -89,24 +101,29 @@ class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
             messages.error(request, "Your Google email address must be verified.")
             raise ImmediateHttpResponse(redirect("login"))
         external_email = self._normalized_email(sociallogin)
+        authorized_user = self._authorized_user_for_email(external_email)
         if sociallogin.is_existing:
             user = sociallogin.user
             if not user.is_active:
                 messages.error(request, "Your account is inactive.")
                 raise ImmediateHttpResponse(redirect("login"))
+            if authorized_user is not None and user.pk != authorized_user.pk:
+                self._rebind_social_account(sociallogin, authorized_user)
+                self._remember_supervisor_access(request, external_email)
+                return
             if user.is_supervisor:
                 if external_email not in self._supervisor_allowed_emails():
                     messages.error(request, "This Google account is not authorized for supervisor access.")
                     raise ImmediateHttpResponse(redirect("login"))
                 self._remember_supervisor_access(request, external_email)
                 return
-            if self._authorized_user_for_email(external_email) is None or user.email.lower() != external_email:
+            if authorized_user is None or user.email.lower() != external_email:
                 messages.error(request, "Your Google account is not authorized for this system.")
                 raise ImmediateHttpResponse(redirect("login"))
             self._remember_supervisor_access(request, external_email)
             return
 
-        user = self._authorized_user_for_email(external_email)
+        user = authorized_user
         if user is None:
             messages.error(request, "Your Google account is not authorized for this system.")
             raise ImmediateHttpResponse(redirect("login"))

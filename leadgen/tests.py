@@ -3,15 +3,18 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from allauth.socialaccount.models import SocialAccount
 from django.db import IntegrityError
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.contrib.sessions.middleware import SessionMiddleware
+from django.test import RequestFactory
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from django.utils.datastructures import MultiValueDict
 from openpyxl import Workbook
 
-from .adapters import LeadgenSocialAccountAdapter
+from .adapters import LeadgenSocialAccountAdapter, SHARED_SUPERVISOR_USER_EMAIL
 from .forms import (
     ContractCollectionForm,
     FinanceManagerCreateForm,
@@ -60,8 +63,8 @@ from .services import (
 class LeadgenWorkflowTests(TestCase):
     def setUp(self):
         self.supervisor = User.objects.create(
-            email="bhavesh.kataria@inditech.co.in",
-            username="bhavesh.kataria@inditech.co.in",
+            email=SHARED_SUPERVISOR_USER_EMAIL,
+            username=SHARED_SUPERVISOR_USER_EMAIL,
             role=User.ROLE_SUPERVISOR,
             name="Bhavesh Kataria",
             is_staff=True,
@@ -139,6 +142,13 @@ class LeadgenWorkflowTests(TestCase):
         session["supervisor_access_email"] = access_email.email
         session["supervisor_access_level"] = access_email.access_level
         session.save()
+
+    def _request_with_session(self):
+        request = RequestFactory().get("/")
+        middleware = SessionMiddleware(lambda r: None)
+        middleware.process_request(request)
+        request.session.save()
+        return request
 
     def _force_login_with_workspace_access(self, user, email, workspace=None):
         self.client.force_login(user)
@@ -1125,6 +1135,48 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(user.pk, self.supervisor.pk)
         user = adapter._authorized_user_for_email("vamshi.alle@inditech.co.in")
         self.assertEqual(user.pk, self.supervisor.pk)
+
+    def test_sales_manager_create_form_allows_supervisor_email_when_shared_supervisor_is_internal(self):
+        form = SalesManagerCreateForm(
+            data={
+                "name": "Bhavesh Kataria",
+                "email": "bhavesh.kataria@inditech.co.in",
+                "whatsapp_number": "+919876543210",
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_existing_supervisor_social_account_rebinds_to_real_user_with_same_email(self):
+        sales_user = User.objects.create(
+            email="bhavesh.kataria@inditech.co.in",
+            username="bhavesh.kataria@inditech.co.in",
+            role=User.ROLE_SALES_MANAGER,
+            name="Bhavesh Kataria",
+        )
+        sales_user.set_unusable_password()
+        sales_user.save()
+        account = SocialAccount.objects.create(
+            user=self.supervisor,
+            provider="google",
+            uid="google-bhavesh-uid",
+            extra_data={
+                "email": "bhavesh.kataria@inditech.co.in",
+                "email_verified": True,
+            },
+        )
+        sociallogin = SimpleNamespace(
+            account=account,
+            user=self.supervisor,
+            is_existing=True,
+        )
+        request = self._request_with_session()
+
+        LeadgenSocialAccountAdapter().pre_social_login(request, sociallogin)
+
+        account.refresh_from_db()
+        self.assertEqual(account.user_id, sales_user.pk)
+        self.assertEqual(sociallogin.user.pk, sales_user.pk)
+        self.assertEqual(request.session["supervisor_access_email"], "bhavesh.kataria@inditech.co.in")
 
     def test_login_page_posts_to_google_provider(self):
         response = self.client.get("/login/")
