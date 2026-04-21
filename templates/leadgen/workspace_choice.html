@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Choose Workspace{% endblock %}
+{% block content %}
+<section class="hero">
+    <div>
+        <p class="eyebrow">Workspace choice</p>
+        <h1>Choose which dashboard to use</h1>
+        <p class="note">This Google account can work in both the lead gen supervisor workspace and the sales manager workspace.</p>
+    </div>
+</section>
+<section class="two-col">
+    <article class="panel">
+        <p class="eyebrow">Lead gen supervisor</p>
+        <h2>Open the lead gen supervisor dashboard</h2>
+        <p class="note">Use this workspace for prospect review, imports, meetings, reports, and lead gen staff oversight.</p>
+        <div class="button-row">
+            <a class="button button-primary" href="{% url 'select_workspace' 'supervisor' %}">Use as lead gen supervisor</a>
+        </div>
+    </article>
+    <article class="panel">
+        <p class="eyebrow">Sales manager</p>
+        <h2>Open the sales manager dashboard</h2>
+        <p class="note">Use this workspace for sales pipeline tracking, conversation updates, and contracts follow-through.</p>
+        <div class="button-row">
+            <a class="button button-primary" href="{% url 'select_workspace' 'sales' %}">Use as sales manager</a>
+        </div>
+    </article>
+</section>
+{% endblock %}

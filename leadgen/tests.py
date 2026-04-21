@@ -139,6 +139,18 @@ class LeadgenWorkflowTests(TestCase):
         session["supervisor_access_level"] = access_email.access_level
         session.save()
 
+    def _force_login_with_workspace_access(self, user, email, workspace=None):
+        self.client.force_login(user)
+        session = self.client.session
+        access_email = SupervisorAccessEmail.objects.get(email=email)
+        session["supervisor_access_email"] = access_email.email
+        session["supervisor_access_level"] = access_email.access_level
+        if workspace:
+            session["workspace_mode"] = workspace
+        else:
+            session.pop("workspace_mode", None)
+        session.save()
+
     def _import_rows(self, rows):
         workbook = Workbook()
         sheet = workbook.active
@@ -301,6 +313,89 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(sales_conversation.assigned_sales_manager, self.sales_manager)
         self.assertEqual(sales_conversation.contacts.count(), 1)
         self.assertEqual(sales_conversation.contacts.first().name, self.prospect.contact_name)
+
+    def test_sales_manager_can_add_sales_conversation_directly(self):
+        self.client.force_login(self.sales_manager)
+        response = self.client.get("/sales/add/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Add sales conversation")
+
+    def test_dual_workspace_user_gets_workspace_choice_on_home(self):
+        SupervisorAccessEmail.objects.update_or_create(
+            email="amit@inditech.co.in",
+            defaults={
+                "is_active": True,
+                "access_level": SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
+            },
+        )
+        self._force_login_with_workspace_access(self.sales_manager, "amit@inditech.co.in")
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Choose which dashboard to use")
+        self.assertContains(response, "Use as lead gen supervisor")
+        self.assertContains(response, "Use as sales manager")
+
+    def test_dual_workspace_user_can_open_supervisor_dashboard_and_see_all_sales_pipeline_records(self):
+        SupervisorAccessEmail.objects.update_or_create(
+            email="amit@inditech.co.in",
+            defaults={
+                "is_active": True,
+                "access_level": SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
+            },
+        )
+        other_sales_manager = User.objects.create(
+            email="other.sales@example.com",
+            username="other.sales@example.com",
+            role=User.ROLE_SALES_MANAGER,
+            name="Other Sales",
+        )
+        other_sales_manager.set_unusable_password()
+        other_sales_manager.save()
+        own_conversation = SalesConversation.objects.create(
+            company_name="Own Assigned Co",
+            assigned_sales_manager=self.sales_manager,
+            created_by=self.supervisor,
+        )
+        other_conversation = SalesConversation.objects.create(
+            company_name="Other Assigned Co",
+            assigned_sales_manager=other_sales_manager,
+            created_by=self.supervisor,
+        )
+        self._force_login_with_workspace_access(self.sales_manager, "amit@inditech.co.in", workspace="supervisor")
+        response = self.client.get("/supervisor/")
+        self.assertEqual(response.status_code, 200)
+        sales_response = self.client.get("/sales/")
+        self.assertEqual(sales_response.status_code, 200)
+        self.assertContains(sales_response, own_conversation.company_name)
+        self.assertContains(sales_response, other_conversation.company_name)
+        self.assertContains(sales_response, "Edit details")
+
+    def test_dual_workspace_user_can_switch_to_sales_dashboard(self):
+        SupervisorAccessEmail.objects.update_or_create(
+            email="amit@inditech.co.in",
+            defaults={
+                "is_active": True,
+                "access_level": SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
+            },
+        )
+        self._force_login_with_workspace_access(self.sales_manager, "amit@inditech.co.in")
+        response = self.client.get("/workspace/sales/")
+        self.assertRedirects(response, "/sales/")
+        dashboard_response = self.client.get("/sales/")
+        self.assertEqual(dashboard_response.status_code, 200)
+        self.assertContains(dashboard_response, "Sales pipeline")
+
+    def test_sales_conversation_update_page_has_explicit_save_changes_button(self):
+        conversation = SalesConversation.objects.create(
+            company_name="Editable Pipeline Co",
+            assigned_sales_manager=self.sales_manager,
+            created_by=self.supervisor,
+        )
+        self.client.force_login(self.supervisor)
+        response = self.client.get(f"/sales/{conversation.pk}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Use this page to edit the saved conversation details")
+        self.assertContains(response, "Save changes")
 
     def test_meeting_status_form_requires_new_datetime_for_reschedule(self):
         meeting = apply_call_outcome(

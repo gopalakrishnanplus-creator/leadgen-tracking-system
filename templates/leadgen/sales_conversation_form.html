@@ -1,18 +1,27 @@
 {% extends "base.html" %}
 {% block title %}{{ title }}{% endblock %}
 {% block content %}
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
 <section class="section-head">
     <div>
-        <p class="eyebrow">{% if request.user.is_supervisor %}Supervisor{% else %}Sales{% endif %}</p>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
         <h1>{{ title }}</h1>
         {% if conversation %}
             <p class="note">Sales conversation ID: {{ conversation.sales_conversation_id }}</p>
+            <p class="note">Use this page to edit the saved conversation details and save the changes again.</p>
         {% endif %}
     </div>
-    <a class="button" href="{% url 'sales_pipeline_dashboard' %}">Back to pipeline</a>
+    <div class="button-row">
+        {% if request.is_dual_workspace_user %}
+            <a class="button" href="{% url 'workspace_choice' %}">Choose workspace</a>
+        {% endif %}
+        <a class="button" href="{% url 'sales_pipeline_dashboard' %}">Back to pipeline</a>
+        {% if conversation %}
+            <button class="button button-primary" type="submit">Save changes</button>
+        {% endif %}
+    </div>
 </section>
-<form method="post" enctype="multipart/form-data">
-    {% csrf_token %}
     {% if form.non_field_errors %}
         <section class="message error">
             {{ form.non_field_errors }}

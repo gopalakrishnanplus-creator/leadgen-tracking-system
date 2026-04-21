@@ -97,13 +97,42 @@ YESTERDAY_CALLS_FILTER = "yesterday_calls"
 
 @login_required
 def home(request):
-    if request.user.is_supervisor:
+    if getattr(request, "is_dual_workspace_user", False):
+        if request.current_workspace == "supervisor":
+            return redirect("supervisor_dashboard")
+        if request.current_workspace == "sales":
+            return redirect("sales_pipeline_dashboard")
+        return workspace_choice(request)
+    if getattr(request, "current_workspace", None) == "supervisor":
         return redirect("supervisor_dashboard")
-    if request.user.is_sales_manager:
+    if getattr(request, "current_workspace", None) == "sales":
         return redirect("sales_pipeline_dashboard")
-    if request.user.is_finance_manager:
+    if getattr(request, "current_workspace", None) == "finance":
         return redirect("contracts_dashboard")
     return redirect("staff_dashboard")
+
+
+@login_required
+def workspace_choice(request):
+    if not getattr(request, "is_dual_workspace_user", False):
+        return redirect("home")
+    return render(request, "leadgen/workspace_choice.html")
+
+
+@login_required
+def select_workspace(request, workspace):
+    if workspace not in {"supervisor", "sales"}:
+        raise Http404("Workspace not found.")
+    if not getattr(request, "is_dual_workspace_user", False):
+        return redirect("home")
+    if workspace == "supervisor" and not getattr(request, "has_supervisor_workspace_access", False):
+        raise Http404("Workspace not found.")
+    if workspace == "sales" and not getattr(request, "has_sales_workspace_access", False):
+        raise Http404("Workspace not found.")
+    request.session["workspace_mode"] = workspace
+    if workspace == "supervisor":
+        return redirect("supervisor_dashboard")
+    return redirect("sales_pipeline_dashboard")
 
 
 @role_required(User.ROLE_SUPERVISOR)
@@ -892,30 +921,52 @@ def log_meeting_reminder(request, meeting_id):
     )
 
 
-def _sales_pipeline_queryset_for_user(user):
+def _is_supervisor_workspace(request):
+    return getattr(request, "current_workspace", None) == "supervisor" and getattr(
+        request, "has_supervisor_workspace_access", False
+    )
+
+
+def _is_effective_supervisor(request):
+    return request.user.is_supervisor or _is_supervisor_workspace(request)
+
+
+def _is_effective_sales_manager(request):
+    return request.user.is_sales_manager and not _is_supervisor_workspace(request)
+
+
+def _workspace_eyebrow(request):
+    if getattr(request, "current_workspace", None) == "finance":
+        return "Finance"
+    if _is_effective_supervisor(request):
+        return "Supervisor"
+    return "Sales"
+
+
+def _sales_pipeline_queryset_for_request(request):
     queryset = SalesConversation.objects.select_related("assigned_sales_manager", "source_meeting").prefetch_related(
         "contacts",
         "brands",
         "files",
     )
-    if user.is_sales_manager:
-        queryset = queryset.filter(assigned_sales_manager=user)
+    if _is_effective_sales_manager(request):
+        queryset = queryset.filter(assigned_sales_manager=request.user)
     return queryset
 
 
-def _configure_sales_conversation_form(form, user):
-    if user.is_sales_manager:
-        form.fields["assigned_sales_manager"].queryset = User.objects.filter(pk=user.pk)
+def _configure_sales_conversation_form(form, request):
+    if _is_effective_sales_manager(request):
+        form.fields["assigned_sales_manager"].queryset = User.objects.filter(pk=request.user.pk)
         form.fields["assigned_sales_manager"].empty_label = None
         if not form.is_bound and not form.instance.assigned_sales_manager_id:
-            form.initial["assigned_sales_manager"] = user.pk
+            form.initial["assigned_sales_manager"] = request.user.pk
     return form
 
 
-def _sales_conversation_for_user_or_404(user, conversation_id):
-    queryset = _sales_pipeline_queryset_for_user(user)
+def _sales_conversation_for_request_or_404(request, conversation_id):
+    queryset = _sales_pipeline_queryset_for_request(request)
     conversation = get_object_or_404(queryset, pk=conversation_id)
-    if user.is_sales_manager and conversation.assigned_sales_manager_id != user.pk:
+    if _is_effective_sales_manager(request) and conversation.assigned_sales_manager_id != request.user.pk:
         raise Http404("You do not have access to this sales conversation.")
     return conversation
 
@@ -927,7 +978,7 @@ def _uploaded_sales_files(request):
     }
 
 
-def _contracts_queryset_for_user(user):
+def _contracts_queryset_for_request(request):
     queryset = ContractCollection.objects.select_related(
         "sales_manager",
         "source_sales_conversation",
@@ -936,24 +987,24 @@ def _contracts_queryset_for_user(user):
         "files",
         "installments",
     )
-    if user.is_sales_manager:
-        queryset = queryset.filter(sales_manager=user)
+    if _is_effective_sales_manager(request):
+        queryset = queryset.filter(sales_manager=request.user)
     return queryset
 
 
-def _configure_contract_form(form, user):
-    if user.is_sales_manager:
-        form.fields["sales_manager"].queryset = User.objects.filter(pk=user.pk)
+def _configure_contract_form(form, request):
+    if _is_effective_sales_manager(request):
+        form.fields["sales_manager"].queryset = User.objects.filter(pk=request.user.pk)
         form.fields["sales_manager"].empty_label = None
         if not form.is_bound and not form.instance.sales_manager_id:
-            form.initial["sales_manager"] = user.pk
+            form.initial["sales_manager"] = request.user.pk
     return form
 
 
-def _contract_collection_for_user_or_404(user, contract_id):
-    queryset = _contracts_queryset_for_user(user)
+def _contract_collection_for_request_or_404(request, contract_id):
+    queryset = _contracts_queryset_for_request(request)
     contract_collection = get_object_or_404(queryset, pk=contract_id)
-    if user.is_sales_manager and contract_collection.sales_manager_id != user.pk:
+    if _is_effective_sales_manager(request) and contract_collection.sales_manager_id != request.user.pk:
         raise Http404("You do not have access to this contract.")
     return contract_collection
 
@@ -966,7 +1017,7 @@ def _uploaded_contract_files(request):
 
 @roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER)
 def sales_pipeline_dashboard(request):
-    conversations = _sales_pipeline_queryset_for_user(request.user).filter(contract_signed=False)
+    conversations = _sales_pipeline_queryset_for_request(request).filter(contract_signed=False)
     form = SalesConversationFilterForm(request.GET or None)
     if form.is_valid():
         if form.cleaned_data["conversation_status"]:
@@ -979,8 +1030,9 @@ def sales_pipeline_dashboard(request):
     context = {
         "form": form,
         "conversations": conversations,
+        "workspace_eyebrow": _workspace_eyebrow(request),
         "active_count": conversations.count(),
-        "signed_count": _sales_pipeline_queryset_for_user(request.user).filter(contract_signed=True).count(),
+        "signed_count": _sales_pipeline_queryset_for_request(request).filter(contract_signed=True).count(),
     }
     return render(request, "leadgen/sales_pipeline_dashboard.html", context)
 
@@ -988,10 +1040,10 @@ def sales_pipeline_dashboard(request):
 @roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER)
 def sales_conversation_create(request):
     form = SalesConversationForm(request.POST or None, request.FILES or None)
-    form = _configure_sales_conversation_form(form, request.user)
+    form = _configure_sales_conversation_form(form, request)
     if request.method == "POST" and form.is_valid():
         conversation = form.save(commit=False)
-        if request.user.is_sales_manager:
+        if _is_effective_sales_manager(request):
             conversation.assigned_sales_manager = request.user
         conversation.created_by = request.user
         conversation.save()
@@ -1011,18 +1063,19 @@ def sales_conversation_create(request):
             "conversation": None,
             "existing_solution_files": [],
             "existing_proposal_files": [],
+            "workspace_eyebrow": _workspace_eyebrow(request),
         },
     )
 
 
 @roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER)
 def sales_conversation_update(request, conversation_id):
-    conversation = _sales_conversation_for_user_or_404(request.user, conversation_id)
+    conversation = _sales_conversation_for_request_or_404(request, conversation_id)
     form = SalesConversationForm(request.POST or None, request.FILES or None, instance=conversation)
-    form = _configure_sales_conversation_form(form, request.user)
+    form = _configure_sales_conversation_form(form, request)
     if request.method == "POST" and form.is_valid():
         conversation = form.save(commit=False)
-        if request.user.is_sales_manager:
+        if _is_effective_sales_manager(request):
             conversation.assigned_sales_manager = request.user
         conversation.save()
         sync_sales_conversation_data(conversation, form.cleaned_data, _uploaded_sales_files(request))
@@ -1041,17 +1094,21 @@ def sales_conversation_update(request, conversation_id):
             "conversation": conversation,
             "existing_solution_files": conversation.files.filter(category=SalesConversationFile.CATEGORY_SOLUTION),
             "existing_proposal_files": conversation.files.filter(category=SalesConversationFile.CATEGORY_PROPOSAL),
+            "workspace_eyebrow": _workspace_eyebrow(request),
         },
     )
 
 
 @roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER, User.ROLE_FINANCE_MANAGER)
 def contracts_dashboard(request):
-    contracts = _contracts_queryset_for_user(request.user).order_by("-updated_at")
+    contracts = _contracts_queryset_for_request(request).order_by("-updated_at")
     context = {
         "contracts": contracts,
+        "workspace_eyebrow": _workspace_eyebrow(request),
+        "can_send_invoice_alerts": _is_effective_supervisor(request),
+        "can_add_contract": _is_effective_supervisor(request) or _is_effective_sales_manager(request),
         "active_count": contracts.count(),
-        "pending_count": build_pending_collections(_contracts_queryset_for_user(request.user))["invoiced_pending"].count(),
+        "pending_count": build_pending_collections(_contracts_queryset_for_request(request))["invoiced_pending"].count(),
     }
     return render(request, "leadgen/contracts_dashboard.html", context)
 
@@ -1061,12 +1118,12 @@ def contract_collection_create(request):
     form = ContractCollectionForm(
         request.POST or None,
         request.FILES or None,
-        allow_locked_field_edits=request.user.is_supervisor,
+        allow_locked_field_edits=_is_effective_supervisor(request),
     )
-    form = _configure_contract_form(form, request.user)
+    form = _configure_contract_form(form, request)
     if request.method == "POST" and form.is_valid():
         contract_collection = form.save(commit=False)
-        if request.user.is_sales_manager:
+        if _is_effective_sales_manager(request):
             contract_collection.sales_manager = request.user
         contract_collection.created_by = request.user
         contract_collection.save()
@@ -1074,7 +1131,7 @@ def contract_collection_create(request):
             contract_collection,
             form.cleaned_data,
             _uploaded_contract_files(request),
-            allow_locked_field_edits=request.user.is_supervisor,
+            allow_locked_field_edits=_is_effective_supervisor(request),
         )
         messages.success(request, "Contract added to contracts and collections.")
         return redirect("contract_collection_update", contract_id=contract_collection.pk)
@@ -1089,20 +1146,21 @@ def contract_collection_create(request):
             "title": "Add contract",
             "can_edit_terms": True,
             "can_edit_finance": False,
+            "workspace_eyebrow": _workspace_eyebrow(request),
         },
     )
 
 
 @roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER, User.ROLE_FINANCE_MANAGER)
 def contract_collection_update(request, contract_id):
-    contract_collection = _contract_collection_for_user_or_404(request.user, contract_id)
-    can_edit_terms = request.user.is_supervisor or request.user.is_sales_manager
+    contract_collection = _contract_collection_for_request_or_404(request, contract_id)
+    can_edit_terms = _is_effective_supervisor(request) or _is_effective_sales_manager(request)
     can_edit_finance = request.user.is_finance_manager
     terms_form = ContractCollectionForm(
         instance=contract_collection,
-        allow_locked_field_edits=request.user.is_supervisor,
+        allow_locked_field_edits=_is_effective_supervisor(request),
     )
-    terms_form = _configure_contract_form(terms_form, request.user)
+    terms_form = _configure_contract_form(terms_form, request)
     finance_form = FinanceCollectionUpdateForm(contract_collection=contract_collection)
 
     if request.method == "POST" and can_edit_terms and request.POST.get("form_type") == "terms":
@@ -1110,20 +1168,20 @@ def contract_collection_update(request, contract_id):
             request.POST or None,
             request.FILES or None,
             instance=contract_collection,
-            allow_locked_field_edits=request.user.is_supervisor,
+            allow_locked_field_edits=_is_effective_supervisor(request),
         )
-        terms_form = _configure_contract_form(terms_form, request.user)
+        terms_form = _configure_contract_form(terms_form, request)
         finance_form = FinanceCollectionUpdateForm(contract_collection=contract_collection)
         if terms_form.is_valid():
             updated_contract = terms_form.save(commit=False)
-            if request.user.is_sales_manager:
+            if _is_effective_sales_manager(request):
                 updated_contract.sales_manager = request.user
             updated_contract.save()
             sync_contract_collection_data(
                 updated_contract,
                 terms_form.cleaned_data,
                 _uploaded_contract_files(request),
-                allow_locked_field_edits=request.user.is_supervisor,
+                allow_locked_field_edits=_is_effective_supervisor(request),
             )
             messages.success(request, "Contract details updated.")
             return redirect("contract_collection_update", contract_id=contract_collection.pk)
@@ -1132,9 +1190,9 @@ def contract_collection_update(request, contract_id):
         finance_form = FinanceCollectionUpdateForm(request.POST or None, contract_collection=contract_collection)
         terms_form = ContractCollectionForm(
             instance=contract_collection,
-            allow_locked_field_edits=request.user.is_supervisor,
+            allow_locked_field_edits=_is_effective_supervisor(request),
         )
-        terms_form = _configure_contract_form(terms_form, request.user)
+        terms_form = _configure_contract_form(terms_form, request)
         if finance_form.is_valid():
             sync_finance_collection_data(contract_collection, finance_form.cleaned_data)
             messages.success(request, "Collection updates saved.")
@@ -1151,13 +1209,15 @@ def contract_collection_update(request, contract_id):
             "title": f"Contract {contract_collection.contract_collection_id}",
             "can_edit_terms": can_edit_terms,
             "can_edit_finance": can_edit_finance,
+            "workspace_eyebrow": _workspace_eyebrow(request),
         },
     )
 
 
 @roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER, User.ROLE_FINANCE_MANAGER)
 def pending_collections_view(request):
-    summary = build_pending_collections(_contracts_queryset_for_user(request.user))
+    summary = build_pending_collections(_contracts_queryset_for_request(request))
+    summary["workspace_eyebrow"] = _workspace_eyebrow(request)
     return render(request, "leadgen/pending_collections.html", summary)
 
 

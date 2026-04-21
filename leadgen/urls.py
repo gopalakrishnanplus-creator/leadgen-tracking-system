@@ -5,6 +5,8 @@ from . import views
 
 urlpatterns = [
     path("", views.home, name="home"),
+    path("workspace/", views.workspace_choice, name="workspace_choice"),
+    path("workspace/<str:workspace>/", views.select_workspace, name="select_workspace"),
     path("health/", views.healthcheck, name="healthcheck"),
     path("login/", views.login_page, name="login"),
     path("logout/", views.logout_view, name="logout"),

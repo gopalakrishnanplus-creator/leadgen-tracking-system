@@ -74,11 +74,11 @@ class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
         normalized = (email or "").strip().lower()
         if not normalized:
             return None
-        if normalized in self._supervisor_allowed_emails():
-            return self._supervisor_user()
         user = User.objects.filter(email__iexact=normalized).first()
         if user:
             return user
+        if normalized in self._supervisor_allowed_emails():
+            return self._supervisor_user()
         return None
 
     def pre_social_login(self, request, sociallogin):
@@ -103,7 +103,7 @@ class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
             if self._authorized_user_for_email(external_email) is None or user.email.lower() != external_email:
                 messages.error(request, "Your Google account is not authorized for this system.")
                 raise ImmediateHttpResponse(redirect("login"))
-            self._remember_supervisor_access(request, None)
+            self._remember_supervisor_access(request, external_email)
             return
 
         user = self._authorized_user_for_email(external_email)
@@ -113,10 +113,7 @@ class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
         if not user.is_active:
             messages.error(request, "Your account is inactive.")
             raise ImmediateHttpResponse(redirect("login"))
-        if user.is_supervisor:
-            self._remember_supervisor_access(request, external_email)
-        else:
-            self._remember_supervisor_access(request, None)
+        self._remember_supervisor_access(request, external_email)
         sociallogin.connect(request, user)
 
     def is_open_for_signup(self, request, sociallogin):

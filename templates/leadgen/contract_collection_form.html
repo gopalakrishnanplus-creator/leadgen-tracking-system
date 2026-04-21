@@ -3,7 +3,7 @@
 {% block content %}
 <section class="section-head">
     <div>
-        <p class="eyebrow">{% if request.user.is_finance_manager %}Finance{% elif request.user.is_sales_manager %}Sales{% else %}Supervisor{% endif %}</p>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
         <h1>{{ title }}</h1>
         {% if contract_collection %}
             <p class="note">Contract ID: {{ contract_collection.contract_collection_id }}</p>

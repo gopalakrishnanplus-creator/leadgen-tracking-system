@@ -3,11 +3,14 @@
 {% block content %}
 <section class="section-head">
     <div>
-        <p class="eyebrow">{% if request.user.is_supervisor %}Supervisor{% else %}Sales{% endif %}</p>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
         <h1>Sales pipeline</h1>
         <p class="note">Track every live conversation after a meeting is conducted, or add a standalone conversation directly.</p>
     </div>
     <div class="button-row">
+        {% if request.is_dual_workspace_user %}
+            <a class="button" href="{% url 'workspace_choice' %}">Choose workspace</a>
+        {% endif %}
         <a class="button button-primary" href="{% url 'sales_conversation_create' %}">Add new sales conversation</a>
         <a class="button" href="{% url 'contract_collection_create' %}">Add new contract</a>
         <a class="button" href="{% url 'contracts_dashboard' %}">Open contracts</a>
@@ -63,7 +66,7 @@
                 <td>{{ conversation.get_conversation_status_display }}</td>
                 <td>{{ conversation.get_proposal_status_display }}</td>
                 <td>{{ conversation.updated_at }}</td>
-                <td class="actions"><a href="{% url 'sales_conversation_update' conversation.id %}">Open</a></td>
+                <td class="actions"><a href="{% url 'sales_conversation_update' conversation.id %}">Edit details</a></td>
             </tr>
         {% empty %}
             <tr><td colspan="9">No sales conversations match the current pipeline view.</td></tr>
