@@ -446,6 +446,53 @@ class LeadgenWorkflowTests(TestCase):
         self.assertContains(response, "Use this page to edit the saved conversation details")
         self.assertContains(response, "Save changes")
 
+    def test_leadgen_supervisor_can_correct_sales_pipeline_company_name(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 30, 15, 0),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        update_meeting_outcome(meeting, Meeting.STATUS_HAPPENED, updated_by=self.supervisor)
+        conversation = SalesConversation.objects.get(source_meeting=meeting)
+        contract_collection = get_or_create_contract_collection_from_sales_conversation(conversation, created_by=self.supervisor)
+
+        self._force_login_as_supervisor_access("bhavesh.kataria@inditech.co.in")
+        response = self.client.post(
+            f"/sales/{conversation.pk}/",
+            {
+                "company_name": "Corrected Company Name",
+                "assigned_sales_manager": self.sales_manager.pk,
+                "conversation_status": conversation.conversation_status,
+                "proposal_status": conversation.proposal_status,
+                "comments": "Updated after correction.",
+                "brands_input": "",
+                "contact_1_name": self.prospect.contact_name,
+                "contact_1_email": "prospect@example.com",
+                "contact_1_whatsapp": "",
+                "contact_2_name": "",
+                "contact_2_email": "",
+                "contact_2_whatsapp": "",
+                "contact_3_name": "",
+                "contact_3_email": "",
+                "contact_3_whatsapp": "",
+            },
+        )
+
+        self.assertRedirects(response, f"/sales/{conversation.pk}/")
+        conversation.refresh_from_db()
+        self.prospect.refresh_from_db()
+        contract_collection.refresh_from_db()
+        self.assertEqual(conversation.company_name, "Corrected Company Name")
+        self.assertEqual(self.prospect.company_name, "Corrected Company Name")
+        self.assertEqual(contract_collection.company_name, "Corrected Company Name")
+
     def test_meeting_status_form_requires_new_datetime_for_reschedule(self):
         meeting = apply_call_outcome(
             self.prospect,

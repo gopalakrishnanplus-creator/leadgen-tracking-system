@@ -884,14 +884,27 @@ def active_leadgen_supervisor_emails():
     )
 
 
-def sync_sales_conversation_data(sales_conversation, cleaned_data, uploaded_files=None):
+def sync_sales_conversation_data(sales_conversation, cleaned_data, uploaded_files=None, allow_company_name_edits=False):
     uploaded_files = uploaded_files or {}
+    if not sales_conversation.pk or allow_company_name_edits:
+        sales_conversation.company_name = cleaned_data["company_name"]
     sales_conversation.assigned_sales_manager = cleaned_data.get("assigned_sales_manager")
     sales_conversation.conversation_status = cleaned_data["conversation_status"]
     sales_conversation.proposal_status = cleaned_data["proposal_status"]
     sales_conversation.contract_signed = cleaned_data.get("contract_signed", False)
     sales_conversation.comments = cleaned_data.get("comments", "")
     sales_conversation.save()
+
+    if allow_company_name_edits and sales_conversation.source_meeting_id:
+        prospect = sales_conversation.source_meeting.prospect
+        if prospect.company_name != sales_conversation.company_name:
+            prospect.company_name = sales_conversation.company_name
+            prospect.save(update_fields=["company_name", "updated_at"])
+    if allow_company_name_edits and hasattr(sales_conversation, "contract_collection"):
+        contract_collection = sales_conversation.contract_collection
+        if contract_collection.company_name != sales_conversation.company_name:
+            contract_collection.company_name = sales_conversation.company_name
+            contract_collection.save(update_fields=["company_name", "updated_at"])
 
     sales_conversation.contacts.all().delete()
     SalesConversationContact.objects.bulk_create(

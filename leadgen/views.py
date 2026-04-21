@@ -943,6 +943,10 @@ def _workspace_eyebrow(request):
     return "Sales"
 
 
+def _allow_sales_company_name_edits(request):
+    return _is_effective_supervisor(request)
+
+
 def _sales_pipeline_queryset_for_request(request):
     queryset = SalesConversation.objects.select_related("assigned_sales_manager", "source_meeting").prefetch_related(
         "contacts",
@@ -1039,7 +1043,11 @@ def sales_pipeline_dashboard(request):
 
 @roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER)
 def sales_conversation_create(request):
-    form = SalesConversationForm(request.POST or None, request.FILES or None)
+    form = SalesConversationForm(
+        request.POST or None,
+        request.FILES or None,
+        allow_company_name_edits=_allow_sales_company_name_edits(request),
+    )
     form = _configure_sales_conversation_form(form, request)
     if request.method == "POST" and form.is_valid():
         conversation = form.save(commit=False)
@@ -1047,7 +1055,12 @@ def sales_conversation_create(request):
             conversation.assigned_sales_manager = request.user
         conversation.created_by = request.user
         conversation.save()
-        sync_sales_conversation_data(conversation, form.cleaned_data, _uploaded_sales_files(request))
+        sync_sales_conversation_data(
+            conversation,
+            form.cleaned_data,
+            _uploaded_sales_files(request),
+            allow_company_name_edits=_allow_sales_company_name_edits(request),
+        )
         if conversation.contract_signed:
             contract_collection = get_or_create_contract_collection_from_sales_conversation(conversation, created_by=request.user)
             messages.success(request, "Sales conversation created and moved into contracts and collections.")
@@ -1071,14 +1084,24 @@ def sales_conversation_create(request):
 @roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER)
 def sales_conversation_update(request, conversation_id):
     conversation = _sales_conversation_for_request_or_404(request, conversation_id)
-    form = SalesConversationForm(request.POST or None, request.FILES or None, instance=conversation)
+    form = SalesConversationForm(
+        request.POST or None,
+        request.FILES or None,
+        instance=conversation,
+        allow_company_name_edits=_allow_sales_company_name_edits(request),
+    )
     form = _configure_sales_conversation_form(form, request)
     if request.method == "POST" and form.is_valid():
         conversation = form.save(commit=False)
         if _is_effective_sales_manager(request):
             conversation.assigned_sales_manager = request.user
         conversation.save()
-        sync_sales_conversation_data(conversation, form.cleaned_data, _uploaded_sales_files(request))
+        sync_sales_conversation_data(
+            conversation,
+            form.cleaned_data,
+            _uploaded_sales_files(request),
+            allow_company_name_edits=_allow_sales_company_name_edits(request),
+        )
         if conversation.contract_signed:
             contract_collection = get_or_create_contract_collection_from_sales_conversation(conversation, created_by=request.user)
             messages.success(request, "Sales conversation updated and moved into contracts and collections.")

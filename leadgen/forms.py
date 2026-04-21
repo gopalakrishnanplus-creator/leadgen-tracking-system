@@ -448,15 +448,19 @@ class SalesConversationForm(StyledFormMixin, forms.ModelForm):
             "comments": forms.Textarea(attrs={"rows": 5}),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, allow_company_name_edits=False, **kwargs):
+        self.allow_company_name_edits = allow_company_name_edits
         super().__init__(*args, **kwargs)
         self.fields["assigned_sales_manager"].queryset = User.objects.filter(
             role=User.ROLE_SALES_MANAGER,
             is_active=True,
         ).order_by("name", "email")
         if self.instance.pk:
-            self.fields["company_name"].disabled = True
-            self.fields["company_name"].help_text = "Company name is fixed after the sales conversation is created."
+            self.fields["company_name"].disabled = not self.allow_company_name_edits
+            if self.allow_company_name_edits:
+                self.fields["company_name"].help_text = "Lead gen supervisors can correct the company name if it was entered incorrectly."
+            else:
+                self.fields["company_name"].help_text = "Company name is fixed after the sales conversation is created."
             self.fields["brands_input"].initial = "\n".join(self.instance.brands.values_list("name", flat=True))
             for contact in self.instance.contacts.all():
                 self.fields[f"contact_{contact.position}_name"].initial = contact.name
@@ -486,7 +490,7 @@ class SalesConversationForm(StyledFormMixin, forms.ModelForm):
         return brands
 
     def clean_company_name(self):
-        if self.instance.pk:
+        if self.instance.pk and not self.allow_company_name_edits:
             return self.instance.company_name
         return (self.cleaned_data.get("company_name") or "").strip()
 
