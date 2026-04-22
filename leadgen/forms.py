@@ -54,8 +54,11 @@ class MultiFileField(forms.FileField):
         return cleaned_files
 
 
-def validate_uploaded_file_sizes(files, field_label):
-    max_size = getattr(settings, "MAX_UPLOAD_FILE_SIZE", 10 * 1024 * 1024)
+PUBLIC_DOWNLOAD_MAX_FILE_SIZE = 200 * 1024 * 1024
+
+
+def validate_uploaded_file_sizes(files, field_label, max_size=None):
+    max_size = max_size or getattr(settings, "MAX_UPLOAD_FILE_SIZE", 10 * 1024 * 1024)
     over_limit = [uploaded_file.name for uploaded_file in files if uploaded_file.size > max_size]
     if over_limit:
         max_size_mb = max_size / (1024 * 1024)
@@ -357,11 +360,19 @@ class PublicDownloadUploadForm(StyledFormMixin, forms.ModelForm):
             "title": forms.TextInput(attrs={"placeholder": "Optional label for your own reference"}),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["file"].help_text = "Maximum 200 MB per file."
+
     def clean(self):
         cleaned_data = super().clean()
         uploaded_file = cleaned_data.get("file")
         if uploaded_file:
-            validate_uploaded_file_sizes([uploaded_file], "public downloads")
+            validate_uploaded_file_sizes(
+                [uploaded_file],
+                "public downloads",
+                max_size=PUBLIC_DOWNLOAD_MAX_FILE_SIZE,
+            )
         return cleaned_data
 
 

@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from allauth.socialaccount.models import SocialAccount
 from django.db import IntegrityError
 from django.core import mail
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.test import RequestFactory
@@ -22,8 +23,10 @@ from .forms import (
     FinanceManagerCreateForm,
     MeetingStatusUpdateForm,
     ProspectCreateForm,
+    PUBLIC_DOWNLOAD_MAX_FILE_SIZE,
     SalesConversationForm,
     SalesManagerCreateForm,
+    validate_uploaded_file_sizes,
 )
 from .models import (
     CallImportBatch,
@@ -2470,5 +2473,20 @@ class LeadgenWorkflowTests(TestCase):
                 self.assertRedirects(response, "/supervisor/public-downloads/")
                 self.assertFalse(PublicDownloadFile.objects.filter(pk=public_file.pk).exists())
                 self.assertFalse(os.path.exists(stored_path))
+
+    def test_public_download_validation_allows_files_up_to_200mb(self):
+        validate_uploaded_file_sizes(
+            [SimpleNamespace(name="large-brochure.pdf", size=150 * 1024 * 1024)],
+            "public downloads",
+            max_size=PUBLIC_DOWNLOAD_MAX_FILE_SIZE,
+        )
+
+    def test_public_download_validation_rejects_files_over_200mb(self):
+        with self.assertRaisesMessage(ValidationError, "Each file in public downloads must be 200 MB or smaller."):
+            validate_uploaded_file_sizes(
+                [SimpleNamespace(name="too-large.zip", size=201 * 1024 * 1024)],
+                "public downloads",
+                max_size=PUBLIC_DOWNLOAD_MAX_FILE_SIZE,
+            )
 
 # Create your tests here.
