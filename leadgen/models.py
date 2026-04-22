@@ -1,10 +1,12 @@
 import uuid
+from urllib.parse import urljoin, urlparse, urlunparse
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.urls import reverse
 from django.utils import timezone
 
 
@@ -745,3 +747,59 @@ class ContractCollectionInstallment(models.Model):
 
     def __str__(self):
         return f"{self.contract_collection.contract_collection_id} / installment {self.position}"
+
+
+def public_download_upload_to(instance, filename):
+    extension = ""
+    if "." in filename:
+        extension = f".{filename.rsplit('.', 1)[1].lower()}"
+    return f"public-downloads/{uuid.uuid4().hex}{extension}"
+
+
+class PublicDownloadFile(models.Model):
+    share_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    title = models.CharField(max_length=255, blank=True)
+    file = models.FileField(upload_to=public_download_upload_to)
+    original_filename = models.CharField(max_length=255, blank=True)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="uploaded_public_downloads",
+        on_delete=models.PROTECT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def save(self, *args, **kwargs):
+        if self.file and not self.original_filename:
+            self.original_filename = self.file.name.split("/")[-1]
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        stored_file = self.file
+        super().delete(*args, **kwargs)
+        if stored_file:
+            stored_file.delete(save=False)
+
+    @property
+    def display_name(self):
+        return self.title or self.original_filename or self.file.name.split("/")[-1]
+
+    @property
+    def public_url(self):
+        base_url = (settings.SITE_BASE_URL or "").strip()
+        candidate_url = reverse("public_download_file", args=[str(self.share_token)])
+        if base_url:
+            parsed_base = urlparse(base_url if "://" in base_url else f"https://{base_url}")
+            secure_base = urlunparse(parsed_base._replace(scheme="https"))
+            candidate_url = urljoin(f"{secure_base.rstrip('/')}/", candidate_url.lstrip("/"))
+
+        parsed_candidate = urlparse(candidate_url)
+        if parsed_candidate.scheme in {"http", "https"}:
+            return urlunparse(parsed_candidate._replace(scheme="https"))
+        return candidate_url
+
+    def __str__(self):
+        return self.display_name

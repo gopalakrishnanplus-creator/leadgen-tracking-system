@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Public Downloads{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">System admin</p>
+        <h1>Public downloads</h1>
+        <p class="note">Files uploaded here are stored in the server's public downloads folder and exposed as HTTPS links for direct sharing with prospects.</p>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'supervisor_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+
+<section class="panel form-panel">
+    <h2>Upload file</h2>
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {% if form.non_field_errors %}
+            <div class="message error">{{ form.non_field_errors }}</div>
+        {% endif %}
+        <p>{{ form.title.errors }}{{ form.title.label_tag }} {{ form.title }}</p>
+        <p>{{ form.file.errors }}{{ form.file.label_tag }} {{ form.file }}{% if form.file.help_text %}<span class="note">{{ form.file.help_text }}</span>{% endif %}</p>
+        <button class="button button-primary" type="submit">Upload and generate link</button>
+    </form>
+</section>
+
+{% if latest_upload %}
+<section class="panel">
+    <h2>Latest upload link</h2>
+    <p><strong>{{ latest_upload.display_name }}</strong></p>
+    <p class="note">Copy this HTTPS link and share it directly with the prospect.</p>
+    <input class="form-control" type="text" readonly value="{{ latest_upload.public_url }}">
+    <div class="button-row">
+        <a class="button" href="{{ latest_upload.public_url }}" target="_blank" rel="noreferrer">Download via public link</a>
+    </div>
+</section>
+{% endif %}
+
+<section class="panel">
+    <h2>Uploaded files</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>File</th>
+                <th>Uploaded</th>
+                <th>By</th>
+                <th>HTTPS download link</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for item in public_files %}
+            <tr>
+                <td>{{ item.display_name }}</td>
+                <td>{{ item.created_at }}</td>
+                <td>{{ item.uploaded_by.name|default:item.uploaded_by.email }}</td>
+                <td><a href="{{ item.public_url }}" target="_blank" rel="noreferrer">{{ item.public_url }}</a></td>
+                <td class="actions">
+                    <a href="{% url 'public_download_delete' item.id %}">Delete</a>
+                </td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="5">No public downloads uploaded yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

@@ -88,6 +88,18 @@
 <section class="panel">
     <div class="section-head">
         <div>
+            <p class="eyebrow">Public downloads</p>
+            <h2>Upload temporary files, copy HTTPS links, and delete older shared files</h2>
+        </div>
+        <div class="button-row">
+            <a class="button button-primary" href="{% url 'public_download_list' %}">Open public downloads</a>
+        </div>
+    </div>
+    <p class="note">{{ public_download_count }} public file{{ public_download_count|pluralize }} currently available for direct download.</p>
+</section>
+<section class="panel">
+    <div class="section-head">
+        <div>
             <p class="eyebrow">Reminder messages</p>
             <h2>Track WhatsApp proofs, automated reminder emails, and missed reminder steps</h2>
         </div>

@@ -10,6 +10,7 @@ from .models import (
     ContractCollectionInstallment,
     Meeting,
     MeetingReminder,
+    PublicDownloadFile,
     Prospect,
     SalesConversation,
     SupervisorAccessEmail,
@@ -346,6 +347,22 @@ class ImportBatchForm(StyledFormMixin, forms.ModelForm):
         widgets = {
             "import_date": forms.DateInput(attrs={"type": "date"}),
         }
+
+
+class PublicDownloadUploadForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = PublicDownloadFile
+        fields = ["title", "file"]
+        widgets = {
+            "title": forms.TextInput(attrs={"placeholder": "Optional label for your own reference"}),
+        }
+
+    def clean(self):
+        cleaned_data = super().clean()
+        uploaded_file = cleaned_data.get("file")
+        if uploaded_file:
+            validate_uploaded_file_sizes([uploaded_file], "public downloads")
+        return cleaned_data
 
 
 class MeetingStatusUpdateForm(StyledFormMixin, forms.ModelForm):

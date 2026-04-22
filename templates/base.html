@@ -20,6 +20,9 @@
                         {% if request.can_manage_users %}
                             <a href="{% url 'supervisor_user_management' %}">Manage Users</a>
                         {% endif %}
+                        {% if request.is_system_admin %}
+                            <a href="{% url 'public_download_list' %}">Public Downloads</a>
+                        {% endif %}
                         <a href="{% url 'sales_pipeline_dashboard' %}">Sales Pipeline</a>
                         <a href="{% url 'contracts_dashboard' %}">Contracts</a>
                         <a href="{% url 'pending_collections' %}">Pending Collections</a>

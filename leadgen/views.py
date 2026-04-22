@@ -6,7 +6,7 @@ from django.contrib import messages
 from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
 from django.db.models import Prefetch
-from django.http import Http404, JsonResponse
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -23,6 +23,7 @@ from .forms import (
     MeetingDateFilterForm,
     MeetingStatusUpdateForm,
     MeetingReminderLogForm,
+    PublicDownloadUploadForm,
     ProspectCreateForm,
     SupervisorProspectActionForm,
     SupervisorAccessEmailForm,
@@ -42,6 +43,7 @@ from .models import (
     CallLog,
     ContractCollection,
     Meeting,
+    PublicDownloadFile,
     Prospect,
     ProspectStatusUpdate,
     SalesConversation,
@@ -161,6 +163,7 @@ def supervisor_dashboard(request):
         "finance_manager_count": User.objects.filter(role=User.ROLE_FINANCE_MANAGER, is_active=True).count(),
         "active_sales_pipeline_count": SalesConversation.objects.filter(contract_signed=False).count(),
         "active_contract_count": ContractCollection.objects.count(),
+        "public_download_count": PublicDownloadFile.objects.count(),
     }
     return render(request, "leadgen/supervisor_dashboard.html", context)
 
@@ -179,6 +182,14 @@ def _supervisor_user_management_context(request, access_form=None):
         "staff_members": User.objects.filter(role=User.ROLE_STAFF).order_by("name", "email"),
         "sales_managers": User.objects.filter(role=User.ROLE_SALES_MANAGER).order_by("name", "email"),
         "finance_managers": User.objects.filter(role=User.ROLE_FINANCE_MANAGER).order_by("name", "email"),
+    }
+
+
+def _system_admin_public_downloads_context(form=None, latest_upload=None):
+    return {
+        "form": form or PublicDownloadUploadForm(),
+        "latest_upload": latest_upload,
+        "public_files": PublicDownloadFile.objects.select_related("uploaded_by").all(),
     }
 
 
@@ -228,6 +239,59 @@ def supervisor_access_email_delete(request, access_email_id):
             "title": "Remove supervisor access",
             "description": "This will stop this Google email from opening the supervisor dashboard.",
         },
+    )
+
+
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
+def public_download_list(request):
+    form = PublicDownloadUploadForm(request.POST or None, request.FILES or None)
+    if request.method == "POST":
+        if form.is_valid():
+            public_file = form.save(commit=False)
+            public_file.uploaded_by = request.user
+            if request.FILES.get("file"):
+                public_file.original_filename = request.FILES["file"].name
+            public_file.save()
+            messages.success(request, "Public download uploaded.")
+            return redirect(f"{reverse('public_download_list')}?{urlencode({'uploaded': public_file.pk})}")
+        messages.error(request, "Please correct the file upload and try again.")
+    latest_upload = None
+    uploaded_id = request.GET.get("uploaded")
+    if uploaded_id:
+        latest_upload = PublicDownloadFile.objects.filter(pk=uploaded_id).first()
+    return render(
+        request,
+        "leadgen/public_download_list.html",
+        _system_admin_public_downloads_context(form=form, latest_upload=latest_upload),
+    )
+
+
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
+def public_download_delete(request, file_id):
+    public_file = get_object_or_404(PublicDownloadFile, pk=file_id)
+    if request.method == "POST":
+        file_name = public_file.display_name
+        public_file.delete()
+        messages.success(request, f"Public download deleted: {file_name}.")
+        return redirect("public_download_list")
+    return render(
+        request,
+        "leadgen/confirm_delete.html",
+        {
+            "object": public_file,
+            "title": "Delete public download",
+            "description": "This will remove the file from the public downloads area and the shared link will stop working.",
+        },
+    )
+
+
+def public_download_file(request, share_token):
+    public_file = get_object_or_404(PublicDownloadFile, share_token=share_token)
+    filename = public_file.original_filename or public_file.display_name
+    return FileResponse(
+        public_file.file.open("rb"),
+        as_attachment=True,
+        filename=filename,
     )
 
 

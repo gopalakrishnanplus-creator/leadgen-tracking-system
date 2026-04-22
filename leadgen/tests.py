@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta
+import os
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
@@ -30,6 +32,7 @@ from .models import (
     ContractCollectionInstallment,
     Meeting,
     MeetingReminder,
+    PublicDownloadFile,
     Prospect,
     ProspectStatusUpdate,
     SalesConversation,
@@ -72,16 +75,17 @@ class LeadgenWorkflowTests(TestCase):
         )
         self.supervisor.set_unusable_password()
         self.supervisor.save()
-        for email in [
-            "bhavesh.kataria@inditech.co.in",
-            "gopala.krishnan@inditech.co.in",
-            "gkinchina@gmail.com",
-            "leesaamit@gmail.com",
-            "vamshi.alle@inditech.co.in",
-        ]:
+        supervisor_access_levels = {
+            "bhavesh.kataria@inditech.co.in": SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
+            "gopala.krishnan@inditech.co.in": SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN,
+            "gkinchina@gmail.com": SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
+            "leesaamit@gmail.com": SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
+            "vamshi.alle@inditech.co.in": SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
+        }
+        for email, access_level in supervisor_access_levels.items():
             SupervisorAccessEmail.objects.update_or_create(
                 email=email,
-                defaults={"is_active": True},
+                defaults={"is_active": True, "access_level": access_level},
             )
         self.staff = User.objects.create(
             email="staff@example.com",
@@ -2400,5 +2404,71 @@ class LeadgenWorkflowTests(TestCase):
         latest_update = self.prospect.status_updates.order_by("-created_at", "-pk").first()
         self.assertEqual(latest_update.outcome, ProspectStatusUpdate.OUTCOME_FOLLOW_UP)
         self.assertEqual(latest_update.reason, "Meeting deleted by supervisor")
+
+    def test_leadgen_supervisor_cannot_open_public_downloads(self):
+        self._force_login_as_supervisor_access("bhavesh.kataria@inditech.co.in")
+        response = self.client.get("/supervisor/public-downloads/")
+        self.assertEqual(response.status_code, 403)
+
+    def test_system_admin_can_upload_public_download_with_https_link(self):
+        self._force_login_as_supervisor_access("gopala.krishnan@inditech.co.in")
+        with tempfile.TemporaryDirectory() as media_root:
+            with self.settings(
+                MEDIA_ROOT=media_root,
+                MEDIA_URL="/media/",
+                SITE_BASE_URL="http://leadgen.inditech.co.in",
+            ):
+                response = self.client.post(
+                    "/supervisor/public-downloads/",
+                    {
+                        "title": "Prospect brochure",
+                        "file": SimpleUploadedFile(
+                            "brochure.pdf",
+                            b"%PDF-1.4 public download test",
+                            content_type="application/pdf",
+                        ),
+                    },
+                    follow=True,
+                )
+
+                self.assertEqual(response.status_code, 200)
+                public_file = PublicDownloadFile.objects.get()
+                self.assertEqual(public_file.original_filename, "brochure.pdf")
+                self.assertContains(response, "Prospect brochure")
+                self.assertContains(response, "https://leadgen.inditech.co.in/downloads/")
+                self.assertTrue(public_file.public_url.startswith("https://leadgen.inditech.co.in/downloads/"))
+                self.assertTrue(public_file.file.name.startswith("public-downloads/"))
+
+                self.client.logout()
+                download_response = self.client.get(f"/downloads/{public_file.share_token}/")
+                self.assertEqual(download_response.status_code, 200)
+                self.assertEqual(download_response.headers["Content-Disposition"], 'attachment; filename="brochure.pdf"')
+
+    def test_system_admin_can_delete_public_download(self):
+        self._force_login_as_supervisor_access("gopala.krishnan@inditech.co.in")
+        with tempfile.TemporaryDirectory() as media_root:
+            with self.settings(
+                MEDIA_ROOT=media_root,
+                MEDIA_URL="/media/",
+                SITE_BASE_URL="https://leadgen.inditech.co.in",
+            ):
+                public_file = PublicDownloadFile.objects.create(
+                    title="Delete me",
+                    file=SimpleUploadedFile(
+                        "delete-me.pdf",
+                        b"%PDF-1.4 delete public download",
+                        content_type="application/pdf",
+                    ),
+                    original_filename="delete-me.pdf",
+                    uploaded_by=self.supervisor,
+                )
+                stored_path = public_file.file.path
+                self.assertTrue(public_file.public_url.startswith("https://"))
+
+                response = self.client.post(f"/supervisor/public-downloads/{public_file.pk}/delete/")
+
+                self.assertRedirects(response, "/supervisor/public-downloads/")
+                self.assertFalse(PublicDownloadFile.objects.filter(pk=public_file.pk).exists())
+                self.assertFalse(os.path.exists(stored_path))
 
 # Create your tests here.

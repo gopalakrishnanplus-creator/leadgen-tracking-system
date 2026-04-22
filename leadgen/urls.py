@@ -5,6 +5,7 @@ from . import views
 
 urlpatterns = [
     path("", views.home, name="home"),
+    path("downloads/<uuid:share_token>/", views.public_download_file, name="public_download_file"),
     path("workspace/", views.workspace_choice, name="workspace_choice"),
     path("workspace/<str:workspace>/", views.select_workspace, name="select_workspace"),
     path("health/", views.healthcheck, name="healthcheck"),
@@ -12,6 +13,8 @@ urlpatterns = [
     path("logout/", views.logout_view, name="logout"),
     path("supervisor/", views.supervisor_dashboard, name="supervisor_dashboard"),
     path("supervisor/users/", views.supervisor_user_management, name="supervisor_user_management"),
+    path("supervisor/public-downloads/", views.public_download_list, name="public_download_list"),
+    path("supervisor/public-downloads/<int:file_id>/delete/", views.public_download_delete, name="public_download_delete"),
     path(
         "supervisor/users/supervisor-access/<int:access_email_id>/delete/",
         views.supervisor_access_email_delete,
