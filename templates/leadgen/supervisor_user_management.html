@@ -126,7 +126,9 @@
                 <td class="actions">
                     <a href="{% url 'supervisor_staff_dashboard' staff.id %}">Dashboard</a>
                     <a href="{% url 'staff_update' staff.id %}">Edit</a>
-                    <a href="{% url 'staff_delete' staff.id %}">Deactivate</a>
+                    {% if staff.is_active %}
+                        <a href="{% url 'staff_delete' staff.id %}?next={{ request.get_full_path|urlencode }}">Deactivate</a>
+                    {% endif %}
                 </td>
             </tr>
         {% empty %}

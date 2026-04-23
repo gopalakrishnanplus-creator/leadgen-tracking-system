@@ -2198,6 +2198,36 @@ class LeadgenWorkflowTests(TestCase):
         access_email.refresh_from_db()
         self.assertFalse(access_email.is_active)
 
+    def test_system_admin_can_deactivate_staff_user_and_it_disappears_from_active_lists(self):
+        self._force_login_as_supervisor_access("gopala.krishnan@inditech.co.in")
+        response = self.client.post(
+            f"/supervisor/staff/{self.staff.pk}/delete/",
+            {"next": "/supervisor/users/"},
+        )
+        self.assertRedirects(response, "/supervisor/users/")
+        self.staff.refresh_from_db()
+        self.assertFalse(self.staff.is_active)
+
+        manage_users = self.client.get("/supervisor/users/")
+        self.assertEqual(manage_users.status_code, 200)
+        self.assertNotContains(manage_users, f"/supervisor/staff/{self.staff.pk}/edit/")
+        self.assertNotContains(manage_users, self.staff.name)
+
+        staff_list = self.client.get("/supervisor/staff/")
+        self.assertEqual(staff_list.status_code, 200)
+        self.assertNotContains(staff_list, self.staff.name)
+
+    def test_staff_deactivate_confirmation_identifies_target_staff_record(self):
+        self._force_login_as_supervisor_access("gopala.krishnan@inditech.co.in")
+        response = self.client.get(
+            f"/supervisor/staff/{self.staff.pk}/delete/?next=%2Fsupervisor%2Fstaff%2F"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.staff.name)
+        self.assertContains(response, self.staff.email)
+        self.assertContains(response, self.staff.calling_number)
+        self.assertContains(response, 'name="next"')
+
     def test_leadgen_supervisor_manage_users_page_only_shows_staff_management(self):
         self._force_login_as_supervisor_access("bhavesh.kataria@inditech.co.in")
         response = self.client.get("/supervisor/users/")

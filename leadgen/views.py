@@ -196,7 +196,7 @@ def _supervisor_user_management_context(request, access_form=None):
         "leadgen_supervisor_access_emails": SupervisorAccessEmail.objects.filter(
             access_level=SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR
         ).order_by("email"),
-        "staff_members": User.objects.filter(role=User.ROLE_STAFF).order_by("name", "email"),
+        "staff_members": User.objects.filter(role=User.ROLE_STAFF, is_active=True).order_by("name", "email"),
         "sales_managers": User.objects.filter(role=User.ROLE_SALES_MANAGER).order_by("name", "email"),
         "finance_managers": User.objects.filter(role=User.ROLE_FINANCE_MANAGER).order_by("name", "email"),
     }
@@ -314,7 +314,7 @@ def public_download_file(request, share_token):
 
 @role_required(User.ROLE_SUPERVISOR)
 def staff_list(request):
-    staff_members = User.objects.filter(role=User.ROLE_STAFF).order_by("name")
+    staff_members = User.objects.filter(role=User.ROLE_STAFF, is_active=True).order_by("name", "email")
     return render(request, "leadgen/staff_list.html", {"staff_members": staff_members})
 
 
@@ -455,12 +455,31 @@ def staff_update(request, user_id):
 )
 def staff_delete(request, user_id):
     staff_member = _get_staff_or_404(user_id)
+    next_url = _safe_next_url(request, reverse("supervisor_user_management"))
     if request.method == "POST":
+        if not staff_member.is_active:
+            messages.info(request, "Lead gen staff is already inactive.")
+            return redirect(next_url)
         staff_member.is_active = False
         staff_member.save(update_fields=["is_active"])
         messages.success(request, "Lead gen staff deactivated.")
-        return redirect("supervisor_user_management")
-    return render(request, "leadgen/confirm_delete.html", {"object": staff_member, "title": "Deactivate lead gen staff"})
+        return redirect(next_url)
+    details = [staff_member.name, staff_member.email]
+    if staff_member.calling_number:
+        details.append(staff_member.calling_number)
+    return render(
+        request,
+        "leadgen/confirm_delete.html",
+        {
+            "object": staff_member,
+            "title": "Deactivate lead gen staff",
+            "description": (
+                "You are deactivating: " + " / ".join(details) + ". "
+                "This keeps historical prospect and meeting data intact while preventing future sign-ins."
+            ),
+            "next_url": next_url,
+        },
+    )
 
 
 @supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
