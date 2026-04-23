@@ -1680,6 +1680,7 @@ class LeadgenWorkflowTests(TestCase):
                 "assigned_sales_manager": self.sales_manager.pk,
                 "conversation_status": SalesConversation.STATUS_ENGAGED,
                 "proposal_status": SalesConversation.PROPOSAL_PROPOSAL_NEEDED,
+                "next_action_date": "2026-04-25",
                 "comments": "Warm opportunity",
                 "brands_input": "Brand A\nBrand B",
                 "contact_1_name": "Jane Doe",
@@ -1696,6 +1697,7 @@ class LeadgenWorkflowTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors.as_json())
         self.assertEqual(form.cleaned_data["brands_input"], ["Brand A", "Brand B"])
         self.assertEqual(form.cleaned_data["contact_rows"][0]["name"], "Jane Doe")
+        self.assertEqual(str(form.cleaned_data["next_action_date"]), "2026-04-25")
 
     def test_sales_manager_pipeline_is_limited_to_assigned_records(self):
         SalesConversation.objects.create(
@@ -1720,6 +1722,59 @@ class LeadgenWorkflowTests(TestCase):
         response = self.client.get("/sales/")
         self.assertContains(response, "Visible Co")
         self.assertNotContains(response, "Hidden Co")
+
+    def test_sales_pipeline_supports_multi_select_status_filters(self):
+        conversation_one = SalesConversation.objects.create(
+            company_name="Engaged Proposal Given",
+            assigned_sales_manager=self.sales_manager,
+            conversation_status=SalesConversation.STATUS_ENGAGED,
+            proposal_status=SalesConversation.PROPOSAL_PROPOSAL_GIVEN,
+            created_by=self.supervisor,
+        )
+        conversation_two = SalesConversation.objects.create(
+            company_name="Deeply Engaged Proposal Needed",
+            assigned_sales_manager=self.sales_manager,
+            conversation_status=SalesConversation.STATUS_DEEPLY_ENGAGED,
+            proposal_status=SalesConversation.PROPOSAL_PROPOSAL_NEEDED,
+            created_by=self.supervisor,
+        )
+        SalesConversation.objects.create(
+            company_name="Negotiation Solution Needed",
+            assigned_sales_manager=self.sales_manager,
+            conversation_status=SalesConversation.STATUS_IN_NEGOTIATIONS,
+            proposal_status=SalesConversation.PROPOSAL_SOLUTION_NEEDED,
+            created_by=self.supervisor,
+        )
+        self.client.force_login(self.supervisor)
+        response = self.client.get(
+            "/sales/?conversation_status=engaged&conversation_status=deeply_engaged&proposal_status=proposal_given&proposal_status=proposal_needed"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, conversation_one.company_name)
+        self.assertContains(response, conversation_two.company_name)
+        self.assertNotContains(response, "Negotiation Solution Needed")
+
+    def test_sales_pipeline_supports_next_action_date_filter(self):
+        matching = SalesConversation.objects.create(
+            company_name="Action Today",
+            assigned_sales_manager=self.sales_manager,
+            next_action_date=datetime(2026, 4, 23).date(),
+            comments="Call client back",
+            created_by=self.supervisor,
+        )
+        SalesConversation.objects.create(
+            company_name="Action Tomorrow",
+            assigned_sales_manager=self.sales_manager,
+            next_action_date=datetime(2026, 4, 24).date(),
+            comments="Send proposal",
+            created_by=self.supervisor,
+        )
+        self.client.force_login(self.supervisor)
+        response = self.client.get("/sales/?next_action_date=2026-04-23")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, matching.company_name)
+        self.assertContains(response, "Call client back")
+        self.assertNotContains(response, "Action Tomorrow")
 
     def test_contract_collection_is_created_from_signed_sales_conversation(self):
         sales_conversation = SalesConversation.objects.create(

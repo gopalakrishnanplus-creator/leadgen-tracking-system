@@ -485,10 +485,12 @@ class SalesConversationForm(StyledFormMixin, forms.ModelForm):
             "assigned_sales_manager",
             "conversation_status",
             "proposal_status",
+            "next_action_date",
             "contract_signed",
             "comments",
         ]
         widgets = {
+            "next_action_date": forms.DateInput(attrs={"type": "date"}),
             "comments": forms.Textarea(attrs={"rows": 5}),
         }
 
@@ -572,15 +574,22 @@ class SalesConversationForm(StyledFormMixin, forms.ModelForm):
 
 
 class SalesConversationFilterForm(StyledFormMixin, forms.Form):
-    conversation_status = forms.ChoiceField(
+    conversation_status = forms.MultipleChoiceField(
         required=False,
-        choices=[("", "All conversation statuses"), *SalesConversation.STATUS_CHOICES],
+        choices=SalesConversation.STATUS_CHOICES,
         label="Conversation status",
+        widget=forms.SelectMultiple(attrs={"size": 6}),
     )
-    proposal_status = forms.ChoiceField(
+    proposal_status = forms.MultipleChoiceField(
         required=False,
-        choices=[("", "All proposal statuses"), *SalesConversation.PROPOSAL_STATUS_CHOICES],
+        choices=SalesConversation.PROPOSAL_STATUS_CHOICES,
         label="Proposal status",
+        widget=forms.SelectMultiple(attrs={"size": 5}),
+    )
+    next_action_date = forms.DateField(
+        required=False,
+        label="Next action date",
+        widget=forms.DateInput(attrs={"type": "date"}),
     )
     brand = forms.CharField(required=False, label="Brand name")
 

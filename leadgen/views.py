@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from django.contrib import messages
 from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
-from django.db.models import Prefetch
+from django.db.models import F, Prefetch
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -1200,12 +1200,18 @@ def sales_pipeline_dashboard(request):
     form = SalesConversationFilterForm(request.GET or None)
     if form.is_valid():
         if form.cleaned_data["conversation_status"]:
-            conversations = conversations.filter(conversation_status=form.cleaned_data["conversation_status"])
+            conversations = conversations.filter(conversation_status__in=form.cleaned_data["conversation_status"])
         if form.cleaned_data["proposal_status"]:
-            conversations = conversations.filter(proposal_status=form.cleaned_data["proposal_status"])
+            conversations = conversations.filter(proposal_status__in=form.cleaned_data["proposal_status"])
+        if form.cleaned_data["next_action_date"]:
+            conversations = conversations.filter(next_action_date=form.cleaned_data["next_action_date"])
         if form.cleaned_data["brand"]:
             conversations = conversations.filter(brands__name__icontains=form.cleaned_data["brand"].strip())
-    conversations = conversations.distinct().order_by("-updated_at")
+    conversations = conversations.distinct().order_by(
+        F("next_action_date").asc(nulls_last=True),
+        "company_name",
+        "-updated_at",
+    )
     context = {
         "form": form,
         "conversations": conversations,

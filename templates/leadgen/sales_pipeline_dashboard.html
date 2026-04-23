@@ -23,7 +23,10 @@
 </section>
 <section class="panel">
     <form method="get" class="filter-grid">
-        {{ form.as_p }}
+        <p>{{ form.conversation_status.errors }}{{ form.conversation_status.label_tag }} {{ form.conversation_status }}<span class="note">Hold `Command` on Mac or `Ctrl` on Windows to select multiple statuses.</span></p>
+        <p>{{ form.proposal_status.errors }}{{ form.proposal_status.label_tag }} {{ form.proposal_status }}<span class="note">Hold `Command` on Mac or `Ctrl` on Windows to select multiple statuses.</span></p>
+        <p>{{ form.next_action_date.errors }}{{ form.next_action_date.label_tag }} {{ form.next_action_date }}</p>
+        <p>{{ form.brand.errors }}{{ form.brand.label_tag }} {{ form.brand }}</p>
         <div class="filter-actions">
             <button class="button button-primary" type="submit">Apply filters</button>
             <a class="button" href="{% url 'sales_pipeline_dashboard' %}">Clear</a>
@@ -34,21 +37,19 @@
     <table>
         <thead>
             <tr>
-                <th>ID</th>
                 <th>Company</th>
                 <th>Contacts</th>
                 <th>Brands</th>
-                <th>Sales manager</th>
                 <th>Conversation status</th>
                 <th>Proposal status</th>
-                <th>Updated</th>
+                <th>Next action date</th>
+                <th>Comments</th>
                 <th></th>
             </tr>
         </thead>
         <tbody>
         {% for conversation in conversations %}
             <tr>
-                <td>{{ conversation.sales_conversation_id }}</td>
                 <td>{{ conversation.company_name }}</td>
                 <td>
                     {% for contact in conversation.contacts.all %}
@@ -62,10 +63,10 @@
                         -
                     {% endfor %}
                 </td>
-                <td>{% if conversation.assigned_sales_manager %}{{ conversation.assigned_sales_manager.name }}{% else %}Unassigned{% endif %}</td>
                 <td>{{ conversation.get_conversation_status_display }}</td>
                 <td>{{ conversation.get_proposal_status_display }}</td>
-                <td>{{ conversation.updated_at }}</td>
+                <td>{{ conversation.next_action_date|default:"-" }}</td>
+                <td>{{ conversation.comments|default:"-"|linebreaksbr }}</td>
                 <td class="actions">
                     <a href="{% url 'sales_conversation_update' conversation.id %}">Edit details</a>
                     {% if request.current_workspace == "supervisor" %}
@@ -74,7 +75,7 @@
                 </td>
             </tr>
         {% empty %}
-            <tr><td colspan="9">No sales conversations match the current pipeline view.</td></tr>
+            <tr><td colspan="8">No sales conversations match the current pipeline view.</td></tr>
         {% endfor %}
         </tbody>
     </table>

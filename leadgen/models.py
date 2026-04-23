@@ -518,6 +518,7 @@ class SalesConversation(models.Model):
         choices=PROPOSAL_STATUS_CHOICES,
         default=PROPOSAL_SOLUTION_NEEDED,
     )
+    next_action_date = models.DateField(blank=True, null=True)
     contract_signed = models.BooleanField(default=False)
     comments = models.TextField(blank=True)
     source_meeting = models.OneToOneField(
@@ -541,6 +542,7 @@ class SalesConversation(models.Model):
             models.Index(fields=["contract_signed", "conversation_status"]),
             models.Index(fields=["assigned_sales_manager", "contract_signed"]),
             models.Index(fields=["proposal_status", "contract_signed"]),
+            models.Index(fields=["next_action_date", "contract_signed"]),
         ]
 
     def clean(self):
