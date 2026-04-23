@@ -66,7 +66,12 @@
                 <td>{{ conversation.get_conversation_status_display }}</td>
                 <td>{{ conversation.get_proposal_status_display }}</td>
                 <td>{{ conversation.updated_at }}</td>
-                <td class="actions"><a href="{% url 'sales_conversation_update' conversation.id %}">Edit details</a></td>
+                <td class="actions">
+                    <a href="{% url 'sales_conversation_update' conversation.id %}">Edit details</a>
+                    {% if request.current_workspace == "supervisor" %}
+                        <a href="{% url 'sales_conversation_delete' conversation.id %}">Delete</a>
+                    {% endif %}
+                </td>
             </tr>
         {% empty %}
             <tr><td colspan="9">No sales conversations match the current pipeline view.</td></tr>

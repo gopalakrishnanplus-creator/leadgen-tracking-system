@@ -24,7 +24,7 @@ class User(AbstractUser):
 
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_STAFF)
     name = models.CharField(max_length=255)
-    email = models.EmailField(unique=True)
+    email = models.EmailField()
     calling_number = models.CharField(max_length=20, blank=True, unique=True, null=True)
     whatsapp_number = models.CharField(max_length=20, blank=True)
     must_change_password = models.BooleanField(default=False)
@@ -46,7 +46,15 @@ class User(AbstractUser):
 
     def save(self, *args, **kwargs):
         self.email = (self.email or "").lower()
-        self.username = self.email
+        needs_username = not self.username
+        if not needs_username and User.objects.exclude(pk=self.pk).filter(username=self.username).exists():
+            needs_username = True
+        if needs_username:
+            preferred_username = self.email
+            if preferred_username and not User.objects.exclude(pk=self.pk).filter(username=preferred_username).exists():
+                self.username = preferred_username
+            else:
+                self.username = f"{self.role}-{uuid.uuid4().hex[:16]}"
         super().save(*args, **kwargs)
 
     @property
@@ -803,3 +811,25 @@ class PublicDownloadFile(models.Model):
 
     def __str__(self):
         return self.display_name
+
+
+class DirectMarketingActivity(models.Model):
+    therapy_area = models.CharField(max_length=255)
+    sent_on = models.DateField()
+    prospect_count = models.PositiveIntegerField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="direct_marketing_activities",
+        on_delete=models.PROTECT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-sent_on", "-created_at"]
+        indexes = [
+            models.Index(fields=["sent_on", "therapy_area"]),
+        ]
+
+    def __str__(self):
+        return f"{self.therapy_area} / {self.sent_on:%Y-%m-%d}"

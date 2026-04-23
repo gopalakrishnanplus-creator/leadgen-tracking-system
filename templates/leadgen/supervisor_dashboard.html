@@ -135,6 +135,19 @@
 <section class="panel">
     <div class="section-head">
         <div>
+            <p class="eyebrow">Direct marketing</p>
+            <h2>Log weekly direct marketing mailers and review everything that has already been sent</h2>
+        </div>
+        <div class="button-row">
+            <a class="button button-primary" href="{% url 'direct_marketing_create' %}">Add direct marketing activity</a>
+            <a class="button" href="{% url 'direct_marketing_list' %}">View sent therapy mailers</a>
+        </div>
+    </div>
+    <p class="note">{{ direct_marketing_count }} direct marketing activit{{ direct_marketing_count|pluralize:"y,ies" }} logged so far.</p>
+</section>
+<section class="panel">
+    <div class="section-head">
+        <div>
             <p class="eyebrow">Contracts and collections</p>
             <h2>Track signed deals, invoicing, and pending collections</h2>
         </div>

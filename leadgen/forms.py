@@ -8,6 +8,7 @@ from .models import (
     CallImportBatch,
     ContractCollection,
     ContractCollectionInstallment,
+    DirectMarketingActivity,
     Meeting,
     MeetingReminder,
     PublicDownloadFile,
@@ -75,6 +76,13 @@ def installment_textarea_field(label):
     )
 
 
+def role_email_exists(email, role, exclude_pk=None):
+    queryset = User.objects.filter(email=email, role=role)
+    if exclude_pk is not None:
+        queryset = queryset.exclude(pk=exclude_pk)
+    return queryset.exists()
+
+
 class FixedRoleUserFormMixin:
     target_role = None
 
@@ -92,8 +100,8 @@ class StaffCreateForm(StyledFormMixin, forms.ModelForm):
 
     def clean_email(self):
         email = self.cleaned_data["email"].lower()
-        if User.objects.filter(email=email).exists():
-            raise ValidationError("A user with this email already exists.")
+        if role_email_exists(email, User.ROLE_STAFF):
+            raise ValidationError("A lead gen staff user with this email already exists.")
         return email
 
     def save(self, commit=True):
@@ -114,9 +122,8 @@ class StaffUpdateForm(StyledFormMixin, forms.ModelForm):
 
     def clean_email(self):
         email = self.cleaned_data["email"].lower()
-        qs = User.objects.exclude(pk=self.instance.pk).filter(email=email)
-        if qs.exists():
-            raise ValidationError("A user with this email already exists.")
+        if role_email_exists(email, User.ROLE_STAFF, exclude_pk=self.instance.pk):
+            raise ValidationError("A lead gen staff user with this email already exists.")
         return email
 
 
@@ -129,8 +136,8 @@ class SalesManagerCreateForm(FixedRoleUserFormMixin, StyledFormMixin, forms.Mode
 
     def clean_email(self):
         email = self.cleaned_data["email"].lower()
-        if User.objects.filter(email=email).exists():
-            raise ValidationError("A user with this email already exists.")
+        if role_email_exists(email, User.ROLE_SALES_MANAGER):
+            raise ValidationError("A sales manager with this email already exists.")
         return email
 
     def save(self, commit=True):
@@ -154,9 +161,8 @@ class SalesManagerUpdateForm(FixedRoleUserFormMixin, StyledFormMixin, forms.Mode
 
     def clean_email(self):
         email = self.cleaned_data["email"].lower()
-        qs = User.objects.exclude(pk=self.instance.pk).filter(email=email)
-        if qs.exists():
-            raise ValidationError("A user with this email already exists.")
+        if role_email_exists(email, User.ROLE_SALES_MANAGER, exclude_pk=self.instance.pk):
+            raise ValidationError("A sales manager with this email already exists.")
         return email
 
     def save(self, commit=True):
@@ -177,8 +183,8 @@ class FinanceManagerCreateForm(FixedRoleUserFormMixin, StyledFormMixin, forms.Mo
 
     def clean_email(self):
         email = self.cleaned_data["email"].lower()
-        if User.objects.filter(email=email).exists():
-            raise ValidationError("A user with this email already exists.")
+        if role_email_exists(email, User.ROLE_FINANCE_MANAGER):
+            raise ValidationError("A finance manager with this email already exists.")
         return email
 
     def save(self, commit=True):
@@ -202,9 +208,8 @@ class FinanceManagerUpdateForm(FixedRoleUserFormMixin, StyledFormMixin, forms.Mo
 
     def clean_email(self):
         email = self.cleaned_data["email"].lower()
-        qs = User.objects.exclude(pk=self.instance.pk).filter(email=email)
-        if qs.exists():
-            raise ValidationError("A user with this email already exists.")
+        if role_email_exists(email, User.ROLE_FINANCE_MANAGER, exclude_pk=self.instance.pk):
+            raise ValidationError("A finance manager with this email already exists.")
         return email
 
     def save(self, commit=True):
@@ -438,6 +443,18 @@ class MeetingDateFilterForm(StyledFormMixin, forms.Form):
         widget=forms.DateInput(attrs={"type": "date"}),
         label="Meeting date",
     )
+
+
+class DirectMarketingActivityForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = DirectMarketingActivity
+        fields = ["therapy_area", "sent_on", "prospect_count"]
+        widgets = {
+            "sent_on": forms.DateInput(attrs={"type": "date"}),
+        }
+
+    def clean_therapy_area(self):
+        return (self.cleaned_data.get("therapy_area") or "").strip()
 
 
 class SalesConversationForm(StyledFormMixin, forms.ModelForm):

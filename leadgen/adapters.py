@@ -11,6 +11,12 @@ SHARED_SUPERVISOR_USER_EMAIL = "leadgen-supervisor@workspace.internal"
 
 
 class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
+    USER_ROLE_PRIORITY = [
+        User.ROLE_SALES_MANAGER,
+        User.ROLE_STAFF,
+        User.ROLE_FINANCE_MANAGER,
+    ]
+
     def _supervisor_access_map(self):
         database_entries = SupervisorAccessEmail.objects.filter(is_active=True)
         if database_entries.exists():
@@ -81,9 +87,13 @@ class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
         normalized = (email or "").strip().lower()
         if not normalized:
             return None
-        user = User.objects.filter(email__iexact=normalized).first()
-        if user:
-            return user
+        users = list(
+            User.objects.filter(email__iexact=normalized, is_active=True).order_by("pk")
+        )
+        if users:
+            role_rank = {role: index for index, role in enumerate(self.USER_ROLE_PRIORITY)}
+            users.sort(key=lambda user: role_rank.get(user.role, len(role_rank)))
+            return users[0]
         if normalized in self._supervisor_allowed_emails():
             return self._supervisor_user()
         return None

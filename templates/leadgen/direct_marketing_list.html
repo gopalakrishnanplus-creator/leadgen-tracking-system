@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Sent Therapy Mailers{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">Supervisor</p>
+        <h1>Sent therapy mailers</h1>
+        <p class="note">Review all direct marketing activity logged so far.</p>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'direct_marketing_create' %}">Add direct marketing activity</a>
+        <a class="button" href="{% url 'supervisor_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>Therapy area</th>
+                <th>Sent on</th>
+                <th>Prospects reached</th>
+                <th>Logged by</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for activity in activities %}
+            <tr>
+                <td>{{ activity.therapy_area }}</td>
+                <td>{{ activity.sent_on }}</td>
+                <td>{{ activity.prospect_count }}</td>
+                <td>{{ activity.created_by.name|default:activity.created_by.email }}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="4">No therapy mailers have been logged yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

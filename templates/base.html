@@ -15,7 +15,9 @@
             </div>
             {% if request.user.is_authenticated %}
                 <nav class="main-nav">
-                    {% if request.current_workspace == "supervisor" %}
+                    {% if request.current_workspace == "chooser" %}
+                        <a href="{% url 'workspace_choice' %}">Choose Workspace</a>
+                    {% elif request.current_workspace == "supervisor" %}
                         <a href="{% url 'supervisor_dashboard' %}">Dashboard</a>
                         {% if request.can_manage_users %}
                             <a href="{% url 'supervisor_user_management' %}">Manage Users</a>
@@ -34,6 +36,7 @@
                         <a href="{% url 'supervisor_reminder_dashboard' %}">Reminder Messages</a>
                         <a href="{% url 'supervisor_reports' %}">Reports</a>
                         <a href="{% url 'supervisor_daily_targets' %}">Daily Targets</a>
+                        <a href="{% url 'direct_marketing_create' %}">Direct Marketing</a>
                         <a href="{% url 'system_settings' %}">Settings</a>
                     {% elif request.current_workspace == "sales" %}
                         <a href="{% url 'sales_pipeline_dashboard' %}">Dashboard</a>
@@ -49,7 +52,7 @@
                         <a href="{% url 'staff_prospect_list' %}">Prospects</a>
                         <a href="{% url 'staff_meeting_list' %}">Meetings</a>
                     {% endif %}
-                    {% if request.is_dual_workspace_user %}
+                    {% if request.is_dual_workspace_user and request.current_workspace != "chooser" %}
                         <a href="{% url 'workspace_choice' %}">Choose Workspace</a>
                     {% endif %}
                     <form method="post" action="{% url 'logout' %}" class="inline-form">

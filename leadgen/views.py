@@ -16,6 +16,7 @@ from .decorators import role_required, roles_required, supervisor_access_require
 from .forms import (
     CallOutcomeForm,
     ContractCollectionForm,
+    DirectMarketingActivityForm,
     FinanceCollectionUpdateForm,
     FinanceManagerCreateForm,
     FinanceManagerUpdateForm,
@@ -42,6 +43,7 @@ from .models import (
     CallImportBatch,
     CallLog,
     ContractCollection,
+    DirectMarketingActivity,
     Meeting,
     PublicDownloadFile,
     Prospect,
@@ -102,11 +104,17 @@ def home(request):
     if getattr(request, "is_dual_workspace_user", False):
         if request.current_workspace == "supervisor":
             return redirect("supervisor_dashboard")
+        if request.current_workspace == "staff":
+            return redirect("staff_dashboard")
         if request.current_workspace == "sales":
             return redirect("sales_pipeline_dashboard")
+        if request.current_workspace == "finance":
+            return redirect("contracts_dashboard")
         return workspace_choice(request)
     if getattr(request, "current_workspace", None) == "supervisor":
         return redirect("supervisor_dashboard")
+    if getattr(request, "current_workspace", None) == "staff":
+        return redirect("staff_dashboard")
     if getattr(request, "current_workspace", None) == "sales":
         return redirect("sales_pipeline_dashboard")
     if getattr(request, "current_workspace", None) == "finance":
@@ -123,17 +131,25 @@ def workspace_choice(request):
 
 @login_required
 def select_workspace(request, workspace):
-    if workspace not in {"supervisor", "sales"}:
+    if workspace not in {"supervisor", "staff", "sales", "finance"}:
         raise Http404("Workspace not found.")
     if not getattr(request, "is_dual_workspace_user", False):
         return redirect("home")
     if workspace == "supervisor" and not getattr(request, "has_supervisor_workspace_access", False):
         raise Http404("Workspace not found.")
+    if workspace == "staff" and not getattr(request, "has_staff_workspace_access", False):
+        raise Http404("Workspace not found.")
     if workspace == "sales" and not getattr(request, "has_sales_workspace_access", False):
+        raise Http404("Workspace not found.")
+    if workspace == "finance" and not getattr(request, "has_finance_workspace_access", False):
         raise Http404("Workspace not found.")
     request.session["workspace_mode"] = workspace
     if workspace == "supervisor":
         return redirect("supervisor_dashboard")
+    if workspace == "staff":
+        return redirect("staff_dashboard")
+    if workspace == "finance":
+        return redirect("contracts_dashboard")
     return redirect("sales_pipeline_dashboard")
 
 
@@ -164,6 +180,7 @@ def supervisor_dashboard(request):
         "active_sales_pipeline_count": SalesConversation.objects.filter(contract_signed=False).count(),
         "active_contract_count": ContractCollection.objects.count(),
         "public_download_count": PublicDownloadFile.objects.count(),
+        "direct_marketing_count": DirectMarketingActivity.objects.count(),
     }
     return render(request, "leadgen/supervisor_dashboard.html", context)
 
@@ -835,9 +852,42 @@ def supervisor_daily_targets(request):
     return render(request, "leadgen/supervisor_daily_targets.html", {"report": report})
 
 
+@role_required(User.ROLE_SUPERVISOR)
+def direct_marketing_create(request):
+    form = DirectMarketingActivityForm(request.POST or None)
+    recent_activities = DirectMarketingActivity.objects.all()[:10]
+    if request.method == "POST" and form.is_valid():
+        activity = form.save(commit=False)
+        activity.created_by = request.user
+        activity.save()
+        messages.success(request, "Direct marketing activity saved.")
+        return redirect("direct_marketing_create")
+    return render(
+        request,
+        "leadgen/direct_marketing_form.html",
+        {
+            "form": form,
+            "recent_activities": recent_activities,
+        },
+    )
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def direct_marketing_list(request):
+    activities = DirectMarketingActivity.objects.select_related("created_by").all()
+    return render(
+        request,
+        "leadgen/direct_marketing_list.html",
+        {
+            "activities": activities,
+        },
+    )
+
+
 @role_required(User.ROLE_STAFF)
 def staff_dashboard(request):
-    context = _build_staff_dashboard_context(request.user)
+    staff_user = _effective_staff_user(request)
+    context = _build_staff_dashboard_context(staff_user)
     context["is_supervisor_view"] = False
     return render(request, "leadgen/staff_dashboard.html", context)
 
@@ -845,14 +895,15 @@ def staff_dashboard(request):
 @role_required(User.ROLE_STAFF)
 def staff_prospect_list(request):
     status_filter = request.GET.get("view", "all")
-    prospects = _filtered_staff_prospects_queryset(request.user, status_filter)
+    staff_user = _effective_staff_user(request)
+    prospects = _filtered_staff_prospects_queryset(staff_user, status_filter)
     prospect_rows, review_date = _build_staff_prospect_rows(prospects, status_filter)
     return render(
         request,
         "leadgen/staff_prospect_list.html",
         {
             "prospect_rows": prospect_rows,
-            "dashboard_owner": request.user,
+            "dashboard_owner": staff_user,
             "is_supervisor_view": False,
             "status_filter": status_filter,
             "review_date": review_date,
@@ -885,17 +936,18 @@ def supervisor_staff_prospect_list(request, user_id):
 
 @role_required(User.ROLE_STAFF)
 def staff_prospect_create(request):
+    staff_user = _effective_staff_user(request)
     form = ProspectCreateForm(
         request.POST or None,
         instance=Prospect(
-            assigned_to=request.user,
-            created_by=request.user,
+            assigned_to=staff_user,
+            created_by=staff_user,
         ),
     )
     if request.method == "POST" and form.is_valid():
         prospect = form.save(commit=False)
-        prospect.assigned_to = request.user
-        prospect.created_by = request.user
+        prospect.assigned_to = staff_user
+        prospect.created_by = staff_user
         prospect.approval_status = Prospect.APPROVAL_PENDING
         prospect.workflow_status = Prospect.WORKFLOW_PENDING_REVIEW
         prospect.save()
@@ -913,11 +965,11 @@ def staff_prospect_create(request):
     )
 
 
-def _get_staff_prospect(request, prospect_id):
+def _get_staff_prospect(staff_user, prospect_id):
     prospect = get_object_or_404(
         Prospect.objects.prefetch_related("status_updates", "meetings"),
         pk=prospect_id,
-        assigned_to=request.user,
+        assigned_to=staff_user,
     )
     if prospect.workflow_status in STAFF_HIDDEN_WORKFLOWS:
         raise Http404("This prospect is not available for call updates.")
@@ -928,10 +980,11 @@ def _get_staff_prospect(request, prospect_id):
 
 @role_required(User.ROLE_STAFF)
 def update_call_outcome(request, prospect_id):
-    prospect = _get_staff_prospect(request, prospect_id)
+    staff_user = _effective_staff_user(request)
+    prospect = _get_staff_prospect(staff_user, prospect_id)
     form = CallOutcomeForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
-        apply_call_outcome(prospect, request.user, form.cleaned_data)
+        apply_call_outcome(prospect, staff_user, form.cleaned_data)
         messages.success(request, "Call outcome updated.")
         return redirect("staff_prospect_list")
     return render(
@@ -947,7 +1000,8 @@ def update_call_outcome(request, prospect_id):
 
 @role_required(User.ROLE_STAFF)
 def staff_meeting_list(request):
-    meetings = Meeting.objects.filter(scheduled_by=request.user).select_related("prospect").prefetch_related("reminders")
+    staff_user = _effective_staff_user(request)
+    meetings = Meeting.objects.filter(scheduled_by=staff_user).select_related("prospect").prefetch_related("reminders")
     return render(request, "leadgen/staff_meeting_list.html", {"meetings": meetings})
 
 
@@ -961,7 +1015,8 @@ def _staff_meeting_or_404(user, meeting_id):
 
 @role_required(User.ROLE_STAFF)
 def log_meeting_reminder(request, meeting_id):
-    meeting = _staff_meeting_or_404(request.user, meeting_id)
+    staff_user = _effective_staff_user(request)
+    meeting = _staff_meeting_or_404(staff_user, meeting_id)
     if meeting.status != Meeting.STATUS_SCHEDULED:
         raise Http404("Reminder logging is only available for scheduled meetings.")
     form = MeetingReminderLogForm(request.POST or None, request.FILES or None)
@@ -971,7 +1026,7 @@ def log_meeting_reminder(request, meeting_id):
             reminder_type=form.cleaned_data["reminder_type"],
             recipient_number=form.cleaned_data["recipient_number"],
             screenshot=form.cleaned_data["screenshot"],
-            sent_by=request.user,
+            sent_by=staff_user,
         )
         messages.success(request, "Reminder logged.")
         return redirect("staff_meeting_list")
@@ -991,17 +1046,35 @@ def _is_supervisor_workspace(request):
     )
 
 
+def _effective_staff_user(request):
+    return getattr(request, "staff_workspace_user", None)
+
+
+def _effective_sales_user(request):
+    return getattr(request, "sales_workspace_user", None)
+
+
+def _effective_finance_user(request):
+    return getattr(request, "finance_workspace_user", None)
+
+
 def _is_effective_supervisor(request):
-    return request.user.is_supervisor or _is_supervisor_workspace(request)
+    return _is_supervisor_workspace(request)
+
+
+def _is_effective_staff_user(request):
+    return getattr(request, "current_workspace", None) == "staff" and _effective_staff_user(request) is not None
 
 
 def _is_effective_sales_manager(request):
-    return request.user.is_sales_manager and not _is_supervisor_workspace(request)
+    return getattr(request, "current_workspace", None) == "sales" and _effective_sales_user(request) is not None
 
 
 def _workspace_eyebrow(request):
     if getattr(request, "current_workspace", None) == "finance":
         return "Finance"
+    if getattr(request, "current_workspace", None) == "staff":
+        return "Lead gen"
     if _is_effective_supervisor(request):
         return "Supervisor"
     return "Sales"
@@ -1018,23 +1091,25 @@ def _sales_pipeline_queryset_for_request(request):
         "files",
     )
     if _is_effective_sales_manager(request):
-        queryset = queryset.filter(assigned_sales_manager=request.user)
+        queryset = queryset.filter(assigned_sales_manager=_effective_sales_user(request))
     return queryset
 
 
 def _configure_sales_conversation_form(form, request):
     if _is_effective_sales_manager(request):
-        form.fields["assigned_sales_manager"].queryset = User.objects.filter(pk=request.user.pk)
+        sales_user = _effective_sales_user(request)
+        form.fields["assigned_sales_manager"].queryset = User.objects.filter(pk=sales_user.pk)
         form.fields["assigned_sales_manager"].empty_label = None
         if not form.is_bound and not form.instance.assigned_sales_manager_id:
-            form.initial["assigned_sales_manager"] = request.user.pk
+            form.initial["assigned_sales_manager"] = sales_user.pk
     return form
 
 
 def _sales_conversation_for_request_or_404(request, conversation_id):
     queryset = _sales_pipeline_queryset_for_request(request)
     conversation = get_object_or_404(queryset, pk=conversation_id)
-    if _is_effective_sales_manager(request) and conversation.assigned_sales_manager_id != request.user.pk:
+    sales_user = _effective_sales_user(request)
+    if _is_effective_sales_manager(request) and conversation.assigned_sales_manager_id != sales_user.pk:
         raise Http404("You do not have access to this sales conversation.")
     return conversation
 
@@ -1056,23 +1131,25 @@ def _contracts_queryset_for_request(request):
         "installments",
     )
     if _is_effective_sales_manager(request):
-        queryset = queryset.filter(sales_manager=request.user)
+        queryset = queryset.filter(sales_manager=_effective_sales_user(request))
     return queryset
 
 
 def _configure_contract_form(form, request):
     if _is_effective_sales_manager(request):
-        form.fields["sales_manager"].queryset = User.objects.filter(pk=request.user.pk)
+        sales_user = _effective_sales_user(request)
+        form.fields["sales_manager"].queryset = User.objects.filter(pk=sales_user.pk)
         form.fields["sales_manager"].empty_label = None
         if not form.is_bound and not form.instance.sales_manager_id:
-            form.initial["sales_manager"] = request.user.pk
+            form.initial["sales_manager"] = sales_user.pk
     return form
 
 
 def _contract_collection_for_request_or_404(request, contract_id):
     queryset = _contracts_queryset_for_request(request)
     contract_collection = get_object_or_404(queryset, pk=contract_id)
-    if _is_effective_sales_manager(request) and contract_collection.sales_manager_id != request.user.pk:
+    sales_user = _effective_sales_user(request)
+    if _is_effective_sales_manager(request) and contract_collection.sales_manager_id != sales_user.pk:
         raise Http404("You do not have access to this contract.")
     return contract_collection
 
@@ -1115,9 +1192,12 @@ def sales_conversation_create(request):
     form = _configure_sales_conversation_form(form, request)
     if request.method == "POST" and form.is_valid():
         conversation = form.save(commit=False)
+        sales_user = _effective_sales_user(request)
         if _is_effective_sales_manager(request):
-            conversation.assigned_sales_manager = request.user
-        conversation.created_by = request.user
+            conversation.assigned_sales_manager = sales_user
+            conversation.created_by = sales_user
+        else:
+            conversation.created_by = request.user
         conversation.save()
         sync_sales_conversation_data(
             conversation,
@@ -1157,8 +1237,9 @@ def sales_conversation_update(request, conversation_id):
     form = _configure_sales_conversation_form(form, request)
     if request.method == "POST" and form.is_valid():
         conversation = form.save(commit=False)
+        sales_user = _effective_sales_user(request)
         if _is_effective_sales_manager(request):
-            conversation.assigned_sales_manager = request.user
+            conversation.assigned_sales_manager = sales_user
         conversation.save()
         sync_sales_conversation_data(
             conversation,
@@ -1182,6 +1263,28 @@ def sales_conversation_update(request, conversation_id):
             "existing_solution_files": conversation.files.filter(category=SalesConversationFile.CATEGORY_SOLUTION),
             "existing_proposal_files": conversation.files.filter(category=SalesConversationFile.CATEGORY_PROPOSAL),
             "workspace_eyebrow": _workspace_eyebrow(request),
+        },
+    )
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def sales_conversation_delete(request, conversation_id):
+    conversation = get_object_or_404(
+        SalesConversation.objects.select_related("assigned_sales_manager", "source_meeting"),
+        pk=conversation_id,
+    )
+    if request.method == "POST":
+        company_name = conversation.company_name
+        conversation.delete()
+        messages.success(request, f"Sales conversation deleted: {company_name}.")
+        return redirect("sales_pipeline_dashboard")
+    return render(
+        request,
+        "leadgen/confirm_delete.html",
+        {
+            "object": conversation,
+            "title": "Delete sales conversation",
+            "description": "This will remove the sales pipeline record so duplicate or incorrect entries can be cleaned up.",
         },
     )
 
@@ -1210,9 +1313,12 @@ def contract_collection_create(request):
     form = _configure_contract_form(form, request)
     if request.method == "POST" and form.is_valid():
         contract_collection = form.save(commit=False)
+        sales_user = _effective_sales_user(request)
         if _is_effective_sales_manager(request):
-            contract_collection.sales_manager = request.user
-        contract_collection.created_by = request.user
+            contract_collection.sales_manager = sales_user
+            contract_collection.created_by = sales_user
+        else:
+            contract_collection.created_by = request.user
         contract_collection.save()
         sync_contract_collection_data(
             contract_collection,
@@ -1242,7 +1348,7 @@ def contract_collection_create(request):
 def contract_collection_update(request, contract_id):
     contract_collection = _contract_collection_for_request_or_404(request, contract_id)
     can_edit_terms = _is_effective_supervisor(request) or _is_effective_sales_manager(request)
-    can_edit_finance = request.user.is_finance_manager
+    can_edit_finance = getattr(request, "current_workspace", None) == "finance" and _effective_finance_user(request) is not None
     terms_form = ContractCollectionForm(
         instance=contract_collection,
         allow_locked_field_edits=_is_effective_supervisor(request),
@@ -1261,8 +1367,9 @@ def contract_collection_update(request, contract_id):
         finance_form = FinanceCollectionUpdateForm(contract_collection=contract_collection)
         if terms_form.is_valid():
             updated_contract = terms_form.save(commit=False)
+            sales_user = _effective_sales_user(request)
             if _is_effective_sales_manager(request):
-                updated_contract.sales_manager = request.user
+                updated_contract.sales_manager = sales_user
             updated_contract.save()
             sync_contract_collection_data(
                 updated_contract,

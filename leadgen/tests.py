@@ -26,6 +26,7 @@ from .forms import (
     PUBLIC_DOWNLOAD_MAX_FILE_SIZE,
     SalesConversationForm,
     SalesManagerCreateForm,
+    StaffCreateForm,
     validate_uploaded_file_sizes,
 )
 from .models import (
@@ -33,6 +34,7 @@ from .models import (
     CallLog,
     ContractCollection,
     ContractCollectionInstallment,
+    DirectMarketingActivity,
     Meeting,
     MeetingReminder,
     PublicDownloadFile,
@@ -376,6 +378,20 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Add sales conversation")
 
+    def test_staff_create_form_allows_existing_sales_manager_email_for_multi_workspace_account(self):
+        form = StaffCreateForm(
+            data={
+                "name": "Bhavesh As Staff",
+                "email": "amit@inditech.co.in",
+                "calling_number": "+919833333333",
+                "whatsapp_number": "+919844444444",
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        user = form.save()
+        self.assertEqual(user.role, User.ROLE_STAFF)
+        self.assertEqual(user.email, "amit@inditech.co.in")
+
     def test_dual_workspace_user_gets_workspace_choice_on_home(self):
         SupervisorAccessEmail.objects.update_or_create(
             email="amit@inditech.co.in",
@@ -390,6 +406,61 @@ class LeadgenWorkflowTests(TestCase):
         self.assertContains(response, "Choose which dashboard to use")
         self.assertContains(response, "Use as lead gen supervisor")
         self.assertContains(response, "Use as sales manager")
+
+    def test_tri_workspace_user_gets_staff_option_on_home(self):
+        SupervisorAccessEmail.objects.update_or_create(
+            email="amit@inditech.co.in",
+            defaults={
+                "is_active": True,
+                "access_level": SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
+            },
+        )
+        staff_user = User.objects.create(
+            email="amit@inditech.co.in",
+            role=User.ROLE_STAFF,
+            name="Amit Staff",
+            calling_number="+919855555555",
+        )
+        staff_user.set_unusable_password()
+        staff_user.save()
+        self._force_login_with_workspace_access(self.sales_manager, "amit@inditech.co.in")
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Use as lead gen supervisor")
+        self.assertContains(response, "Use as lead gen staff")
+        self.assertContains(response, "Use as sales manager")
+
+    def test_tri_workspace_user_can_open_staff_dashboard(self):
+        SupervisorAccessEmail.objects.update_or_create(
+            email="amit@inditech.co.in",
+            defaults={
+                "is_active": True,
+                "access_level": SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
+            },
+        )
+        staff_user = User.objects.create(
+            email="amit@inditech.co.in",
+            role=User.ROLE_STAFF,
+            name="Amit Staff",
+            calling_number="+919855555556",
+        )
+        staff_user.set_unusable_password()
+        staff_user.save()
+        Prospect.objects.create(
+            company_name="Staff Prospect Co",
+            contact_name="Staff Prospect",
+            linkedin_url="https://linkedin.com/in/staff-prospect",
+            phone_number="+919812349998",
+            assigned_to=staff_user,
+            created_by=staff_user,
+            approval_status=Prospect.APPROVAL_ACCEPTED,
+            workflow_status=Prospect.WORKFLOW_READY_TO_CALL,
+        )
+        self._force_login_with_workspace_access(self.sales_manager, "amit@inditech.co.in", workspace="staff")
+        response = self.client.get("/staff/dashboard/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Amit Staff")
+        self.assertContains(response, "Staff Prospect Co")
 
     def test_dual_workspace_user_can_open_supervisor_dashboard_and_see_all_sales_pipeline_records(self):
         SupervisorAccessEmail.objects.update_or_create(
@@ -452,6 +523,45 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Use this page to edit the saved conversation details")
         self.assertContains(response, "Save changes")
+
+    def test_supervisor_can_delete_sales_conversation(self):
+        conversation = SalesConversation.objects.create(
+            company_name="Duplicate Pipeline Co",
+            assigned_sales_manager=self.sales_manager,
+            created_by=self.supervisor,
+        )
+        self.client.force_login(self.supervisor)
+        response = self.client.post(f"/sales/{conversation.pk}/delete/")
+        self.assertRedirects(response, "/sales/")
+        self.assertFalse(SalesConversation.objects.filter(pk=conversation.pk).exists())
+
+    def test_supervisor_can_log_direct_marketing_activity(self):
+        self.client.force_login(self.supervisor)
+        response = self.client.post(
+            "/supervisor/direct-marketing/",
+            {
+                "therapy_area": "Vaccines",
+                "sent_on": "2026-04-23",
+                "prospect_count": 1250,
+            },
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(DirectMarketingActivity.objects.filter(therapy_area="Vaccines").exists())
+        self.assertContains(response, "Direct marketing activity saved.")
+
+    def test_direct_marketing_list_shows_logged_mailers(self):
+        DirectMarketingActivity.objects.create(
+            therapy_area="Cardiology",
+            sent_on=datetime(2026, 4, 23).date(),
+            prospect_count=450,
+            created_by=self.supervisor,
+        )
+        self.client.force_login(self.supervisor)
+        response = self.client.get("/supervisor/direct-marketing/list/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Cardiology")
+        self.assertContains(response, "450")
 
     def test_leadgen_supervisor_can_correct_sales_pipeline_company_name(self):
         meeting = apply_call_outcome(
@@ -519,18 +629,20 @@ class LeadgenWorkflowTests(TestCase):
 
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
     def test_reschedule_meeting_creates_new_scheduled_meeting_and_new_invite_cycle(self):
-        meeting = apply_call_outcome(
-            self.prospect,
-            self.staff,
-            {
-                "outcome": "scheduled",
-                "scheduled_for": datetime(2026, 4, 23, 17, 30),
-                "prospect_email": "prospect@example.com",
-                "meeting_platform": Meeting.PLATFORM_TEAMS,
-                "reason": "",
-                "follow_up_date": None,
-            },
-        )
+        fixed_now = timezone.make_aware(datetime(2026, 4, 23, 9, 0), ZoneInfo("Asia/Kolkata"))
+        with patch("django.utils.timezone.now", return_value=fixed_now):
+            meeting = apply_call_outcome(
+                self.prospect,
+                self.staff,
+                {
+                    "outcome": "scheduled",
+                    "scheduled_for": datetime(2026, 4, 23, 17, 30),
+                    "prospect_email": "prospect@example.com",
+                    "meeting_platform": Meeting.PLATFORM_TEAMS,
+                    "reason": "",
+                    "follow_up_date": None,
+                },
+            )
         MeetingReminder.objects.create(
             meeting=meeting,
             reminder_type=MeetingReminder.TYPE_EMAIL_DAY_BEFORE,
@@ -538,12 +650,13 @@ class LeadgenWorkflowTests(TestCase):
             sent_at=timezone.now(),
         )
 
-        with self.captureOnCommitCallbacks(execute=True):
-            new_meeting = reschedule_meeting(
-                meeting,
-                timezone.make_aware(datetime(2026, 4, 24, 12, 0)),
-                updated_by=self.supervisor,
-            )
+        with patch("django.utils.timezone.now", return_value=fixed_now):
+            with self.captureOnCommitCallbacks(execute=True):
+                new_meeting = reschedule_meeting(
+                    meeting,
+                    timezone.make_aware(datetime(2026, 4, 24, 12, 0)),
+                    updated_by=self.supervisor,
+                )
 
         meeting.refresh_from_db()
         new_meeting.refresh_from_db()
@@ -610,27 +723,30 @@ class LeadgenWorkflowTests(TestCase):
     @override_settings(ALLOWED_HOSTS=["testserver", "localhost", "127.0.0.1"])
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
     def test_supervisor_can_reschedule_meeting_from_status_screen(self):
-        meeting = apply_call_outcome(
-            self.prospect,
-            self.staff,
-            {
-                "outcome": "scheduled",
-                "scheduled_for": datetime(2026, 4, 23, 17, 30),
-                "prospect_email": "prospect@example.com",
-                "meeting_platform": Meeting.PLATFORM_ZOOM,
-                "reason": "",
-                "follow_up_date": None,
-            },
-        )
-        self.client.force_login(self.supervisor)
-        with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.post(
-                f"/supervisor/meetings/{meeting.pk}/status/",
+        fixed_now = timezone.make_aware(datetime(2026, 4, 23, 9, 0), ZoneInfo("Asia/Kolkata"))
+        with patch("django.utils.timezone.now", return_value=fixed_now):
+            meeting = apply_call_outcome(
+                self.prospect,
+                self.staff,
                 {
-                    "status": Meeting.STATUS_RESCHEDULED,
-                    "rescheduled_for": "2026-04-24T12:00",
+                    "outcome": "scheduled",
+                    "scheduled_for": datetime(2026, 4, 23, 17, 30),
+                    "prospect_email": "prospect@example.com",
+                    "meeting_platform": Meeting.PLATFORM_ZOOM,
+                    "reason": "",
+                    "follow_up_date": None,
                 },
             )
+        self.client.force_login(self.supervisor)
+        with patch("django.utils.timezone.now", return_value=fixed_now):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    f"/supervisor/meetings/{meeting.pk}/status/",
+                    {
+                        "status": Meeting.STATUS_RESCHEDULED,
+                        "rescheduled_for": "2026-04-24T12:00",
+                    },
+                )
         self.assertRedirects(response, "/supervisor/meetings/")
         meeting.refresh_from_db()
         self.assertEqual(meeting.status, Meeting.STATUS_RESCHEDULED)
