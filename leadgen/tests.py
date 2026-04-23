@@ -46,6 +46,7 @@ from .models import (
     User,
 )
 from .services import (
+    available_whatsapp_reminder_choices,
     apply_call_outcome,
     backfill_sales_conversations_from_happened_meetings,
     business_localdate,
@@ -312,6 +313,30 @@ class LeadgenWorkflowTests(TestCase):
         self.prospect.refresh_from_db()
         self.assertEqual(self.prospect.workflow_status, Prospect.WORKFLOW_FOLLOW_UP)
         self.assertEqual(self.prospect.follow_up_reason, "Meeting did not happen")
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_meeting_no_show_reverts_prospect_like_did_not_happen(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 30, 15, 0),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        update_meeting_outcome(meeting, Meeting.STATUS_NO_SHOW)
+        meeting.refresh_from_db()
+        self.prospect.refresh_from_db()
+        self.assertEqual(meeting.status, Meeting.STATUS_NO_SHOW)
+        self.assertEqual(self.prospect.workflow_status, Prospect.WORKFLOW_FOLLOW_UP)
+        self.assertEqual(self.prospect.follow_up_reason, "Meeting did not happen - no show")
+        latest_update = ProspectStatusUpdate.objects.filter(prospect=self.prospect).latest("created_at")
+        self.assertEqual(latest_update.outcome, ProspectStatusUpdate.OUTCOME_MEETING_DID_NOT_HAPPEN)
+        self.assertEqual(latest_update.reason, "Meeting did not happen - no show")
 
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
     def test_meeting_happened_creates_sales_conversation(self):
@@ -626,6 +651,22 @@ class LeadgenWorkflowTests(TestCase):
         form = MeetingStatusUpdateForm(data={"status": Meeting.STATUS_RESCHEDULED}, instance=meeting)
         self.assertFalse(form.is_valid())
         self.assertIn("rescheduled_for", form.errors)
+
+    def test_meeting_status_update_form_includes_no_show_option(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 30, 15, 0),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        form = MeetingStatusUpdateForm(instance=meeting)
+        self.assertIn((Meeting.STATUS_NO_SHOW, "Meeting did not happen - no show"), form.fields["status"].choices)
 
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
     def test_reschedule_meeting_creates_new_scheduled_meeting_and_new_invite_cycle(self):
@@ -967,6 +1008,31 @@ class LeadgenWorkflowTests(TestCase):
         self.assertIn("whatsapp-proof", reminder.screenshot.name)
         self.assertTrue(reminder.screenshot.name.endswith(".png"))
 
+    def test_available_whatsapp_reminder_choices_include_new_types_for_relevant_statuses(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 30, 15, 0),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        scheduled_choices = dict(available_whatsapp_reminder_choices(meeting))
+        self.assertIn(MeetingReminder.TYPE_WHATSAPP_INITIAL, scheduled_choices)
+        self.assertIn(MeetingReminder.TYPE_WHATSAPP_PRE_MEETING, scheduled_choices)
+        self.assertIn(MeetingReminder.TYPE_WHATSAPP_FINAL, scheduled_choices)
+        self.assertNotIn(MeetingReminder.TYPE_WHATSAPP_NO_SHOW, scheduled_choices)
+        self.assertNotIn(MeetingReminder.TYPE_WHATSAPP_28_DAY, scheduled_choices)
+
+        update_meeting_outcome(meeting, Meeting.STATUS_NO_SHOW)
+        no_show_choices = dict(available_whatsapp_reminder_choices(meeting))
+        self.assertIn(MeetingReminder.TYPE_WHATSAPP_NO_SHOW, no_show_choices)
+        self.assertIn(MeetingReminder.TYPE_WHATSAPP_28_DAY, no_show_choices)
+
     def test_finance_manager_create_form_does_not_require_calling_number(self):
         form = FinanceManagerCreateForm(
             data={
@@ -1049,8 +1115,58 @@ class LeadgenWorkflowTests(TestCase):
         dashboard = build_reminder_dashboard("Asia/Kolkata", now=now)
         row = next(item for item in dashboard["rows"] if item["meeting"] == meeting)
         self.assertTrue(row["first_whatsapp"]["is_missed"])
+        self.assertTrue(row["pre_meeting_whatsapp"]["is_missed"])
         self.assertTrue(row["final_whatsapp"]["is_missed"])
         self.assertIn("First WhatsApp", row["missed"])
+
+    def test_reminder_dashboard_tracks_no_show_follow_up_steps(self):
+        meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 31, 12, 0),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        meeting.created_at = timezone.make_aware(datetime(2026, 3, 29, 10, 0))
+        meeting.save(update_fields=["created_at"])
+        update_meeting_outcome(meeting, Meeting.STATUS_NO_SHOW)
+        now = timezone.make_aware(datetime(2026, 4, 2, 13, 0))
+        dashboard = build_reminder_dashboard("Asia/Kolkata", now=now)
+        row = next(item for item in dashboard["rows"] if item["meeting"] == meeting)
+        self.assertTrue(row["no_show_whatsapp"]["is_applicable"])
+        self.assertTrue(row["no_show_whatsapp"]["is_missed"])
+        self.assertTrue(row["twenty_eight_day_whatsapp"]["is_applicable"])
+        self.assertFalse(row["twenty_eight_day_whatsapp"]["is_missed"])
+
+    def test_twenty_eight_day_follow_up_not_applicable_when_later_meeting_exists(self):
+        first_meeting = apply_call_outcome(
+            self.prospect,
+            self.staff,
+            {
+                "outcome": "scheduled",
+                "scheduled_for": datetime(2026, 3, 1, 12, 0),
+                "prospect_email": "prospect@example.com",
+                "meeting_platform": Meeting.PLATFORM_TEAMS,
+                "reason": "",
+                "follow_up_date": None,
+            },
+        )
+        update_meeting_outcome(first_meeting, Meeting.STATUS_DID_NOT_HAPPEN)
+        Meeting.objects.create(
+            prospect=self.prospect,
+            scheduled_by=self.staff,
+            scheduled_for=timezone.make_aware(datetime(2026, 3, 10, 12, 0)),
+            prospect_email="prospect@example.com",
+            meeting_platform=Meeting.PLATFORM_TEAMS,
+            status=Meeting.STATUS_SCHEDULED,
+        )
+        choice_map = dict(available_whatsapp_reminder_choices(first_meeting))
+        self.assertNotIn(MeetingReminder.TYPE_WHATSAPP_28_DAY, choice_map)
 
     def test_only_one_supervisor_allowed(self):
         with self.assertRaises(IntegrityError):

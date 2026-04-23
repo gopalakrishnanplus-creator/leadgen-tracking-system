@@ -5,7 +5,7 @@
     <div>
         <p class="eyebrow">Supervisor</p>
         <h1>Reminder messages</h1>
-        <p class="note">Scheduled meetings plus meetings marked happened in the last 10 days.</p>
+        <p class="note">Scheduled meetings, recent meetings marked happened, and recent did-not-happen / no-show meetings that still need follow-up tracking.</p>
     </div>
     <div class="button-row">
         <a class="button" href="{% url 'supervisor_dashboard' %}">Back to dashboard</a>
@@ -13,7 +13,10 @@
 </section>
 <section class="stats-grid">
     <article class="stat-card"><span>{{ dashboard.summary.first_whatsapp_sent }}</span><p>First WhatsApp sent</p></article>
+    <article class="stat-card"><span>{{ dashboard.summary.pre_meeting_whatsapp_sent }}</span><p>Pre-meeting WhatsApp sent</p></article>
     <article class="stat-card"><span>{{ dashboard.summary.second_whatsapp_sent }}</span><p>Second WhatsApp sent</p></article>
+    <article class="stat-card"><span>{{ dashboard.summary.no_show_whatsapp_sent }}</span><p>48-hour no-show WhatsApp sent</p></article>
+    <article class="stat-card"><span>{{ dashboard.summary.twenty_eight_day_whatsapp_sent }}</span><p>28-day follow-up WhatsApp sent</p></article>
     <article class="stat-card"><span>{{ dashboard.summary.missed_total }}</span><p>Missed reminder steps</p></article>
 </section>
 <section class="panel">
@@ -26,9 +29,12 @@
                 <th>Meeting time</th>
                 <th>Status</th>
                 <th>First WhatsApp</th>
+                <th>Pre-meeting WhatsApp</th>
                 <th>24-hour email</th>
                 <th>9 a.m. email</th>
                 <th>Second WhatsApp</th>
+                <th>48-hour no-show WhatsApp</th>
+                <th>28-day follow-up WhatsApp</th>
                 <th>Missed</th>
             </tr>
         </thead>
@@ -41,7 +47,9 @@
                 <td>{{ row.meeting.scheduled_for }}</td>
                 <td>{{ row.meeting.get_status_display }}</td>
                 <td>
-                    {% if row.first_whatsapp.is_sent %}
+                    {% if not row.first_whatsapp.is_applicable %}
+                        -
+                    {% elif row.first_whatsapp.is_sent %}
                         <a href="{{ row.first_whatsapp.reminder.screenshot.url }}" target="_blank" rel="noreferrer">Sent</a>
                     {% elif row.first_whatsapp.is_missed %}
                         Missed
@@ -50,7 +58,20 @@
                     {% endif %}
                 </td>
                 <td>
-                    {% if row.day_before_email.is_sent %}
+                    {% if not row.pre_meeting_whatsapp.is_applicable %}
+                        -
+                    {% elif row.pre_meeting_whatsapp.is_sent %}
+                        <a href="{{ row.pre_meeting_whatsapp.reminder.screenshot.url }}" target="_blank" rel="noreferrer">Sent</a>
+                    {% elif row.pre_meeting_whatsapp.is_missed %}
+                        Missed
+                    {% else %}
+                        Pending
+                    {% endif %}
+                </td>
+                <td>
+                    {% if not row.day_before_email.is_applicable %}
+                        -
+                    {% elif row.day_before_email.is_sent %}
                         Sent
                     {% elif row.day_before_email.is_missed %}
                         Missed
@@ -59,7 +80,9 @@
                     {% endif %}
                 </td>
                 <td>
-                    {% if row.same_day_email.is_sent %}
+                    {% if not row.same_day_email.is_applicable %}
+                        -
+                    {% elif row.same_day_email.is_sent %}
                         Sent
                     {% elif row.same_day_email.is_missed %}
                         Missed
@@ -68,9 +91,33 @@
                     {% endif %}
                 </td>
                 <td>
-                    {% if row.final_whatsapp.is_sent %}
+                    {% if not row.final_whatsapp.is_applicable %}
+                        -
+                    {% elif row.final_whatsapp.is_sent %}
                         <a href="{{ row.final_whatsapp.reminder.screenshot.url }}" target="_blank" rel="noreferrer">Sent</a>
                     {% elif row.final_whatsapp.is_missed %}
+                        Missed
+                    {% else %}
+                        Pending
+                    {% endif %}
+                </td>
+                <td>
+                    {% if not row.no_show_whatsapp.is_applicable %}
+                        -
+                    {% elif row.no_show_whatsapp.is_sent %}
+                        <a href="{{ row.no_show_whatsapp.reminder.screenshot.url }}" target="_blank" rel="noreferrer">Sent</a>
+                    {% elif row.no_show_whatsapp.is_missed %}
+                        Missed
+                    {% else %}
+                        Pending
+                    {% endif %}
+                </td>
+                <td>
+                    {% if not row.twenty_eight_day_whatsapp.is_applicable %}
+                        -
+                    {% elif row.twenty_eight_day_whatsapp.is_sent %}
+                        <a href="{{ row.twenty_eight_day_whatsapp.reminder.screenshot.url }}" target="_blank" rel="noreferrer">Sent</a>
+                    {% elif row.twenty_eight_day_whatsapp.is_missed %}
                         Missed
                     {% else %}
                         Pending
@@ -85,7 +132,7 @@
                 </td>
             </tr>
         {% empty %}
-            <tr><td colspan="10">No reminder-tracked meetings found.</td></tr>
+            <tr><td colspan="13">No reminder-tracked meetings found.</td></tr>
         {% endfor %}
         </tbody>
     </table>

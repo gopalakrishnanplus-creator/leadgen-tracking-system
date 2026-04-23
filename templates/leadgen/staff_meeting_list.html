@@ -21,7 +21,8 @@
             </tr>
         </thead>
         <tbody>
-        {% for meeting in meetings %}
+        {% for row in meeting_rows %}
+            {% with meeting=row.meeting %}
             <tr>
                 <td>{{ meeting.prospect.company_name }}</td>
                 <td>{{ meeting.prospect.contact_name }}</td>
@@ -35,13 +36,14 @@
                 <td>{{ meeting.scheduled_for }}</td>
                 <td>{{ meeting.get_status_display }}</td>
                 <td>
-                    {% if meeting.status == 'scheduled' %}
+                    {% if row.can_log_reminder %}
                         <a href="{% url 'log_meeting_reminder' meeting.id %}">Log reminder</a>
                     {% else %}
                         -
                     {% endif %}
                 </td>
             </tr>
+            {% endwith %}
         {% empty %}
             <tr><td colspan="7">No meetings scheduled yet.</td></tr>
         {% endfor %}

@@ -56,9 +56,24 @@ ACTIVE_CALLING_WORKFLOWS = {
 
 REMINDER_GRACE_WINDOWS = {
     MeetingReminder.TYPE_WHATSAPP_INITIAL: timedelta(minutes=30),
+    MeetingReminder.TYPE_WHATSAPP_PRE_MEETING: timedelta(),
     MeetingReminder.TYPE_EMAIL_DAY_BEFORE: timedelta(hours=1),
     MeetingReminder.TYPE_EMAIL_SAME_DAY: timedelta(hours=1),
     MeetingReminder.TYPE_WHATSAPP_FINAL: timedelta(minutes=15),
+    MeetingReminder.TYPE_WHATSAPP_NO_SHOW: timedelta(),
+    MeetingReminder.TYPE_WHATSAPP_28_DAY: timedelta(hours=24),
+}
+
+MEETING_NON_HAPPENED_STATUSES = tuple(Meeting.DID_NOT_HAPPEN_STATUSES)
+
+REMINDER_LABELS = {
+    MeetingReminder.TYPE_WHATSAPP_INITIAL: "First WhatsApp",
+    MeetingReminder.TYPE_WHATSAPP_PRE_MEETING: "Pre-meeting WhatsApp",
+    MeetingReminder.TYPE_EMAIL_DAY_BEFORE: "24-hour email",
+    MeetingReminder.TYPE_EMAIL_SAME_DAY: "9 a.m. email",
+    MeetingReminder.TYPE_WHATSAPP_FINAL: "Second WhatsApp",
+    MeetingReminder.TYPE_WHATSAPP_NO_SHOW: "48-hour no-show WhatsApp",
+    MeetingReminder.TYPE_WHATSAPP_28_DAY: "28-day follow-up WhatsApp",
 }
 
 
@@ -216,7 +231,7 @@ def build_supervisor_report(start_date, end_date, tz_name):
         "meetings_scheduled": new_scheduled_updates.count(),
         "meetings_rescheduled": rescheduled_updates.count(),
         "meetings_happened": meetings_outcome.filter(status=Meeting.STATUS_HAPPENED).count(),
-        "meetings_not_happened": meetings_outcome.filter(status=Meeting.STATUS_DID_NOT_HAPPEN).count(),
+        "meetings_not_happened": meetings_outcome.filter(status__in=MEETING_NON_HAPPENED_STATUSES).count(),
         "imports_count": imports.count(),
         "imported_rows": imports.aggregate(total=Sum("total_rows"))["total"] or 0,
         "unmatched_import_rows": imports.aggregate(total=Sum("unmatched_rows"))["total"] or 0,
@@ -233,7 +248,7 @@ def build_supervisor_report(start_date, end_date, tz_name):
         scheduled = new_scheduled_updates.filter(staff=staff).count()
         rescheduled = rescheduled_updates.filter(staff=staff).count()
         happened = meetings_outcome.filter(scheduled_by=staff, status=Meeting.STATUS_HAPPENED).count()
-        not_happened = meetings_outcome.filter(scheduled_by=staff, status=Meeting.STATUS_DID_NOT_HAPPEN).count()
+        not_happened = meetings_outcome.filter(scheduled_by=staff, status__in=MEETING_NON_HAPPENED_STATUSES).count()
         follow_ups = status_updates.filter(staff=staff, outcome=ProspectStatusUpdate.OUTCOME_FOLLOW_UP).count()
         declines = status_updates.filter(staff=staff, outcome=ProspectStatusUpdate.OUTCOME_DECLINED).count()
         staff_metrics.append(
@@ -648,6 +663,8 @@ def meeting_reminder_due_at(meeting, reminder_type, tz_name):
     created_local = meeting.created_at.astimezone(tz)
     if reminder_type == MeetingReminder.TYPE_WHATSAPP_INITIAL:
         return created_local
+    if reminder_type == MeetingReminder.TYPE_WHATSAPP_PRE_MEETING:
+        return created_local + timedelta(hours=24)
     if reminder_type == MeetingReminder.TYPE_EMAIL_DAY_BEFORE:
         if timedelta(hours=1) < (scheduled_local - created_local) <= timedelta(hours=24):
             return created_local
@@ -659,6 +676,10 @@ def meeting_reminder_due_at(meeting, reminder_type, tz_name):
         )
     if reminder_type == MeetingReminder.TYPE_WHATSAPP_FINAL:
         return scheduled_local - timedelta(hours=1)
+    if reminder_type == MeetingReminder.TYPE_WHATSAPP_NO_SHOW:
+        return scheduled_local + timedelta(hours=48)
+    if reminder_type == MeetingReminder.TYPE_WHATSAPP_28_DAY:
+        return scheduled_local + timedelta(days=28)
     raise ValueError(f"Unsupported reminder type: {reminder_type}")
 
 
@@ -666,8 +687,66 @@ def reminder_log_map(meeting):
     return {reminder.reminder_type: reminder for reminder in meeting.reminders.all()}
 
 
+def meeting_has_later_follow_up(meeting):
+    return Meeting.objects.filter(
+        prospect=meeting.prospect,
+        scheduled_for__gt=meeting.scheduled_for,
+    ).exclude(pk=meeting.pk).exists()
+
+
+def reminder_is_applicable(meeting, reminder_type):
+    if reminder_type in {
+        MeetingReminder.TYPE_WHATSAPP_INITIAL,
+        MeetingReminder.TYPE_WHATSAPP_PRE_MEETING,
+        MeetingReminder.TYPE_EMAIL_DAY_BEFORE,
+        MeetingReminder.TYPE_EMAIL_SAME_DAY,
+        MeetingReminder.TYPE_WHATSAPP_FINAL,
+    }:
+        return meeting.status in {
+            Meeting.STATUS_SCHEDULED,
+            Meeting.STATUS_HAPPENED,
+            Meeting.STATUS_DID_NOT_HAPPEN,
+            Meeting.STATUS_NO_SHOW,
+        }
+    if reminder_type == MeetingReminder.TYPE_WHATSAPP_NO_SHOW:
+        return meeting.status == Meeting.STATUS_NO_SHOW
+    if reminder_type == MeetingReminder.TYPE_WHATSAPP_28_DAY:
+        return meeting.status in MEETING_NON_HAPPENED_STATUSES and not meeting_has_later_follow_up(meeting)
+    return False
+
+
+def available_whatsapp_reminder_choices(meeting):
+    choice_map = {
+        MeetingReminder.TYPE_WHATSAPP_INITIAL: "First WhatsApp reminder",
+        MeetingReminder.TYPE_WHATSAPP_PRE_MEETING: "Pre-meeting WhatsApp reminder",
+        MeetingReminder.TYPE_WHATSAPP_FINAL: "Second WhatsApp reminder",
+        MeetingReminder.TYPE_WHATSAPP_NO_SHOW: "48-hour no-show WhatsApp",
+        MeetingReminder.TYPE_WHATSAPP_28_DAY: "28-day follow-up WhatsApp",
+    }
+    ordered_types = [
+        MeetingReminder.TYPE_WHATSAPP_INITIAL,
+        MeetingReminder.TYPE_WHATSAPP_PRE_MEETING,
+        MeetingReminder.TYPE_WHATSAPP_FINAL,
+        MeetingReminder.TYPE_WHATSAPP_NO_SHOW,
+        MeetingReminder.TYPE_WHATSAPP_28_DAY,
+    ]
+    return [
+        (reminder_type, choice_map[reminder_type])
+        for reminder_type in ordered_types
+        if reminder_is_applicable(meeting, reminder_type)
+    ]
+
+
 def reminder_status_for_meeting(meeting, reminder_type, tz_name, now=None):
     now = now or timezone.now()
+    if not reminder_is_applicable(meeting, reminder_type):
+        return {
+            "due_at": None,
+            "reminder": None,
+            "is_sent": False,
+            "is_missed": False,
+            "is_applicable": False,
+        }
     due_at = meeting_reminder_due_at(meeting, reminder_type, tz_name)
     reminder = reminder_log_map(meeting).get(reminder_type)
     if reminder:
@@ -676,6 +755,7 @@ def reminder_status_for_meeting(meeting, reminder_type, tz_name, now=None):
             "reminder": reminder,
             "is_sent": True,
             "is_missed": False,
+            "is_applicable": True,
         }
     grace = REMINDER_GRACE_WINDOWS[reminder_type]
     return {
@@ -683,6 +763,7 @@ def reminder_status_for_meeting(meeting, reminder_type, tz_name, now=None):
         "reminder": None,
         "is_sent": False,
         "is_missed": now >= due_at + grace,
+        "is_applicable": True,
     }
 
 
@@ -792,48 +873,83 @@ def _send_immediate_day_before_reminder_after_commit(meeting_id):
 def build_reminder_dashboard(tz_name, now=None):
     now = now or timezone.now()
     recent_happened_cutoff = now - timedelta(days=10)
+    recent_non_happened_cutoff = now - timedelta(days=35)
     meetings = (
         Meeting.objects.select_related("prospect", "scheduled_by")
         .prefetch_related("reminders")
         .filter(
             Q(status=Meeting.STATUS_SCHEDULED)
             | Q(status=Meeting.STATUS_HAPPENED, outcome_updated_at__gte=recent_happened_cutoff)
+            | Q(status__in=MEETING_NON_HAPPENED_STATUSES, outcome_updated_at__gte=recent_non_happened_cutoff)
         )
         .order_by("scheduled_for")
     )
     rows = []
     summary = {
         "first_whatsapp_sent": 0,
+        "pre_meeting_whatsapp_sent": 0,
         "second_whatsapp_sent": 0,
+        "no_show_whatsapp_sent": 0,
+        "twenty_eight_day_whatsapp_sent": 0,
         "missed_total": 0,
     }
     for meeting in meetings:
         first_whatsapp = reminder_status_for_meeting(meeting, MeetingReminder.TYPE_WHATSAPP_INITIAL, tz_name, now=now)
+        pre_meeting_whatsapp = reminder_status_for_meeting(
+            meeting,
+            MeetingReminder.TYPE_WHATSAPP_PRE_MEETING,
+            tz_name,
+            now=now,
+        )
         day_before_email = reminder_status_for_meeting(meeting, MeetingReminder.TYPE_EMAIL_DAY_BEFORE, tz_name, now=now)
         same_day_email = reminder_status_for_meeting(meeting, MeetingReminder.TYPE_EMAIL_SAME_DAY, tz_name, now=now)
         final_whatsapp = reminder_status_for_meeting(meeting, MeetingReminder.TYPE_WHATSAPP_FINAL, tz_name, now=now)
+        no_show_whatsapp = reminder_status_for_meeting(
+            meeting,
+            MeetingReminder.TYPE_WHATSAPP_NO_SHOW,
+            tz_name,
+            now=now,
+        )
+        twenty_eight_day_whatsapp = reminder_status_for_meeting(
+            meeting,
+            MeetingReminder.TYPE_WHATSAPP_28_DAY,
+            tz_name,
+            now=now,
+        )
         missed = [
-            label
-            for label, status in (
-                ("First WhatsApp", first_whatsapp),
-                ("24-hour email", day_before_email),
-                ("9 a.m. email", same_day_email),
-                ("Second WhatsApp", final_whatsapp),
+            REMINDER_LABELS[reminder_type]
+            for reminder_type, status in (
+                (MeetingReminder.TYPE_WHATSAPP_INITIAL, first_whatsapp),
+                (MeetingReminder.TYPE_WHATSAPP_PRE_MEETING, pre_meeting_whatsapp),
+                (MeetingReminder.TYPE_EMAIL_DAY_BEFORE, day_before_email),
+                (MeetingReminder.TYPE_EMAIL_SAME_DAY, same_day_email),
+                (MeetingReminder.TYPE_WHATSAPP_FINAL, final_whatsapp),
+                (MeetingReminder.TYPE_WHATSAPP_NO_SHOW, no_show_whatsapp),
+                (MeetingReminder.TYPE_WHATSAPP_28_DAY, twenty_eight_day_whatsapp),
             )
             if status["is_missed"]
         ]
         if first_whatsapp["is_sent"]:
             summary["first_whatsapp_sent"] += 1
+        if pre_meeting_whatsapp["is_sent"]:
+            summary["pre_meeting_whatsapp_sent"] += 1
         if final_whatsapp["is_sent"]:
             summary["second_whatsapp_sent"] += 1
+        if no_show_whatsapp["is_sent"]:
+            summary["no_show_whatsapp_sent"] += 1
+        if twenty_eight_day_whatsapp["is_sent"]:
+            summary["twenty_eight_day_whatsapp_sent"] += 1
         summary["missed_total"] += len(missed)
         rows.append(
             {
                 "meeting": meeting,
                 "first_whatsapp": first_whatsapp,
+                "pre_meeting_whatsapp": pre_meeting_whatsapp,
                 "day_before_email": day_before_email,
                 "same_day_email": same_day_email,
                 "final_whatsapp": final_whatsapp,
+                "no_show_whatsapp": no_show_whatsapp,
+                "twenty_eight_day_whatsapp": twenty_eight_day_whatsapp,
                 "missed": missed,
             }
         )
@@ -841,6 +957,7 @@ def build_reminder_dashboard(tz_name, now=None):
         "summary": summary,
         "rows": rows,
         "recent_happened_cutoff": recent_happened_cutoff,
+        "recent_non_happened_cutoff": recent_non_happened_cutoff,
     }
 
 
@@ -1311,13 +1428,14 @@ def update_meeting_outcome(meeting, status, updated_by=None):
     meeting.prospect.follow_up_date = meeting.scheduled_for.astimezone(
         ZoneInfo(SystemSetting.load().default_timezone)
     ).date()
-    meeting.prospect.follow_up_reason = "Meeting did not happen"
+    outcome_reason = "Meeting did not happen - no show" if status == Meeting.STATUS_NO_SHOW else "Meeting did not happen"
+    meeting.prospect.follow_up_reason = outcome_reason
     meeting.prospect.save(update_fields=["workflow_status", "follow_up_date", "follow_up_reason", "updated_at"])
     ProspectStatusUpdate.objects.create(
         prospect=meeting.prospect,
         staff=meeting.scheduled_by,
         outcome=ProspectStatusUpdate.OUTCOME_MEETING_DID_NOT_HAPPEN,
-        reason="Meeting did not happen",
+        reason=outcome_reason,
         follow_up_date=meeting.prospect.follow_up_date,
         scheduled_for=meeting.scheduled_for,
         prospect_email=meeting.prospect_email,

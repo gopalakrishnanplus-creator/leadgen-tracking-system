@@ -23,7 +23,7 @@
     <article class="stat-card"><span>{{ report.summary.meetings_scheduled }}</span><p>New meetings scheduled</p></article>
     <article class="stat-card"><span>{{ report.summary.meetings_rescheduled }}</span><p>Meetings rescheduled</p></article>
     <article class="stat-card"><span>{{ report.summary.meetings_happened }}</span><p>Meetings happened</p></article>
-    <article class="stat-card"><span>{{ report.summary.meetings_not_happened }}</span><p>Meetings not happened</p></article>
+    <article class="stat-card"><span>{{ report.summary.meetings_not_happened }}</span><p>Meetings not happened / no show</p></article>
     <article class="stat-card"><span>{{ report.summary.avg_connected_duration|floatformat:0 }}</span><p>Avg connected call seconds</p></article>
     <article class="stat-card"><span>{{ report.summary.unmatched_import_rows }}</span><p>Unmatched import rows</p></article>
     <article class="stat-card"><span>{{ report.summary.duplicate_import_rows }}</span><p>Duplicate import rows</p></article>
@@ -75,7 +75,7 @@
                 <th>New meetings scheduled</th>
                 <th>Meetings rescheduled</th>
                 <th>Meetings happened</th>
-                <th>Meetings not happened</th>
+                <th>Meetings not happened / no show</th>
             </tr>
         </thead>
         <tbody>

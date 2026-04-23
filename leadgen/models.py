@@ -351,13 +351,16 @@ class Meeting(models.Model):
     STATUS_SCHEDULED = "scheduled"
     STATUS_HAPPENED = "happened"
     STATUS_DID_NOT_HAPPEN = "did_not_happen"
+    STATUS_NO_SHOW = "no_show"
     STATUS_RESCHEDULED = "rescheduled"
     STATUS_CHOICES = [
         (STATUS_SCHEDULED, "Scheduled"),
         (STATUS_HAPPENED, "Meeting happened"),
         (STATUS_DID_NOT_HAPPEN, "Did not happen"),
+        (STATUS_NO_SHOW, "Meeting did not happen - no show"),
         (STATUS_RESCHEDULED, "Rescheduled"),
     ]
+    DID_NOT_HAPPEN_STATUSES = {STATUS_DID_NOT_HAPPEN, STATUS_NO_SHOW}
 
     prospect = models.ForeignKey(Prospect, related_name="meetings", on_delete=models.CASCADE)
     scheduled_by = models.ForeignKey(
@@ -413,14 +416,20 @@ class Meeting(models.Model):
 
 class MeetingReminder(models.Model):
     TYPE_WHATSAPP_INITIAL = "whatsapp_initial"
+    TYPE_WHATSAPP_PRE_MEETING = "whatsapp_pre_meeting"
     TYPE_EMAIL_DAY_BEFORE = "email_day_before"
     TYPE_EMAIL_SAME_DAY = "email_same_day"
     TYPE_WHATSAPP_FINAL = "whatsapp_final"
+    TYPE_WHATSAPP_NO_SHOW = "whatsapp_no_show"
+    TYPE_WHATSAPP_28_DAY = "whatsapp_28_day"
     TYPE_CHOICES = [
         (TYPE_WHATSAPP_INITIAL, "First WhatsApp reminder"),
+        (TYPE_WHATSAPP_PRE_MEETING, "Pre-meeting WhatsApp reminder"),
         (TYPE_EMAIL_DAY_BEFORE, "24-hour reminder email"),
         (TYPE_EMAIL_SAME_DAY, "Same-day reminder email"),
         (TYPE_WHATSAPP_FINAL, "Final WhatsApp reminder"),
+        (TYPE_WHATSAPP_NO_SHOW, "48-hour no-show WhatsApp"),
+        (TYPE_WHATSAPP_28_DAY, "28-day follow-up WhatsApp"),
     ]
 
     meeting = models.ForeignKey(Meeting, related_name="reminders", on_delete=models.CASCADE)

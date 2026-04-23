@@ -339,11 +339,9 @@ class MeetingReminderLogForm(StyledFormMixin, forms.ModelForm):
         fields = ["reminder_type", "recipient_number", "screenshot"]
 
     def __init__(self, *args, **kwargs):
+        available_reminder_choices = kwargs.pop("available_reminder_choices", None)
         super().__init__(*args, **kwargs)
-        self.fields["reminder_type"].choices = [
-            (MeetingReminder.TYPE_WHATSAPP_INITIAL, "First WhatsApp reminder"),
-            (MeetingReminder.TYPE_WHATSAPP_FINAL, "Second WhatsApp reminder"),
-        ]
+        self.fields["reminder_type"].choices = available_reminder_choices or []
         self.fields["recipient_number"].required = True
         self.fields["screenshot"].required = True
 
@@ -398,6 +396,7 @@ class MeetingStatusUpdateForm(StyledFormMixin, forms.ModelForm):
         self.fields["status"].choices = [
             (Meeting.STATUS_HAPPENED, "Meeting happened"),
             (Meeting.STATUS_DID_NOT_HAPPEN, "Did not happen"),
+            (Meeting.STATUS_NO_SHOW, "Meeting did not happen - no show"),
             (Meeting.STATUS_RESCHEDULED, "Reschedule meeting"),
         ]
         if self.instance.pk:

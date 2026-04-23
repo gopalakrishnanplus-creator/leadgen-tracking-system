@@ -55,6 +55,7 @@ from .models import (
     User,
 )
 from .services import (
+    available_whatsapp_reminder_choices,
     apply_call_outcome,
     build_daily_target_report,
     build_pending_collections,
@@ -783,7 +784,7 @@ def supervisor_meeting_list(request):
         "total": meetings.count(),
         "scheduled": meetings.filter(status=Meeting.STATUS_SCHEDULED).count(),
         "happened": meetings.filter(status=Meeting.STATUS_HAPPENED).count(),
-        "did_not_happen": meetings.filter(status=Meeting.STATUS_DID_NOT_HAPPEN).count(),
+        "did_not_happen": meetings.filter(status__in=Meeting.DID_NOT_HAPPEN_STATUSES).count(),
         "rescheduled": meetings.filter(status=Meeting.STATUS_RESCHEDULED).count(),
     }
     return render(
@@ -1021,7 +1022,15 @@ def update_call_outcome(request, prospect_id):
 def staff_meeting_list(request):
     staff_user = _effective_staff_user(request)
     meetings = Meeting.objects.filter(scheduled_by=staff_user).select_related("prospect").prefetch_related("reminders")
-    return render(request, "leadgen/staff_meeting_list.html", {"meetings": meetings})
+    meeting_rows = []
+    for meeting in meetings:
+        meeting_rows.append(
+            {
+                "meeting": meeting,
+                "can_log_reminder": bool(available_whatsapp_reminder_choices(meeting)),
+            }
+        )
+    return render(request, "leadgen/staff_meeting_list.html", {"meeting_rows": meeting_rows})
 
 
 def _staff_meeting_or_404(user, meeting_id):
@@ -1036,9 +1045,14 @@ def _staff_meeting_or_404(user, meeting_id):
 def log_meeting_reminder(request, meeting_id):
     staff_user = _effective_staff_user(request)
     meeting = _staff_meeting_or_404(staff_user, meeting_id)
-    if meeting.status != Meeting.STATUS_SCHEDULED:
-        raise Http404("Reminder logging is only available for scheduled meetings.")
-    form = MeetingReminderLogForm(request.POST or None, request.FILES or None)
+    available_choices = available_whatsapp_reminder_choices(meeting)
+    if not available_choices:
+        raise Http404("Reminder logging is not available for this meeting.")
+    form = MeetingReminderLogForm(
+        request.POST or None,
+        request.FILES or None,
+        available_reminder_choices=available_choices,
+    )
     if request.method == "POST" and form.is_valid():
         log_whatsapp_reminder(
             meeting=meeting,
@@ -1055,6 +1069,7 @@ def log_meeting_reminder(request, meeting_id):
         {
             "meeting": meeting,
             "form": form,
+            "available_reminder_choices": available_choices,
         },
     )
 
