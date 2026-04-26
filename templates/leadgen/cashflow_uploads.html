@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Upload Tally Data{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>Upload daily Tally data</h1>
+        <p class="note">Finance managers must upload payables, provisions, and receivables for today before using the rest of the cash-flow system.</p>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'cashflow_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+<section class="panel form-panel">
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button class="button button-primary" type="submit">Upload and refresh cashflow data</button>
+    </form>
+</section>
+<section class="panel">
+    <h2>Recent uploads</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>As of date</th>
+                <th>Uploaded by</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for snapshot in snapshots %}
+            <tr>
+                <td>{{ snapshot.as_of_date }}</td>
+                <td>{{ snapshot.uploaded_by.name }}</td>
+                <td>{{ snapshot.created_at }}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="3">No Tally uploads yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

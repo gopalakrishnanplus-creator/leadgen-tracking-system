@@ -3,9 +3,14 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.utils import timezone
+from decimal import Decimal
 
 from .models import (
     CallImportBatch,
+    CashflowImportedItem,
+    CashflowProjectedCollection,
+    CashflowSnapshot,
+    CashflowWorkOrderRequest,
     ContractCollection,
     ContractCollectionInstallment,
     DirectMarketingActivity,
@@ -221,6 +226,55 @@ class FinanceManagerUpdateForm(FixedRoleUserFormMixin, StyledFormMixin, forms.Mo
         return user
 
 
+class BusinessManagerCreateForm(FixedRoleUserFormMixin, StyledFormMixin, forms.ModelForm):
+    target_role = User.ROLE_BUSINESS_MANAGER
+
+    class Meta:
+        model = User
+        fields = ["name", "email"]
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].lower()
+        if role_email_exists(email, User.ROLE_BUSINESS_MANAGER):
+            raise ValidationError("A business manager with this email already exists.")
+        return email
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.role = User.ROLE_BUSINESS_MANAGER
+        user.email = user.email.lower()
+        user.must_change_password = False
+        user.calling_number = None
+        user.whatsapp_number = ""
+        user.set_unusable_password()
+        if commit:
+            user.save()
+        return user
+
+
+class BusinessManagerUpdateForm(FixedRoleUserFormMixin, StyledFormMixin, forms.ModelForm):
+    target_role = User.ROLE_BUSINESS_MANAGER
+
+    class Meta:
+        model = User
+        fields = ["name", "email", "is_active"]
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].lower()
+        if role_email_exists(email, User.ROLE_BUSINESS_MANAGER, exclude_pk=self.instance.pk):
+            raise ValidationError("A business manager with this email already exists.")
+        return email
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.role = User.ROLE_BUSINESS_MANAGER
+        user.calling_number = None
+        user.whatsapp_number = ""
+        if commit:
+            user.save()
+        return user
+
+
 class SupervisorAccessEmailForm(StyledFormMixin, forms.ModelForm):
     reactivated_instance = None
 
@@ -353,6 +407,184 @@ class ImportBatchForm(StyledFormMixin, forms.ModelForm):
         widgets = {
             "import_date": forms.DateInput(attrs={"type": "date"}),
         }
+
+
+class CashflowSnapshotUploadForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = CashflowSnapshot
+        fields = ["as_of_date", "payables_file", "provisions_file", "receivables_file"]
+        widgets = {
+            "as_of_date": forms.DateInput(attrs={"type": "date"}),
+        }
+
+
+class CashflowCollectionRevisionForm(StyledFormMixin, forms.Form):
+    revised_collection_date = forms.DateField(
+        widget=forms.DateInput(attrs={"type": "date"}),
+        label="Revised collection date",
+    )
+
+
+CASHFLOW_PLAN_SLOT_COUNT = 12
+
+
+class CashflowImportedItemForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = CashflowImportedItem
+        fields = [
+            "primary_classification",
+            "secondary_classification",
+            "cost_type",
+            "recurring_payable_day",
+        ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for position in range(1, CASHFLOW_PLAN_SLOT_COUNT + 1):
+            self.fields[f"plan_{position}_amount"] = forms.DecimalField(
+                required=False,
+                min_value=0,
+                decimal_places=2,
+                max_digits=14,
+                label=f"Payment {position} amount",
+            )
+            self.fields[f"plan_{position}_date"] = forms.DateField(
+                required=False,
+                widget=forms.DateInput(attrs={"type": "date"}),
+                label=f"Payment {position} date",
+            )
+        if self.instance.pk:
+            existing_plans = list(self.instance.payment_plans.all())
+            for index, plan in enumerate(existing_plans[:CASHFLOW_PLAN_SLOT_COUNT], start=1):
+                self.fields[f"plan_{index}_amount"].initial = plan.amount
+                self.fields[f"plan_{index}_date"].initial = plan.payment_date
+        self._apply_classes()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        cost_type = cleaned_data.get("cost_type")
+        recurring_day = cleaned_data.get("recurring_payable_day")
+        if cost_type == CashflowImportedItem.COST_RECURRING and not recurring_day:
+            self.add_error("recurring_payable_day", "Recurring monthly items must include an approximate payable day.")
+        payment_rows = []
+        for position in range(1, CASHFLOW_PLAN_SLOT_COUNT + 1):
+            amount = cleaned_data.get(f"plan_{position}_amount")
+            payment_date = cleaned_data.get(f"plan_{position}_date")
+            if amount is None and payment_date is None:
+                continue
+            if amount is None:
+                self.add_error(f"plan_{position}_amount", "Payment amount is required when a payment date is entered.")
+                continue
+            if payment_date is None:
+                self.add_error(f"plan_{position}_date", "Payment date is required when a payment amount is entered.")
+                continue
+            payment_rows.append(
+                {
+                    "position": position,
+                    "amount": amount,
+                    "payment_date": payment_date,
+                }
+            )
+        cleaned_data["payment_plan_rows"] = payment_rows
+        if self.instance.pk and self.instance.is_outflow:
+            total_amount = sum((row["amount"] for row in payment_rows), Decimal("0.00"))
+            if total_amount != (self.instance.amount or Decimal("0.00")):
+                raise ValidationError(
+                    f"Payment plan total must equal the imported amount of Rs {self.instance.amount}."
+                )
+        return cleaned_data
+
+
+class CashflowProjectedCollectionForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = CashflowProjectedCollection
+        fields = [
+            "company_name",
+            "description",
+            "amount",
+            "expected_collection_date",
+            "revised_collection_date",
+        ]
+        widgets = {
+            "expected_collection_date": forms.DateInput(attrs={"type": "date"}),
+            "revised_collection_date": forms.DateInput(attrs={"type": "date"}),
+        }
+
+    def clean_company_name(self):
+        return (self.cleaned_data.get("company_name") or "").strip()
+
+    def clean_description(self):
+        return (self.cleaned_data.get("description") or "").strip()
+
+
+WORK_ORDER_INSTALLMENT_SLOT_COUNT = 8
+
+
+class CashflowWorkOrderRequestForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = CashflowWorkOrderRequest
+        fields = ["description", "party_name", "total_amount"]
+        widgets = {
+            "description": forms.Textarea(attrs={"rows": 4}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for position in range(1, WORK_ORDER_INSTALLMENT_SLOT_COUNT + 1):
+            self.fields[f"installment_{position}_amount"] = forms.DecimalField(
+                required=False,
+                min_value=0,
+                decimal_places=2,
+                max_digits=14,
+                label=f"Installment {position} amount",
+            )
+            self.fields[f"installment_{position}_payment_date"] = forms.DateField(
+                required=False,
+                widget=forms.DateInput(attrs={"type": "date"}),
+                label=f"Installment {position} payment date",
+            )
+        self._apply_classes()
+
+    def clean_party_name(self):
+        return (self.cleaned_data.get("party_name") or "").strip()
+
+    def clean_description(self):
+        return (self.cleaned_data.get("description") or "").strip()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        installment_rows = []
+        for position in range(1, WORK_ORDER_INSTALLMENT_SLOT_COUNT + 1):
+            amount = cleaned_data.get(f"installment_{position}_amount")
+            payment_date = cleaned_data.get(f"installment_{position}_payment_date")
+            if amount is None and payment_date is None:
+                continue
+            if amount is None:
+                self.add_error(
+                    f"installment_{position}_amount",
+                    "Installment amount is required when a payment date is entered.",
+                )
+                continue
+            if payment_date is None:
+                self.add_error(
+                    f"installment_{position}_payment_date",
+                    "Payment date is required when an installment amount is entered.",
+                )
+                continue
+            installment_rows.append(
+                {
+                    "position": position,
+                    "amount": amount,
+                    "payment_date": payment_date,
+                }
+            )
+        if not installment_rows:
+            raise ValidationError("At least one installment amount and payment date is required.")
+        total_amount = sum((row["amount"] for row in installment_rows), Decimal("0.00"))
+        if cleaned_data.get("total_amount") is not None and total_amount != cleaned_data["total_amount"]:
+            raise ValidationError("The sum of installment amounts must equal the total amount.")
+        cleaned_data["installment_rows"] = installment_rows
+        return cleaned_data
 
 
 class PublicDownloadUploadForm(StyledFormMixin, forms.ModelForm):
@@ -664,8 +896,9 @@ class ContractCollectionForm(StyledFormMixin, forms.ModelForm):
     installment_6_service_description = installment_textarea_field("Installment 6 invoiced service description")
     installment_6_legal_due_reason = installment_textarea_field("Installment 6 why the invoice is legally due")
 
-    def __init__(self, *args, allow_locked_field_edits=False, **kwargs):
+    def __init__(self, *args, allow_locked_field_edits=False, allow_expected_collection_date_edits=False, **kwargs):
         self.allow_locked_field_edits = allow_locked_field_edits
+        self.allow_expected_collection_date_edits = allow_expected_collection_date_edits
         super().__init__(*args, **kwargs)
         self.fields["sales_manager"].queryset = User.objects.filter(
             role=User.ROLE_SALES_MANAGER,
@@ -688,7 +921,9 @@ class ContractCollectionForm(StyledFormMixin, forms.ModelForm):
                     self.fields[f"installment_{position}_invoice_date"].disabled = not self.allow_locked_field_edits
                 if installment.expected_collection_date is not None:
                     self.fields[f"installment_{position}_expected_collection_date"].initial = installment.expected_collection_date
-                    self.fields[f"installment_{position}_expected_collection_date"].disabled = not self.allow_locked_field_edits
+                    self.fields[f"installment_{position}_expected_collection_date"].disabled = not (
+                        self.allow_locked_field_edits or self.allow_expected_collection_date_edits
+                    )
                 if installment.revised_collection_date is not None:
                     self.fields[f"installment_{position}_revised_collection_date"].initial = installment.revised_collection_date
                 self.fields[f"installment_{position}_contract_summary"].initial = installment.contract_summary

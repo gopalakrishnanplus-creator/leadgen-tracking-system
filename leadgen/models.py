@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 from urllib.parse import urljoin, urlparse, urlunparse
 
 from django.conf import settings
@@ -15,11 +16,13 @@ class User(AbstractUser):
     ROLE_STAFF = "staff"
     ROLE_SALES_MANAGER = "sales_manager"
     ROLE_FINANCE_MANAGER = "finance_manager"
+    ROLE_BUSINESS_MANAGER = "business_manager"
     ROLE_CHOICES = [
         (ROLE_SUPERVISOR, "Supervisor"),
         (ROLE_STAFF, "Lead Gen Staff"),
         (ROLE_SALES_MANAGER, "Sales Manager"),
         (ROLE_FINANCE_MANAGER, "Finance Manager"),
+        (ROLE_BUSINESS_MANAGER, "Business Manager"),
     ]
 
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_STAFF)
@@ -41,8 +44,15 @@ class User(AbstractUser):
     def clean(self):
         if self.role == self.ROLE_STAFF and not self.calling_number:
             raise ValidationError("Lead gen staff must have a calling number.")
-        if self.role in {self.ROLE_SUPERVISOR, self.ROLE_SALES_MANAGER, self.ROLE_FINANCE_MANAGER} and self.calling_number:
-            raise ValidationError("Supervisor, sales manager, and finance manager accounts cannot have a calling number.")
+        if self.role in {
+            self.ROLE_SUPERVISOR,
+            self.ROLE_SALES_MANAGER,
+            self.ROLE_FINANCE_MANAGER,
+            self.ROLE_BUSINESS_MANAGER,
+        } and self.calling_number:
+            raise ValidationError(
+                "Supervisor, sales manager, finance manager, and business manager accounts cannot have a calling number."
+            )
 
     def save(self, *args, **kwargs):
         self.email = (self.email or "").lower()
@@ -72,6 +82,10 @@ class User(AbstractUser):
     @property
     def is_finance_manager(self):
         return self.role == self.ROLE_FINANCE_MANAGER
+
+    @property
+    def is_business_manager(self):
+        return self.role == self.ROLE_BUSINESS_MANAGER
 
     def __str__(self):
         return self.name or self.email
@@ -844,3 +858,198 @@ class DirectMarketingActivity(models.Model):
 
     def __str__(self):
         return f"{self.therapy_area} / {self.sent_on:%Y-%m-%d}"
+
+
+class CashflowSnapshot(models.Model):
+    as_of_date = models.DateField()
+    payables_file = models.FileField(upload_to="cashflow-imports/")
+    provisions_file = models.FileField(upload_to="cashflow-imports/")
+    receivables_file = models.FileField(upload_to="cashflow-imports/")
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="cashflow_snapshots",
+        on_delete=models.PROTECT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-as_of_date", "-created_at"]
+        indexes = [
+            models.Index(fields=["as_of_date", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"Cashflow snapshot {self.as_of_date:%Y-%m-%d}"
+
+
+class CashflowImportedItem(models.Model):
+    CATEGORY_PAYABLE = "payable"
+    CATEGORY_PROVISION = "provision"
+    CATEGORY_RECEIVABLE = "receivable"
+    CATEGORY_CHOICES = [
+        (CATEGORY_PAYABLE, "Payable"),
+        (CATEGORY_PROVISION, "Provision"),
+        (CATEGORY_RECEIVABLE, "Receivable"),
+    ]
+
+    COST_ONE_TIME = "one_time"
+    COST_RECURRING = "recurring_monthly"
+    COST_TYPE_CHOICES = [
+        (COST_ONE_TIME, "One-time cost"),
+        (COST_RECURRING, "Repetitive monthly cost"),
+    ]
+
+    snapshot = models.ForeignKey(
+        CashflowSnapshot,
+        related_name="items",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+    )
+    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    source_key = models.CharField(max_length=255)
+    party_name = models.CharField(max_length=255)
+    description = models.CharField(max_length=255, blank=True)
+    reference_number = models.CharField(max_length=255, blank=True)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    due_date = models.DateField(blank=True, null=True)
+    primary_classification = models.CharField(max_length=255, blank=True)
+    secondary_classification = models.CharField(max_length=255, blank=True)
+    cost_type = models.CharField(max_length=32, choices=COST_TYPE_CHOICES, blank=True)
+    recurring_payable_day = models.PositiveSmallIntegerField(blank=True, null=True)
+    raw_row = models.JSONField(default=dict, blank=True)
+    is_current = models.BooleanField(default=True)
+    first_seen_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["category", "party_name", "reference_number", "description"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["category", "source_key"],
+                name="unique_cashflow_imported_item_source",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["category", "is_current"]),
+            models.Index(fields=["due_date", "category"]),
+            models.Index(fields=["primary_classification", "secondary_classification"]),
+        ]
+
+    def clean(self):
+        if self.category in {self.CATEGORY_PAYABLE, self.CATEGORY_PROVISION}:
+            if not self.primary_classification:
+                return
+            if self.cost_type == self.COST_RECURRING and not self.recurring_payable_day:
+                raise ValidationError("Recurring monthly items must include an approximate payable day in the month.")
+        if self.recurring_payable_day and not 1 <= self.recurring_payable_day <= 31:
+            raise ValidationError("Recurring payable day must be between 1 and 31.")
+
+    @property
+    def is_outflow(self):
+        return self.category in {self.CATEGORY_PAYABLE, self.CATEGORY_PROVISION}
+
+    @property
+    def plan_total(self):
+        return sum((plan.amount for plan in self.payment_plans.all()), Decimal("0.00"))
+
+    @property
+    def has_complete_payment_plan(self):
+        if not self.is_outflow:
+            return True
+        return self.payment_plans.exists() and self.plan_total == (self.amount or Decimal("0.00"))
+
+    def __str__(self):
+        return f"{self.get_category_display()} / {self.party_name} / {self.amount}"
+
+
+class CashflowPaymentPlanEntry(models.Model):
+    cashflow_item = models.ForeignKey(
+        CashflowImportedItem,
+        related_name="payment_plans",
+        on_delete=models.CASCADE,
+    )
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    payment_date = models.DateField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["payment_date", "pk"]
+        indexes = [
+            models.Index(fields=["payment_date"]),
+        ]
+
+    def __str__(self):
+        return f"{self.cashflow_item.party_name} / {self.amount} / {self.payment_date:%Y-%m-%d}"
+
+
+class CashflowProjectedCollection(models.Model):
+    company_name = models.CharField(max_length=255)
+    description = models.CharField(max_length=255, blank=True)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    expected_collection_date = models.DateField()
+    revised_collection_date = models.DateField(blank=True, null=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="cashflow_projected_collections",
+        on_delete=models.PROTECT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["expected_collection_date", "company_name"]
+        indexes = [
+            models.Index(fields=["expected_collection_date", "revised_collection_date"]),
+        ]
+
+    @property
+    def effective_collection_date(self):
+        return self.revised_collection_date or self.expected_collection_date
+
+    def __str__(self):
+        return f"{self.company_name} / {self.amount} / {self.effective_collection_date:%Y-%m-%d}"
+
+
+class CashflowWorkOrderRequest(models.Model):
+    description = models.TextField()
+    party_name = models.CharField(max_length=255)
+    total_amount = models.DecimalField(max_digits=14, decimal_places=2)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="cashflow_work_order_requests",
+        on_delete=models.PROTECT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.party_name} / {self.total_amount}"
+
+
+class CashflowWorkOrderInstallment(models.Model):
+    work_order = models.ForeignKey(
+        CashflowWorkOrderRequest,
+        related_name="installments",
+        on_delete=models.CASCADE,
+    )
+    position = models.PositiveSmallIntegerField()
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    payment_date = models.DateField()
+
+    class Meta:
+        ordering = ["position", "payment_date"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["work_order", "position"],
+                name="unique_cashflow_work_order_installment_position",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.work_order.party_name} / installment {self.position}"

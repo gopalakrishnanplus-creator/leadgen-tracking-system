@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Cashflow Work Orders{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>Work orders for non-operational items</h1>
+        <p class="note">These requests email finance managers so they can create the corresponding provisions in Tally.</p>
+    </div>
+    <div class="button-row">
+        <a class="button button-primary" href="{% url 'cashflow_work_order_create' %}">Add work order</a>
+        <a class="button" href="{% url 'cashflow_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>Party</th>
+                <th>Description</th>
+                <th>Total amount</th>
+                <th>Installments</th>
+                <th>Created by</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for work_order in work_orders %}
+            <tr>
+                <td>{{ work_order.party_name }}</td>
+                <td>{{ work_order.description }}</td>
+                <td>Rs {{ work_order.total_amount }}</td>
+                <td>
+                    {% for installment in work_order.installments.all %}
+                        <div>Rs {{ installment.amount }} on {{ installment.payment_date }}</div>
+                    {% endfor %}
+                </td>
+                <td>{{ work_order.created_by.name }}</td>
+                <td>{{ work_order.created_at }}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="6">No work orders have been sent yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

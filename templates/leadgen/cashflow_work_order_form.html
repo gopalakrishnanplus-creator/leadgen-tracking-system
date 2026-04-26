@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Add Work Order{% endblock %}
+{% block content %}
+<section class="panel form-panel">
+    <p class="eyebrow">{{ workspace_eyebrow }}</p>
+    <h1>Add work order for a non-operational item</h1>
+    <p class="note">The system will email finance managers. It does not create payable or provision rows directly.</p>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button class="button button-primary" type="submit">Email work order to finance</button>
+    </form>
+</section>
+{% endblock %}

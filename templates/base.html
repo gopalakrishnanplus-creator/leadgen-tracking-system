@@ -45,8 +45,18 @@
                         <a href="{% url 'contracts_dashboard' %}">Contracts</a>
                         <a href="{% url 'pending_collections' %}">Pending Collections</a>
                     {% elif request.current_workspace == "finance" %}
+                        <a href="{% url 'cashflow_dashboard' %}">Dashboard</a>
+                        <a href="{% url 'cashflow_uploads' %}">Upload Tally Data</a>
+                        <a href="{% url 'cashflow_projection' %}">12-Week Projection</a>
                         <a href="{% url 'contracts_dashboard' %}">Contracts</a>
                         <a href="{% url 'pending_collections' %}">Pending Collections</a>
+                    {% elif request.current_workspace == "business" %}
+                        <a href="{% url 'cashflow_dashboard' %}">Dashboard</a>
+                        <a href="{% url 'cashflow_action_centre' %}">Action Centre</a>
+                        <a href="{% url 'cashflow_outflow_list' %}">Payables & Provisions</a>
+                        <a href="{% url 'cashflow_projected_collection_list' %}">Projected Collections</a>
+                        <a href="{% url 'cashflow_work_order_list' %}">Work Orders</a>
+                        <a href="{% url 'cashflow_projection' %}">12-Week Projection</a>
                     {% else %}
                         <a href="{% url 'staff_dashboard' %}">Dashboard</a>
                         <a href="{% url 'staff_prospect_list' %}">Prospects</a>

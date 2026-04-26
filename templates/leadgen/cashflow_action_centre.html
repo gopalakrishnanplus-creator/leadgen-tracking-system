@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Cashflow Action Centre{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>Cashflow action centre</h1>
+        <p class="note">Business managers must clear every missing payment plan and revise every overdue collection date before continuing elsewhere.</p>
+    </div>
+</section>
+<section class="panel">
+    <h2>Payables or provisions without a full payment plan</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Type</th>
+                <th>Party</th>
+                <th>Amount</th>
+                <th>Classification</th>
+                <th>Plan total</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for item in blockers.missing_payment_plans %}
+            <tr>
+                <td>{{ item.get_category_display }}</td>
+                <td>{{ item.party_name }}</td>
+                <td>Rs {{ item.amount }}</td>
+                <td>{% if item.primary_classification %}{{ item.primary_classification }}{% if item.secondary_classification %} / {{ item.secondary_classification }}{% endif %}{% else %}-{% endif %}</td>
+                <td>Rs {{ item.plan_total }}</td>
+                <td class="actions"><a href="{% url 'cashflow_outflow_update' item.id %}">Add or fix plan</a></td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="6">Every current payable and provision has a full payment plan.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+<section class="panel">
+    <h2>Collections whose expected date has already passed</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Company</th>
+                <th>Installment</th>
+                <th>Amount</th>
+                <th>Current collection date</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for installment in blockers.overdue_installments %}
+            <tr>
+                <td>{{ installment.contract_collection.company_name }}</td>
+                <td>{{ installment.position }}</td>
+                <td>Rs {{ installment.installment_amount }}</td>
+                <td>{% if installment.revised_collection_date %}{{ installment.revised_collection_date }}{% else %}{{ installment.expected_collection_date }}{% endif %}</td>
+                <td class="actions"><a href="{% url 'cashflow_overdue_installment_update' installment.id %}">Revise date</a></td>
+            </tr>
+        {% endfor %}
+        {% for projected in blockers.overdue_projected_collections %}
+            <tr>
+                <td>{{ projected.company_name }}</td>
+                <td>Projected collection</td>
+                <td>Rs {{ projected.amount }}</td>
+                <td>{{ projected.effective_collection_date }}</td>
+                <td class="actions"><a href="{% url 'cashflow_projected_collection_update' projected.id %}">Revise date</a></td>
+            </tr>
+        {% endfor %}
+        {% if not blockers.overdue_installments and not blockers.overdue_projected_collections %}
+            <tr><td colspan="5">No overdue collections need revision.</td></tr>
+        {% endif %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

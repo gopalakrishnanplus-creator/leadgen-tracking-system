@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Cash Flow Dashboard{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>12-week cash flow dashboard</h1>
+        <p class="note">Track daily Tally uploads, payment plans, overdue collections, and rolling 12-week inflow and outflow.</p>
+    </div>
+    <div class="button-row">
+        {% if is_finance_workspace %}
+            <a class="button button-primary" href="{% url 'cashflow_uploads' %}">Upload today's Tally files</a>
+        {% endif %}
+        {% if is_business_workspace %}
+            <a class="button button-primary" href="{% url 'cashflow_action_centre' %}">Open action centre</a>
+            <a class="button" href="{% url 'cashflow_outflow_list' %}">Payables & provisions</a>
+            <a class="button" href="{% url 'cashflow_projected_collection_list' %}">Projected collections</a>
+            <a class="button" href="{% url 'cashflow_work_order_list' %}">Work orders</a>
+        {% endif %}
+        <a class="button" href="{% url 'cashflow_projection' %}">12-week projection</a>
+    </div>
+</section>
+<section class="stats-grid">
+    <article class="stat-card"><span>{{ payables_count }}</span><p>Current payables</p></article>
+    <article class="stat-card"><span>{{ provisions_count }}</span><p>Current provisions</p></article>
+    <article class="stat-card"><span>{{ receivables_count }}</span><p>Current receivables imports</p></article>
+    <article class="stat-card"><span>{{ missing_plan_count }}</span><p>Items missing payment plans</p></article>
+    <article class="stat-card"><span>{{ overdue_collection_count }}</span><p>Overdue collections needing revision</p></article>
+    <article class="stat-card"><span>{{ projected_collection_count }}</span><p>Projected collections</p></article>
+</section>
+<section class="panel">
+    <h2>Latest finance upload</h2>
+    {% if latest_snapshot %}
+        <p><strong>As of date:</strong> {{ latest_snapshot.as_of_date }}</p>
+        <p><strong>Uploaded by:</strong> {{ latest_snapshot.uploaded_by.name }}</p>
+        <p><strong>Uploaded at:</strong> {{ latest_snapshot.created_at }}</p>
+    {% else %}
+        <p class="note">No Tally snapshot has been uploaded yet.</p>
+    {% endif %}
+</section>
+{% endblock %}

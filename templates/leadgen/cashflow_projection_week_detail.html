@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Cash Flow Week {{ week.index }}{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>Week {{ week.index }} cash flow detail</h1>
+        <p class="note">{{ week.start_date }} to {{ week.end_date }}</p>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'cashflow_projection' %}">Back to projection</a>
+    </div>
+</section>
+<section class="two-col">
+    <div class="panel">
+        <h2>Incoming</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Source</th>
+                    <th>Description</th>
+                    <th>Date</th>
+                    <th>Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for row in week.inflows %}
+                <tr>
+                    <td>{{ row.label }}</td>
+                    <td>{{ row.description|default:"-" }}</td>
+                    <td>{{ row.transaction_date }}</td>
+                    <td>Rs {{ row.transaction_amount }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="4">No incoming transactions in this week.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="panel">
+        <h2>Outgoing</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Source</th>
+                    <th>Description</th>
+                    <th>Date</th>
+                    <th>Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for row in week.outflows %}
+                <tr>
+                    <td>{{ row.label }}</td>
+                    <td>{{ row.description|default:"-" }}</td>
+                    <td>{{ row.transaction_date }}</td>
+                    <td>Rs {{ row.transaction_amount }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="4">No outgoing transactions in this week.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

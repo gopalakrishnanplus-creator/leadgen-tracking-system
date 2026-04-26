@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from decimal import Decimal
 import os
 import tempfile
 from types import SimpleNamespace
@@ -19,6 +20,8 @@ from openpyxl import Workbook
 
 from .adapters import LeadgenSocialAccountAdapter, SHARED_SUPERVISOR_USER_EMAIL
 from .forms import (
+    BusinessManagerCreateForm,
+    CashflowImportedItemForm,
     ContractCollectionForm,
     FinanceManagerCreateForm,
     MeetingStatusUpdateForm,
@@ -32,6 +35,10 @@ from .forms import (
 from .models import (
     CallImportBatch,
     CallLog,
+    CashflowImportedItem,
+    CashflowPaymentPlanEntry,
+    CashflowProjectedCollection,
+    CashflowSnapshot,
     ContractCollection,
     ContractCollectionInstallment,
     DirectMarketingActivity,
@@ -49,13 +56,16 @@ from .services import (
     available_whatsapp_reminder_choices,
     apply_call_outcome,
     backfill_sales_conversations_from_happened_meetings,
+    build_cashflow_projection,
     business_localdate,
+    cashflow_business_blockers,
     build_calendar_invite,
     build_daily_target_report,
     build_pending_collections,
     build_reminder_dashboard,
     build_supervisor_report,
     get_or_create_contract_collection_from_sales_conversation,
+    import_cashflow_snapshot,
     import_exotel_report,
     log_whatsapp_reminder,
     send_email,
@@ -133,6 +143,14 @@ class LeadgenWorkflowTests(TestCase):
         )
         self.finance_manager.set_unusable_password()
         self.finance_manager.save()
+        self.business_manager = User.objects.create(
+            email="business@example.com",
+            username="business@example.com",
+            role=User.ROLE_BUSINESS_MANAGER,
+            name="Business User",
+        )
+        self.business_manager.set_unusable_password()
+        self.business_manager.save()
         SystemSetting.load()
         self.prospect = Prospect.objects.create(
             company_name="Acme",
@@ -193,6 +211,22 @@ class LeadgenWorkflowTests(TestCase):
         )
         import_exotel_report(batch)
         return batch
+
+    def _cashflow_workbook_upload(self, filename, headers, rows):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(headers)
+        for row in rows:
+            sheet.append(row)
+        from io import BytesIO
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        return SimpleUploadedFile(
+            filename,
+            buffer.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
     def test_scheduled_outcome_creates_meeting(self):
@@ -1475,10 +1509,10 @@ class LeadgenWorkflowTests(TestCase):
         response = self.client.get("/")
         self.assertRedirects(response, "/sales/")
 
-    def test_home_redirects_finance_manager_to_contracts(self):
+    def test_home_redirects_finance_manager_to_cashflow_upload_gate(self):
         self.client.force_login(self.finance_manager)
-        response = self.client.get("/")
-        self.assertRedirects(response, "/contracts/")
+        response = self.client.get("/", follow=True)
+        self.assertRedirects(response, "/cashflow/uploads/")
 
     def test_prospect_form_accepts_linkedin_without_scheme(self):
         form = ProspectCreateForm(
@@ -2318,6 +2352,26 @@ class LeadgenWorkflowTests(TestCase):
             contract_value="120000.00",
             created_by=self.supervisor,
         )
+        snapshot = CashflowSnapshot.objects.create(
+            as_of_date=timezone.localdate(),
+            payables_file=self._cashflow_workbook_upload(
+                "payables.xlsx",
+                ["Party Name", "Pending Amount"],
+                [["Vendor A", 1000]],
+            ),
+            provisions_file=self._cashflow_workbook_upload(
+                "provisions.xlsx",
+                ["Party Name", "Amount"],
+                [["Provision A", 500]],
+            ),
+            receivables_file=self._cashflow_workbook_upload(
+                "receivables.xlsx",
+                ["Customer Name", "Outstanding Amount"],
+                [["Customer A", 1500]],
+            ),
+            uploaded_by=self.finance_manager,
+        )
+        import_cashflow_snapshot(snapshot)
         self.client.force_login(self.finance_manager)
         response = self.client.get("/contracts/")
         self.assertEqual(response.status_code, 200)
@@ -2805,5 +2859,168 @@ class LeadgenWorkflowTests(TestCase):
                 "public downloads",
                 max_size=PUBLIC_DOWNLOAD_MAX_FILE_SIZE,
             )
+
+    def test_business_manager_create_form_creates_role_specific_user(self):
+        form = BusinessManagerCreateForm(
+            data={
+                "name": "Business Planning User",
+                "email": "planner@example.com",
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        user = form.save()
+        self.assertEqual(user.role, User.ROLE_BUSINESS_MANAGER)
+        self.assertEqual(user.calling_number, None)
+
+    def test_cashflow_snapshot_import_creates_current_items(self):
+        snapshot = CashflowSnapshot.objects.create(
+            as_of_date=datetime(2026, 4, 26).date(),
+            payables_file=self._cashflow_workbook_upload(
+                "payables.xlsx",
+                ["Party Name", "Pending Amount", "Due Date", "Reference"],
+                [["Vendor A", 50000, "2026-04-30", "INV-1"]],
+            ),
+            provisions_file=self._cashflow_workbook_upload(
+                "provisions.xlsx",
+                ["Ledger Name", "Amount", "Date", "Description"],
+                [["Agency Fees", 12000, "2026-04-28", "April provision"]],
+            ),
+            receivables_file=self._cashflow_workbook_upload(
+                "receivables.xlsx",
+                ["Customer Name", "Outstanding Amount", "Due Date"],
+                [["Customer A", 75000, "2026-05-03"]],
+            ),
+            uploaded_by=self.finance_manager,
+        )
+        counts = import_cashflow_snapshot(snapshot)
+        self.assertEqual(counts[CashflowImportedItem.CATEGORY_PAYABLE], 1)
+        self.assertEqual(counts[CashflowImportedItem.CATEGORY_PROVISION], 1)
+        self.assertEqual(counts[CashflowImportedItem.CATEGORY_RECEIVABLE], 1)
+        payable = CashflowImportedItem.objects.get(category=CashflowImportedItem.CATEGORY_PAYABLE)
+        self.assertEqual(payable.party_name, "Vendor A")
+        self.assertEqual(str(payable.amount), "50000.00")
+        self.assertEqual(str(payable.due_date), "2026-04-30")
+        self.assertTrue(payable.is_current)
+
+    def test_cashflow_business_blockers_include_missing_plans_and_overdue_collections(self):
+        today = datetime(2026, 4, 26).date()
+        CashflowImportedItem.objects.create(
+            category=CashflowImportedItem.CATEGORY_PAYABLE,
+            source_key="payable|vendor-a",
+            party_name="Vendor A",
+            amount="1000.00",
+            is_current=True,
+        )
+        contract_collection = ContractCollection.objects.create(
+            company_name="Client A",
+            sales_manager=self.sales_manager,
+            created_by=self.supervisor,
+        )
+        ContractCollectionInstallment.objects.create(
+            contract_collection=contract_collection,
+            position=1,
+            installment_amount="2500.00",
+            invoice_date=today - timedelta(days=10),
+            expected_collection_date=today - timedelta(days=2),
+            contract_summary="Contract A",
+            invoiced_service_description="Service A",
+            legal_due_reason="Due under contract",
+        )
+        CashflowProjectedCollection.objects.create(
+            company_name="Client B",
+            description="Projected retainer",
+            amount="3000.00",
+            expected_collection_date=today - timedelta(days=3),
+            created_by=self.business_manager,
+        )
+        blockers = cashflow_business_blockers(today=today)
+        self.assertEqual(len(blockers["missing_payment_plans"]), 1)
+        self.assertEqual(len(blockers["overdue_installments"]), 1)
+        self.assertEqual(len(blockers["overdue_projected_collections"]), 1)
+        self.assertTrue(blockers["is_blocked"])
+
+    def test_cashflow_projection_builds_inflows_outflows_and_future_provisions(self):
+        start_date = datetime(2026, 4, 26).date()
+        one_time_item = CashflowImportedItem.objects.create(
+            category=CashflowImportedItem.CATEGORY_PAYABLE,
+            source_key="payable|vendor-b",
+            party_name="Vendor B",
+            amount="100.00",
+            is_current=True,
+            primary_classification="Sales and marketing",
+            secondary_classification="Advertising",
+            cost_type=CashflowImportedItem.COST_ONE_TIME,
+        )
+        CashflowPaymentPlanEntry.objects.create(
+            cashflow_item=one_time_item,
+            amount="100.00",
+            payment_date=start_date + timedelta(days=3),
+        )
+        recurring_item = CashflowImportedItem.objects.create(
+            category=CashflowImportedItem.CATEGORY_PROVISION,
+            source_key="provision|rent",
+            party_name="Office Rent",
+            amount="75.00",
+            is_current=True,
+            primary_classification="Admin",
+            secondary_classification="Rent",
+            cost_type=CashflowImportedItem.COST_RECURRING,
+            recurring_payable_day=5,
+        )
+        contract_collection = ContractCollection.objects.create(
+            company_name="Client C",
+            sales_manager=self.sales_manager,
+            created_by=self.supervisor,
+        )
+        ContractCollectionInstallment.objects.create(
+            contract_collection=contract_collection,
+            position=1,
+            installment_amount="300.00",
+            invoice_date=start_date - timedelta(days=2),
+            expected_collection_date=start_date + timedelta(days=2),
+            contract_summary="Contract C",
+            invoiced_service_description="Campaign",
+            legal_due_reason="Due under contract",
+        )
+        CashflowProjectedCollection.objects.create(
+            company_name="Client D",
+            description="New contract projection",
+            amount="125.00",
+            expected_collection_date=start_date + timedelta(days=8),
+            created_by=self.business_manager,
+        )
+        projection = build_cashflow_projection(start_date=start_date)
+        self.assertEqual(projection["weeks"][0]["inflow_total"], Decimal("300.00"))
+        self.assertEqual(projection["weeks"][0]["outflow_total"], Decimal("100.00"))
+        self.assertEqual(projection["weeks"][1]["inflow_total"], Decimal("125.00"))
+        self.assertEqual(projection["weeks"][1]["outflow_total"], Decimal("75.00"))
+        self.assertTrue(
+            any(row["source_type"] == "future_provision" for row in projection["weeks"][1]["outflows"])
+        )
+
+    def test_sales_manager_can_edit_existing_expected_collection_dates(self):
+        contract_collection = ContractCollection.objects.create(
+            company_name="Client E",
+            sales_manager=self.sales_manager,
+            created_by=self.supervisor,
+            contract_value="5000.00",
+        )
+        installment = ContractCollectionInstallment.objects.create(
+            contract_collection=contract_collection,
+            position=1,
+            installment_amount="2500.00",
+            invoice_date=datetime(2026, 4, 1).date(),
+            expected_collection_date=datetime(2026, 4, 15).date(),
+            contract_summary="Contract E",
+            invoiced_service_description="Service E",
+            legal_due_reason="Due under contract",
+        )
+        form = ContractCollectionForm(
+            instance=contract_collection,
+            allow_locked_field_edits=False,
+            allow_expected_collection_date_edits=True,
+        )
+        self.assertFalse(form.fields["installment_1_expected_collection_date"].disabled)
+        self.assertTrue(form.fields["installment_1_amount"].disabled)
 
 # Create your tests here.

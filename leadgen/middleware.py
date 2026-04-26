@@ -18,11 +18,13 @@ class AccessControlMiddleware:
         request.has_staff_workspace_access = False
         request.has_sales_workspace_access = False
         request.has_finance_workspace_access = False
+        request.has_business_workspace_access = False
         request.is_dual_workspace_user = False
         request.available_workspaces = []
         request.staff_workspace_user = None
         request.sales_workspace_user = None
         request.finance_workspace_user = None
+        request.business_workspace_user = None
         request.login_email = None
         request.current_workspace = None
         request.can_manage_users = False
@@ -36,6 +38,7 @@ class AccessControlMiddleware:
                 User.ROLE_STAFF,
                 User.ROLE_SALES_MANAGER,
                 User.ROLE_FINANCE_MANAGER,
+                User.ROLE_BUSINESS_MANAGER,
                 }:
                 logout(request)
                 messages.error(request, "Your account role is invalid.")
@@ -56,11 +59,13 @@ class AccessControlMiddleware:
             request.staff_workspace_user = workspace_users.filter(role=User.ROLE_STAFF).order_by("pk").first()
             request.sales_workspace_user = workspace_users.filter(role=User.ROLE_SALES_MANAGER).order_by("pk").first()
             request.finance_workspace_user = workspace_users.filter(role=User.ROLE_FINANCE_MANAGER).order_by("pk").first()
+            request.business_workspace_user = workspace_users.filter(role=User.ROLE_BUSINESS_MANAGER).order_by("pk").first()
 
             request.has_supervisor_workspace_access = request.user.is_supervisor or supervisor_access is not None
             request.has_staff_workspace_access = request.staff_workspace_user is not None
             request.has_sales_workspace_access = request.sales_workspace_user is not None
             request.has_finance_workspace_access = request.finance_workspace_user is not None
+            request.has_business_workspace_access = request.business_workspace_user is not None
 
             available_workspaces = []
             if request.has_supervisor_workspace_access:
@@ -71,6 +76,8 @@ class AccessControlMiddleware:
                 available_workspaces.append("sales")
             if request.has_finance_workspace_access:
                 available_workspaces.append("finance")
+            if request.has_business_workspace_access:
+                available_workspaces.append("business")
             request.available_workspaces = available_workspaces
             request.is_dual_workspace_user = len(available_workspaces) > 1
 
@@ -88,6 +95,8 @@ class AccessControlMiddleware:
                 request.current_workspace = "sales"
             elif request.has_finance_workspace_access:
                 request.current_workspace = "finance"
+            elif request.has_business_workspace_access:
+                request.current_workspace = "business"
             else:
                 request.current_workspace = None
             request.can_manage_users = request.current_workspace == "supervisor" and request.has_supervisor_workspace_access

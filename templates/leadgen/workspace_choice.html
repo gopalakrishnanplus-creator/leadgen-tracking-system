@@ -43,9 +43,19 @@
         <article class="panel">
             <p class="eyebrow">Finance manager</p>
             <h2>Open the finance dashboard</h2>
-            <p class="note">Use this workspace for collections updates and invoice tracking.</p>
+            <p class="note">Use this workspace for daily Tally uploads, collections updates, and the 12-week cash flow.</p>
             <div class="button-row">
                 <a class="button button-primary" href="{% url 'select_workspace' 'finance' %}">Use as finance manager</a>
+            </div>
+        </article>
+    {% endif %}
+    {% if request.has_business_workspace_access %}
+        <article class="panel">
+            <p class="eyebrow">Business manager</p>
+            <h2>Open the business cash-flow dashboard</h2>
+            <p class="note">Use this workspace for payables planning, collection revisions, projected collections, and the 12-week cash flow.</p>
+            <div class="button-row">
+                <a class="button button-primary" href="{% url 'select_workspace' 'business' %}">Use as business manager</a>
             </div>
         </article>
     {% endif %}

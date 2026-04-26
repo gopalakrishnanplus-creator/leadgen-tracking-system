@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Revise Collection Date{% endblock %}
+{% block content %}
+<section class="panel form-panel">
+    <p class="eyebrow">{{ workspace_eyebrow }}</p>
+    <h1>{{ title }}</h1>
+    <p class="note">{{ object_label }}</p>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button class="button button-primary" type="submit">Save revised date</button>
+    </form>
+</section>
+{% endblock %}

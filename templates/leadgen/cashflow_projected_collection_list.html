@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Projected Collections{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>Projected collections</h1>
+        <p class="note">Add collection amounts and dates for new contracts that are not yet represented in signed contract installments.</p>
+    </div>
+    <div class="button-row">
+        <a class="button button-primary" href="{% url 'cashflow_projected_collection_create' %}">Add projected collection</a>
+        <a class="button" href="{% url 'cashflow_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>Company</th>
+                <th>Description</th>
+                <th>Amount</th>
+                <th>Expected date</th>
+                <th>Revised date</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for collection in collections %}
+            <tr>
+                <td>{{ collection.company_name }}</td>
+                <td>{{ collection.description|default:"-" }}</td>
+                <td>Rs {{ collection.amount }}</td>
+                <td>{{ collection.expected_collection_date }}</td>
+                <td>{{ collection.revised_collection_date|default:"-" }}</td>
+                <td class="actions"><a href="{% url 'cashflow_projected_collection_update' collection.id %}">Edit</a></td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="6">No projected collections added yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

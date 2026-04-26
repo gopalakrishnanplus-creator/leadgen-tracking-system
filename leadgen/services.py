@@ -1,8 +1,9 @@
 import logging
 import base64
 import socket
+from calendar import monthrange
 from decimal import Decimal, InvalidOperation
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -19,6 +20,12 @@ from sendgrid import SendGridAPIClient
 from .models import (
     CallImportBatch,
     CallLog,
+    CashflowImportedItem,
+    CashflowPaymentPlanEntry,
+    CashflowProjectedCollection,
+    CashflowSnapshot,
+    CashflowWorkOrderInstallment,
+    CashflowWorkOrderRequest,
     ContractCollection,
     ContractCollectionContact,
     ContractCollectionFile,
@@ -74,6 +81,56 @@ REMINDER_LABELS = {
     MeetingReminder.TYPE_WHATSAPP_FINAL: "Second WhatsApp",
     MeetingReminder.TYPE_WHATSAPP_NO_SHOW: "48-hour no-show WhatsApp",
     MeetingReminder.TYPE_WHATSAPP_28_DAY: "28-day follow-up WhatsApp",
+}
+
+CASHFLOW_CATEGORY_FILE_FIELD_MAP = {
+    CashflowImportedItem.CATEGORY_PAYABLE: "payables_file",
+    CashflowImportedItem.CATEGORY_PROVISION: "provisions_file",
+    CashflowImportedItem.CATEGORY_RECEIVABLE: "receivables_file",
+}
+
+CASHFLOW_HEADER_ALIASES = {
+    "party_name": {
+        "party name",
+        "ledger name",
+        "account name",
+        "name",
+        "particulars",
+        "party",
+        "customer name",
+        "supplier name",
+    },
+    "amount": {
+        "amount",
+        "pending amount",
+        "outstanding amount",
+        "closing balance",
+        "balance",
+        "dr amount",
+        "cr amount",
+    },
+    "reference_number": {
+        "reference",
+        "ref no",
+        "reference no",
+        "bill ref",
+        "invoice no",
+        "voucher no",
+        "document no",
+        "bill no",
+    },
+    "description": {
+        "description",
+        "narration",
+        "details",
+        "particulars 2",
+    },
+    "due_date": {
+        "due date",
+        "bill due date",
+        "expected date",
+        "date",
+    },
 }
 
 
@@ -1001,6 +1058,454 @@ def active_leadgen_supervisor_emails():
     )
 
 
+def active_business_manager_emails():
+    return list(
+        User.objects.filter(role=User.ROLE_BUSINESS_MANAGER, is_active=True)
+        .exclude(email="")
+        .values_list("email", flat=True)
+    )
+
+
+def latest_cashflow_snapshot():
+    return CashflowSnapshot.objects.order_by("-as_of_date", "-created_at").first()
+
+
+def finance_upload_complete_for_date(target_date=None):
+    return CashflowSnapshot.objects.filter(as_of_date=target_date or business_localdate()).exists()
+
+
+def normalize_cashflow_header(value):
+    return " ".join("".join(ch.lower() if ch.isalnum() else " " for ch in str(value or "")).split())
+
+
+def parse_cashflow_date(value, tz_name=None):
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return timezone.localtime(value, ZoneInfo(tz_name or SystemSetting.load().default_timezone)).date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(text).date()
+    except ValueError:
+        return None
+
+
+def parse_cashflow_amount(value):
+    if value in (None, ""):
+        return None
+    if isinstance(value, Decimal):
+        return value.quantize(Decimal("0.01"))
+    if isinstance(value, (int, float)):
+        return Decimal(str(value)).quantize(Decimal("0.01"))
+    text = str(value).strip().replace(",", "")
+    if not text:
+        return None
+    text = text.replace("(", "-").replace(")", "")
+    try:
+        return Decimal(text).quantize(Decimal("0.01"))
+    except InvalidOperation:
+        return None
+
+
+def resolve_cashflow_columns(header_row):
+    normalized = {normalize_cashflow_header(value): index for index, value in enumerate(header_row)}
+    resolved = {}
+    for field_name, aliases in CASHFLOW_HEADER_ALIASES.items():
+        for alias in aliases:
+            if alias in normalized:
+                resolved[field_name] = normalized[alias]
+                break
+    missing = [field for field in ("party_name", "amount") if field not in resolved]
+    if missing:
+        raise ValueError(
+            "Could not find the required Tally columns: "
+            + ", ".join(missing)
+            + ". Accepted header names are flexible, but the file must contain a party/entity name and amount column."
+        )
+    return resolved
+
+
+def build_cashflow_source_key(category, party_name, reference_number, description, due_date, duplicate_index=1):
+    normalized_bits = [
+        category,
+        normalize_cashflow_header(party_name),
+        normalize_cashflow_header(reference_number),
+        normalize_cashflow_header(description),
+        due_date.isoformat() if due_date else "",
+    ]
+    key = "|".join(normalized_bits)
+    if duplicate_index > 1:
+        key = f"{key}|{duplicate_index}"
+    return key
+
+
+def import_cashflow_snapshot(snapshot):
+    imported_counts = {}
+    for category, file_field in CASHFLOW_CATEGORY_FILE_FIELD_MAP.items():
+        imported_counts[category] = _import_cashflow_file(
+            snapshot=snapshot,
+            category=category,
+            file_path=getattr(snapshot, file_field).path,
+        )
+    return imported_counts
+
+
+def _import_cashflow_file(snapshot, category, file_path):
+    workbook = load_workbook(file_path, data_only=True)
+    sheet = workbook[workbook.sheetnames[0]]
+    header = list(next(sheet.iter_rows(values_only=True)))
+    column_map = resolve_cashflow_columns(header)
+
+    CashflowImportedItem.objects.filter(category=category, is_current=True).update(is_current=False)
+    duplicate_counts = {}
+    touched_ids = []
+
+    for row in sheet.iter_rows(min_row=2, values_only=True):
+        if not any(row):
+            continue
+        party_name = str(row[column_map["party_name"]] or "").strip()
+        amount = parse_cashflow_amount(row[column_map["amount"]])
+        if not party_name or amount is None:
+            continue
+        reference_number = ""
+        if "reference_number" in column_map:
+            reference_number = str(row[column_map["reference_number"]] or "").strip()
+        description = ""
+        if "description" in column_map:
+            description = str(row[column_map["description"]] or "").strip()
+        due_date = None
+        if "due_date" in column_map:
+            due_date = parse_cashflow_date(row[column_map["due_date"]], tz_name=SystemSetting.load().default_timezone)
+        duplicate_identity = (
+            normalize_cashflow_header(party_name),
+            normalize_cashflow_header(reference_number),
+            normalize_cashflow_header(description),
+            due_date.isoformat() if due_date else "",
+        )
+        duplicate_counts[duplicate_identity] = duplicate_counts.get(duplicate_identity, 0) + 1
+        source_key = build_cashflow_source_key(
+            category=category,
+            party_name=party_name,
+            reference_number=reference_number,
+            description=description,
+            due_date=due_date,
+            duplicate_index=duplicate_counts[duplicate_identity],
+        )
+        item, _ = CashflowImportedItem.objects.update_or_create(
+            category=category,
+            source_key=source_key,
+            defaults={
+                "snapshot": snapshot,
+                "party_name": party_name,
+                "description": description,
+                "reference_number": reference_number,
+                "amount": amount,
+                "due_date": due_date,
+                "raw_row": {
+                    str(header[index]): ("" if value is None else str(value))
+                    for index, value in enumerate(row)
+                },
+                "is_current": True,
+            },
+        )
+        touched_ids.append(item.pk)
+    if touched_ids:
+        CashflowImportedItem.objects.filter(pk__in=touched_ids).update(is_current=True, snapshot=snapshot)
+    return len(touched_ids)
+
+
+def current_cashflow_items():
+    return CashflowImportedItem.objects.filter(is_current=True)
+
+
+def current_cashflow_outflow_items():
+    return current_cashflow_items().filter(
+        category__in=[CashflowImportedItem.CATEGORY_PAYABLE, CashflowImportedItem.CATEGORY_PROVISION]
+    ).prefetch_related("payment_plans")
+
+
+def current_cashflow_receivable_items():
+    return current_cashflow_items().filter(category=CashflowImportedItem.CATEGORY_RECEIVABLE)
+
+
+def cashflow_items_missing_payment_plan():
+    items = list(current_cashflow_outflow_items())
+    return [item for item in items if not item.has_complete_payment_plan]
+
+
+def contract_installment_effective_collection_date(installment):
+    return installment.revised_collection_date or installment.expected_collection_date
+
+
+def overdue_contract_installments(today=None):
+    today = today or business_localdate()
+    installments = (
+        ContractCollectionInstallment.objects.select_related("contract_collection", "contract_collection__sales_manager")
+        .filter(installment_amount__isnull=False)
+        .order_by("contract_collection__company_name", "position")
+    )
+    overdue = []
+    for installment in installments:
+        if installment.is_collected:
+            continue
+        effective_date = contract_installment_effective_collection_date(installment)
+        if effective_date and effective_date < today:
+            overdue.append(installment)
+    return overdue
+
+
+def overdue_projected_collections(today=None):
+    today = today or business_localdate()
+    return list(
+        CashflowProjectedCollection.objects.filter(
+            Q(revised_collection_date__lt=today)
+            | (Q(revised_collection_date__isnull=True) & Q(expected_collection_date__lt=today))
+        ).order_by("company_name", "expected_collection_date")
+    )
+
+
+def cashflow_business_blockers(today=None):
+    today = today or business_localdate()
+    missing_plans = cashflow_items_missing_payment_plan()
+    overdue_installments = overdue_contract_installments(today=today)
+    overdue_projections = overdue_projected_collections(today=today)
+    return {
+        "missing_payment_plans": missing_plans,
+        "overdue_installments": overdue_installments,
+        "overdue_projected_collections": overdue_projections,
+        "is_blocked": bool(missing_plans or overdue_installments or overdue_projections),
+    }
+
+
+def sync_cashflow_item_data(cashflow_item, cleaned_data):
+    cashflow_item.primary_classification = cleaned_data["primary_classification"]
+    cashflow_item.secondary_classification = cleaned_data["secondary_classification"]
+    cashflow_item.cost_type = cleaned_data["cost_type"]
+    cashflow_item.recurring_payable_day = cleaned_data["recurring_payable_day"] or None
+    cashflow_item.save()
+    cashflow_item.payment_plans.all().delete()
+    CashflowPaymentPlanEntry.objects.bulk_create(
+        [
+            CashflowPaymentPlanEntry(
+                cashflow_item=cashflow_item,
+                amount=row["amount"],
+                payment_date=row["payment_date"],
+            )
+            for row in cleaned_data["payment_plan_rows"]
+        ]
+    )
+    return cashflow_item
+
+
+def sync_projected_collection(projected_collection, cleaned_data):
+    projected_collection.company_name = cleaned_data["company_name"]
+    projected_collection.description = cleaned_data["description"]
+    projected_collection.amount = cleaned_data["amount"]
+    projected_collection.expected_collection_date = cleaned_data["expected_collection_date"]
+    projected_collection.revised_collection_date = cleaned_data["revised_collection_date"]
+    projected_collection.save()
+    return projected_collection
+
+
+def create_cashflow_work_order(cleaned_data, created_by):
+    work_order = CashflowWorkOrderRequest.objects.create(
+        description=cleaned_data["description"],
+        party_name=cleaned_data["party_name"],
+        total_amount=cleaned_data["total_amount"],
+        created_by=created_by,
+    )
+    CashflowWorkOrderInstallment.objects.bulk_create(
+        [
+            CashflowWorkOrderInstallment(
+                work_order=work_order,
+                position=row["position"],
+                amount=row["amount"],
+                payment_date=row["payment_date"],
+            )
+            for row in cleaned_data["installment_rows"]
+        ]
+    )
+    transaction.on_commit(lambda: send_cashflow_work_order_email(work_order.pk))
+    return work_order
+
+
+def send_cashflow_work_order_email(work_order_id):
+    work_order = CashflowWorkOrderRequest.objects.prefetch_related("installments").select_related("created_by").get(
+        pk=work_order_id
+    )
+    to_emails = unique_emails(active_finance_manager_emails())
+    if not to_emails:
+        raise ValueError("No active finance manager email is configured for work-order notifications.")
+    html_lines = [
+        f"<p>A business manager has requested a non-operational provision work order.</p>",
+        f"<p><strong>Party:</strong> {work_order.party_name}<br>",
+        f"<strong>Total amount:</strong> Rs {work_order.total_amount}<br>",
+        f"<strong>Description:</strong> {work_order.description}<br>",
+        f"<strong>Created by:</strong> {work_order.created_by.name}</p>",
+        "<ul>",
+    ]
+    text_lines = [
+        "A business manager has requested a non-operational provision work order.",
+        f"Party: {work_order.party_name}",
+        f"Total amount: Rs {work_order.total_amount}",
+        f"Description: {work_order.description}",
+        f"Created by: {work_order.created_by.name}",
+        "Installments:",
+    ]
+    for installment in work_order.installments.all():
+        html_lines.append(f"<li>Installment {installment.position}: Rs {installment.amount} on {installment.payment_date}</li>")
+        text_lines.append(f"- Installment {installment.position}: Rs {installment.amount} on {installment.payment_date}")
+    html_lines.append("</ul>")
+    send_email(
+        subject=f"Cashflow work order: {work_order.party_name}",
+        html_body="".join(html_lines),
+        text_body="\n".join(text_lines),
+        to_emails=to_emails,
+    )
+
+
+def build_twelve_week_windows(start_date=None, weeks=12):
+    start_date = start_date or business_localdate()
+    windows = []
+    for index in range(weeks):
+        period_start = start_date + timedelta(days=index * 7)
+        period_end = period_start + timedelta(days=6)
+        windows.append(
+            {
+                "index": index + 1,
+                "start_date": period_start,
+                "end_date": period_end,
+            }
+        )
+    return windows
+
+
+def _future_month_dates(start_date, end_date):
+    current_year = start_date.year
+    current_month = start_date.month
+    month_cursor = current_month + 1
+    year_cursor = current_year
+    dates = []
+    while True:
+        if month_cursor > 12:
+            month_cursor = 1
+            year_cursor += 1
+        first_of_month = date(year_cursor, month_cursor, 1)
+        if first_of_month > end_date:
+            break
+        dates.append(first_of_month)
+        month_cursor += 1
+    return dates
+
+
+def build_cashflow_projection(start_date=None, weeks=12):
+    start_date = start_date or business_localdate()
+    windows = build_twelve_week_windows(start_date=start_date, weeks=weeks)
+    end_date = windows[-1]["end_date"]
+    outflow_rows = []
+    inflow_rows = []
+
+    for item in current_cashflow_outflow_items():
+        for plan in item.payment_plans.all():
+            if start_date <= plan.payment_date <= end_date:
+                outflow_rows.append(
+                    {
+                        "source_type": item.category,
+                        "label": item.party_name,
+                        "description": item.description,
+                        "amount": item.amount,
+                        "transaction_amount": plan.amount,
+                        "transaction_date": plan.payment_date,
+                        "classification": item.primary_classification,
+                        "secondary_classification": item.secondary_classification,
+                        "object": item,
+                    }
+                )
+        if item.cost_type == CashflowImportedItem.COST_RECURRING and item.recurring_payable_day:
+            for first_of_month in _future_month_dates(start_date, end_date):
+                day = min(item.recurring_payable_day, monthrange(first_of_month.year, first_of_month.month)[1])
+                payment_date = date(first_of_month.year, first_of_month.month, day)
+                if start_date <= payment_date <= end_date:
+                    outflow_rows.append(
+                        {
+                            "source_type": "future_provision",
+                            "label": item.party_name,
+                            "description": item.description,
+                            "amount": item.amount,
+                            "transaction_amount": item.amount,
+                            "transaction_date": payment_date,
+                            "classification": item.primary_classification,
+                            "secondary_classification": item.secondary_classification,
+                            "object": item,
+                        }
+                    )
+
+    installments = (
+        ContractCollectionInstallment.objects.select_related("contract_collection", "contract_collection__sales_manager")
+        .filter(installment_amount__isnull=False)
+        .order_by("contract_collection__company_name", "position")
+    )
+    for installment in installments:
+        if installment.is_collected:
+            continue
+        collection_date = contract_installment_effective_collection_date(installment)
+        if collection_date and start_date <= collection_date <= end_date:
+            inflow_rows.append(
+                {
+                    "source_type": "contract_installment",
+                    "label": installment.contract_collection.company_name,
+                    "description": f"Installment {installment.position}",
+                    "transaction_amount": installment.installment_amount,
+                    "transaction_date": collection_date,
+                    "object": installment,
+                }
+            )
+
+    for projected in CashflowProjectedCollection.objects.all().order_by("company_name", "expected_collection_date"):
+        collection_date = projected.effective_collection_date
+        if collection_date and start_date <= collection_date <= end_date:
+            inflow_rows.append(
+                {
+                    "source_type": "projected_collection",
+                    "label": projected.company_name,
+                    "description": projected.description,
+                    "transaction_amount": projected.amount,
+                    "transaction_date": collection_date,
+                    "object": projected,
+                }
+            )
+
+    projection_rows = []
+    for window in windows:
+        week_inflows = [row for row in inflow_rows if window["start_date"] <= row["transaction_date"] <= window["end_date"]]
+        week_outflows = [row for row in outflow_rows if window["start_date"] <= row["transaction_date"] <= window["end_date"]]
+        inflow_total = sum((row["transaction_amount"] for row in week_inflows), Decimal("0.00"))
+        outflow_total = sum((row["transaction_amount"] for row in week_outflows), Decimal("0.00"))
+        projection_rows.append(
+            {
+                **window,
+                "inflow_total": inflow_total,
+                "outflow_total": outflow_total,
+                "net_total": inflow_total - outflow_total,
+                "inflows": week_inflows,
+                "outflows": week_outflows,
+            }
+        )
+    return {
+        "start_date": start_date,
+        "weeks": projection_rows,
+    }
+
+
 def sync_sales_conversation_data(sales_conversation, cleaned_data, uploaded_files=None, allow_company_name_edits=False):
     uploaded_files = uploaded_files or {}
     if not sales_conversation.pk or allow_company_name_edits:
@@ -1129,7 +1634,13 @@ def get_or_create_contract_collection_from_sales_conversation(sales_conversation
     return contract_collection
 
 
-def sync_contract_collection_data(contract_collection, cleaned_data, uploaded_files=None, allow_locked_field_edits=False):
+def sync_contract_collection_data(
+    contract_collection,
+    cleaned_data,
+    uploaded_files=None,
+    allow_locked_field_edits=False,
+    allow_expected_collection_date_edits=False,
+):
     uploaded_files = uploaded_files or {}
     contract_collection.sales_manager = cleaned_data.get("sales_manager")
     if allow_locked_field_edits or contract_collection.contract_value is None:
@@ -1176,7 +1687,9 @@ def sync_contract_collection_data(contract_collection, cleaned_data, uploaded_fi
                 installment.invoice_notification_sent_at = None
             installment.invoice_date = row["invoice_date"]
         if row["expected_collection_date"] is not None and (
-            allow_locked_field_edits or installment.expected_collection_date is None
+            allow_locked_field_edits
+            or allow_expected_collection_date_edits
+            or installment.expected_collection_date is None
         ):
             installment.expected_collection_date = row["expected_collection_date"]
         installment.revised_collection_date = row["revised_collection_date"]

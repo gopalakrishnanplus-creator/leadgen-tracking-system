@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Edit Cashflow Item{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>Edit payable or provision</h1>
+        <p class="note">{{ item.get_category_display }} / {{ item.party_name }} / Rs {{ item.amount }}</p>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'cashflow_action_centre' %}">Back to action centre</a>
+    </div>
+</section>
+<section class="panel form-panel">
+    <p><strong>Reference:</strong> {{ item.reference_number|default:"-" }}</p>
+    <p><strong>Description:</strong> {{ item.description|default:"-" }}</p>
+    <p><strong>Imported due date:</strong> {{ item.due_date|default:"-" }}</p>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button class="button button-primary" type="submit">Save payment plan</button>
+    </form>
+</section>
+{% endblock %}

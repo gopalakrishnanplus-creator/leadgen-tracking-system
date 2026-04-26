@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}12-Week Cash Flow Projection{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>12-week cash flow projection</h1>
+        <p class="note">Rolling seven-day windows starting from {{ projection.start_date }}.</p>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'cashflow_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>Week</th>
+                <th>Window</th>
+                <th>Incoming</th>
+                <th>Outgoing</th>
+                <th>Net</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for week in projection.weeks %}
+            <tr>
+                <td>{{ week.index }}</td>
+                <td>{{ week.start_date }} to {{ week.end_date }}</td>
+                <td><a href="{% url 'cashflow_projection_week_detail' week.index %}">Rs {{ week.inflow_total }}</a></td>
+                <td><a href="{% url 'cashflow_projection_week_detail' week.index %}">Rs {{ week.outflow_total }}</a></td>
+                <td>Rs {{ week.net_total }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

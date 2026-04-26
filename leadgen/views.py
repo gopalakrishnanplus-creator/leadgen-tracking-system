@@ -14,7 +14,14 @@ from django.utils.http import url_has_allowed_host_and_scheme
 
 from .decorators import role_required, roles_required, supervisor_access_required
 from .forms import (
+    BusinessManagerCreateForm,
+    BusinessManagerUpdateForm,
     CallOutcomeForm,
+    CashflowCollectionRevisionForm,
+    CashflowImportedItemForm,
+    CashflowProjectedCollectionForm,
+    CashflowSnapshotUploadForm,
+    CashflowWorkOrderRequestForm,
     ContractCollectionForm,
     DirectMarketingActivityForm,
     FinanceCollectionUpdateForm,
@@ -42,6 +49,9 @@ from .forms import (
 from .models import (
     CallImportBatch,
     CallLog,
+    CashflowImportedItem,
+    CashflowProjectedCollection,
+    CashflowSnapshot,
     ContractCollection,
     DirectMarketingActivity,
     Meeting,
@@ -57,7 +67,16 @@ from .models import (
 from .services import (
     available_whatsapp_reminder_choices,
     apply_call_outcome,
+    business_localdate,
+    build_cashflow_projection,
     build_daily_target_report,
+    cashflow_business_blockers,
+    create_cashflow_work_order,
+    current_cashflow_items,
+    current_cashflow_outflow_items,
+    current_cashflow_receivable_items,
+    finance_upload_complete_for_date,
+    import_cashflow_snapshot,
     build_pending_collections,
     build_reminder_dashboard,
     build_supervisor_report,
@@ -65,11 +84,17 @@ from .services import (
     delete_meeting,
     get_or_create_contract_collection_from_sales_conversation,
     import_exotel_report,
+    latest_cashflow_snapshot,
     log_whatsapp_reminder,
+    overdue_contract_installments,
+    overdue_projected_collections,
+    send_cashflow_work_order_email,
     reschedule_meeting,
     send_due_invoice_notifications,
     sync_contract_collection_data,
+    sync_cashflow_item_data,
     sync_finance_collection_data,
+    sync_projected_collection,
     sync_sales_conversation_data,
     update_meeting_outcome,
 )
@@ -110,7 +135,9 @@ def home(request):
         if request.current_workspace == "sales":
             return redirect("sales_pipeline_dashboard")
         if request.current_workspace == "finance":
-            return redirect("contracts_dashboard")
+            return redirect("cashflow_dashboard")
+        if request.current_workspace == "business":
+            return redirect("cashflow_dashboard")
         return workspace_choice(request)
     if getattr(request, "current_workspace", None) == "supervisor":
         return redirect("supervisor_dashboard")
@@ -119,7 +146,9 @@ def home(request):
     if getattr(request, "current_workspace", None) == "sales":
         return redirect("sales_pipeline_dashboard")
     if getattr(request, "current_workspace", None) == "finance":
-        return redirect("contracts_dashboard")
+        return redirect("cashflow_dashboard")
+    if getattr(request, "current_workspace", None) == "business":
+        return redirect("cashflow_dashboard")
     return redirect("staff_dashboard")
 
 
@@ -132,7 +161,7 @@ def workspace_choice(request):
 
 @login_required
 def select_workspace(request, workspace):
-    if workspace not in {"supervisor", "staff", "sales", "finance"}:
+    if workspace not in {"supervisor", "staff", "sales", "finance", "business"}:
         raise Http404("Workspace not found.")
     if not getattr(request, "is_dual_workspace_user", False):
         return redirect("home")
@@ -144,13 +173,17 @@ def select_workspace(request, workspace):
         raise Http404("Workspace not found.")
     if workspace == "finance" and not getattr(request, "has_finance_workspace_access", False):
         raise Http404("Workspace not found.")
+    if workspace == "business" and not getattr(request, "has_business_workspace_access", False):
+        raise Http404("Workspace not found.")
     request.session["workspace_mode"] = workspace
     if workspace == "supervisor":
         return redirect("supervisor_dashboard")
     if workspace == "staff":
         return redirect("staff_dashboard")
     if workspace == "finance":
-        return redirect("contracts_dashboard")
+        return redirect("cashflow_dashboard")
+    if workspace == "business":
+        return redirect("cashflow_dashboard")
     return redirect("sales_pipeline_dashboard")
 
 
@@ -178,6 +211,7 @@ def supervisor_dashboard(request):
         "recent_calls": recent_calls,
         "sales_manager_count": User.objects.filter(role=User.ROLE_SALES_MANAGER, is_active=True).count(),
         "finance_manager_count": User.objects.filter(role=User.ROLE_FINANCE_MANAGER, is_active=True).count(),
+        "business_manager_count": User.objects.filter(role=User.ROLE_BUSINESS_MANAGER, is_active=True).count(),
         "active_sales_pipeline_count": SalesConversation.objects.filter(contract_signed=False).count(),
         "active_contract_count": ContractCollection.objects.count(),
         "public_download_count": PublicDownloadFile.objects.count(),
@@ -200,6 +234,7 @@ def _supervisor_user_management_context(request, access_form=None):
         "staff_members": User.objects.filter(role=User.ROLE_STAFF, is_active=True).order_by("name", "email"),
         "sales_managers": User.objects.filter(role=User.ROLE_SALES_MANAGER).order_by("name", "email"),
         "finance_managers": User.objects.filter(role=User.ROLE_FINANCE_MANAGER).order_by("name", "email"),
+        "business_managers": User.objects.filter(role=User.ROLE_BUSINESS_MANAGER).order_by("name", "email"),
     }
 
 
@@ -436,6 +471,10 @@ def _get_finance_manager_or_404(user_id):
     return get_object_or_404(User, pk=user_id, role=User.ROLE_FINANCE_MANAGER)
 
 
+def _get_business_manager_or_404(user_id):
+    return get_object_or_404(User, pk=user_id, role=User.ROLE_BUSINESS_MANAGER)
+
+
 @supervisor_access_required(
     SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN,
     SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
@@ -557,6 +596,42 @@ def finance_manager_delete(request, user_id):
         messages.success(request, "Finance manager deactivated.")
         return redirect("supervisor_user_management")
     return render(request, "leadgen/confirm_delete.html", {"object": finance_manager, "title": "Deactivate finance manager"})
+
+
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
+def business_manager_create(request):
+    form = BusinessManagerCreateForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Business manager account created.")
+        return redirect("supervisor_user_management")
+    return render(request, "leadgen/business_manager_form.html", {"form": form, "title": "Add business manager"})
+
+
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
+def business_manager_update(request, user_id):
+    business_manager = _get_business_manager_or_404(user_id)
+    form = BusinessManagerUpdateForm(request.POST or None, instance=business_manager)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Business manager updated.")
+        return redirect("supervisor_user_management")
+    return render(request, "leadgen/business_manager_form.html", {"form": form, "title": "Edit business manager"})
+
+
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
+def business_manager_delete(request, user_id):
+    business_manager = _get_business_manager_or_404(user_id)
+    if request.method == "POST":
+        business_manager.is_active = False
+        business_manager.save(update_fields=["is_active"])
+        messages.success(request, "Business manager deactivated.")
+        return redirect("supervisor_user_management")
+    return render(
+        request,
+        "leadgen/confirm_delete.html",
+        {"object": business_manager, "title": "Deactivate business manager"},
+    )
 
 
 @role_required(User.ROLE_SUPERVISOR)
@@ -904,6 +979,317 @@ def direct_marketing_list(request):
     )
 
 
+def _finance_upload_gate_response(request):
+    if _is_effective_finance_manager(request) and not finance_upload_complete_for_date():
+        messages.warning(request, "Upload today's payables, provisions, and receivables before continuing.")
+        return redirect("cashflow_uploads")
+    return None
+
+
+def _business_action_gate_response(request):
+    if _is_effective_business_manager(request):
+        blockers = cashflow_business_blockers()
+        if blockers["is_blocked"]:
+            messages.warning(
+                request,
+                "Complete all missing payment plans and revise overdue collection dates before continuing.",
+            )
+            return redirect("cashflow_action_centre")
+    return None
+
+
+@roles_required(User.ROLE_FINANCE_MANAGER, User.ROLE_BUSINESS_MANAGER)
+def cashflow_dashboard(request):
+    if _is_effective_finance_manager(request):
+        gate_response = _finance_upload_gate_response(request)
+        if gate_response:
+            return gate_response
+    if _is_effective_business_manager(request):
+        gate_response = _business_action_gate_response(request)
+        if gate_response:
+            return gate_response
+    latest_snapshot = latest_cashflow_snapshot()
+    current_items = current_cashflow_items()
+    outflow_items = current_items.filter(
+        category__in=[CashflowImportedItem.CATEGORY_PAYABLE, CashflowImportedItem.CATEGORY_PROVISION]
+    )
+    context = {
+        "workspace_eyebrow": _workspace_eyebrow(request),
+        "latest_snapshot": latest_snapshot,
+        "payables_count": current_items.filter(category=CashflowImportedItem.CATEGORY_PAYABLE).count(),
+        "provisions_count": current_items.filter(category=CashflowImportedItem.CATEGORY_PROVISION).count(),
+        "receivables_count": current_items.filter(category=CashflowImportedItem.CATEGORY_RECEIVABLE).count(),
+        "missing_plan_count": len([item for item in outflow_items.prefetch_related("payment_plans") if not item.has_complete_payment_plan]),
+        "overdue_collection_count": len(overdue_contract_installments()) + len(overdue_projected_collections()),
+        "projected_collection_count": CashflowProjectedCollection.objects.count(),
+        "is_finance_workspace": _is_effective_finance_manager(request),
+        "is_business_workspace": _is_effective_business_manager(request),
+    }
+    return render(request, "leadgen/cashflow_dashboard.html", context)
+
+
+@role_required(User.ROLE_FINANCE_MANAGER)
+def cashflow_uploads(request):
+    form = CashflowSnapshotUploadForm(
+        request.POST or None,
+        request.FILES or None,
+        initial={"as_of_date": business_localdate()},
+    )
+    snapshots = CashflowSnapshot.objects.select_related("uploaded_by").all()[:10]
+    if request.method == "POST" and form.is_valid():
+        snapshot = form.save(commit=False)
+        snapshot.uploaded_by = _effective_finance_user(request) or request.user
+        snapshot.save()
+        try:
+            import_cashflow_snapshot(snapshot)
+        except Exception as exc:
+            snapshot.delete()
+            messages.error(request, f"Cashflow import failed: {exc}")
+        else:
+            messages.success(request, "Today's Tally files were uploaded and the cashflow data has been refreshed.")
+            return redirect("cashflow_dashboard")
+    return render(
+        request,
+        "leadgen/cashflow_uploads.html",
+        {
+            "form": form,
+            "snapshots": snapshots,
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "today_complete": finance_upload_complete_for_date(),
+        },
+    )
+
+
+@role_required(User.ROLE_BUSINESS_MANAGER)
+def cashflow_action_centre(request):
+    blockers = cashflow_business_blockers()
+    return render(
+        request,
+        "leadgen/cashflow_action_centre.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "blockers": blockers,
+        },
+    )
+
+
+@role_required(User.ROLE_BUSINESS_MANAGER)
+def cashflow_outflow_list(request):
+    gate_response = _business_action_gate_response(request)
+    if gate_response:
+        return gate_response
+    category = request.GET.get("category", "")
+    items = current_cashflow_outflow_items()
+    if category in {CashflowImportedItem.CATEGORY_PAYABLE, CashflowImportedItem.CATEGORY_PROVISION}:
+        items = items.filter(category=category)
+    items = items.prefetch_related("payment_plans")
+    return render(
+        request,
+        "leadgen/cashflow_outflow_list.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "items": items,
+            "selected_category": category,
+        },
+    )
+
+
+def _cashflow_outflow_item_or_404(item_id):
+    return get_object_or_404(
+        CashflowImportedItem.objects.prefetch_related("payment_plans"),
+        pk=item_id,
+        is_current=True,
+        category__in=[CashflowImportedItem.CATEGORY_PAYABLE, CashflowImportedItem.CATEGORY_PROVISION],
+    )
+
+
+@role_required(User.ROLE_BUSINESS_MANAGER)
+def cashflow_outflow_update(request, item_id):
+    item = _cashflow_outflow_item_or_404(item_id)
+    form = CashflowImportedItemForm(request.POST or None, instance=item)
+    if request.method == "POST" and form.is_valid():
+        sync_cashflow_item_data(item, form.cleaned_data)
+        messages.success(request, "Payment plan and business classification updated.")
+        return redirect("cashflow_action_centre")
+    return render(
+        request,
+        "leadgen/cashflow_outflow_form.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "item": item,
+            "form": form,
+        },
+    )
+
+
+@role_required(User.ROLE_BUSINESS_MANAGER)
+def cashflow_overdue_installment_update(request, installment_id):
+    installment = get_object_or_404(
+        ContractCollectionInstallment.objects.select_related("contract_collection"),
+        pk=installment_id,
+    )
+    form = CashflowCollectionRevisionForm(
+        request.POST or None,
+        initial={"revised_collection_date": installment.revised_collection_date or installment.expected_collection_date},
+    )
+    if request.method == "POST" and form.is_valid():
+        installment.revised_collection_date = form.cleaned_data["revised_collection_date"]
+        installment.save(update_fields=["revised_collection_date"])
+        messages.success(request, "Collection date revised.")
+        return redirect("cashflow_action_centre")
+    return render(
+        request,
+        "leadgen/cashflow_collection_revision_form.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "title": f"Revise collection date for {installment.contract_collection.company_name} installment {installment.position}",
+            "form": form,
+            "object_label": f"{installment.contract_collection.company_name} / installment {installment.position}",
+        },
+    )
+
+
+@role_required(User.ROLE_BUSINESS_MANAGER)
+def cashflow_projected_collection_list(request):
+    gate_response = _business_action_gate_response(request)
+    if gate_response:
+        return gate_response
+    collections = CashflowProjectedCollection.objects.select_related("created_by").all()
+    return render(
+        request,
+        "leadgen/cashflow_projected_collection_list.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "collections": collections,
+        },
+    )
+
+
+@role_required(User.ROLE_BUSINESS_MANAGER)
+def cashflow_projected_collection_create(request):
+    gate_response = _business_action_gate_response(request)
+    if gate_response:
+        return gate_response
+    form = CashflowProjectedCollectionForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        projected_collection = form.save(commit=False)
+        projected_collection.created_by = _effective_business_user(request) or request.user
+        projected_collection.save()
+        sync_projected_collection(projected_collection, form.cleaned_data)
+        messages.success(request, "Projected collection added.")
+        return redirect("cashflow_projected_collection_list")
+    return render(
+        request,
+        "leadgen/cashflow_projected_collection_form.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "form": form,
+            "title": "Add projected collection",
+        },
+    )
+
+
+@role_required(User.ROLE_BUSINESS_MANAGER)
+def cashflow_projected_collection_update(request, collection_id):
+    projected_collection = get_object_or_404(CashflowProjectedCollection, pk=collection_id)
+    form = CashflowProjectedCollectionForm(request.POST or None, instance=projected_collection)
+    if request.method == "POST" and form.is_valid():
+        sync_projected_collection(projected_collection, form.cleaned_data)
+        messages.success(request, "Projected collection updated.")
+        return redirect("cashflow_projected_collection_list")
+    return render(
+        request,
+        "leadgen/cashflow_projected_collection_form.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "form": form,
+            "title": "Edit projected collection",
+        },
+    )
+
+
+@role_required(User.ROLE_BUSINESS_MANAGER)
+def cashflow_work_order_list(request):
+    gate_response = _business_action_gate_response(request)
+    if gate_response:
+        return gate_response
+    work_orders = CashflowWorkOrderRequest.objects.select_related("created_by").prefetch_related("installments").all()
+    return render(
+        request,
+        "leadgen/cashflow_work_order_list.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "work_orders": work_orders,
+        },
+    )
+
+
+@role_required(User.ROLE_BUSINESS_MANAGER)
+def cashflow_work_order_create(request):
+    gate_response = _business_action_gate_response(request)
+    if gate_response:
+        return gate_response
+    form = CashflowWorkOrderRequestForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        create_cashflow_work_order(form.cleaned_data, created_by=_effective_business_user(request) or request.user)
+        messages.success(request, "Work order request emailed to finance managers.")
+        return redirect("cashflow_work_order_list")
+    return render(
+        request,
+        "leadgen/cashflow_work_order_form.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "form": form,
+        },
+    )
+
+
+@roles_required(User.ROLE_FINANCE_MANAGER, User.ROLE_BUSINESS_MANAGER)
+def cashflow_projection_view(request):
+    if _is_effective_finance_manager(request):
+        gate_response = _finance_upload_gate_response(request)
+        if gate_response:
+            return gate_response
+    if _is_effective_business_manager(request):
+        gate_response = _business_action_gate_response(request)
+        if gate_response:
+            return gate_response
+    projection = build_cashflow_projection()
+    return render(
+        request,
+        "leadgen/cashflow_projection.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "projection": projection,
+        },
+    )
+
+
+@roles_required(User.ROLE_FINANCE_MANAGER, User.ROLE_BUSINESS_MANAGER)
+def cashflow_projection_week_detail(request, week_index):
+    if _is_effective_finance_manager(request):
+        gate_response = _finance_upload_gate_response(request)
+        if gate_response:
+            return gate_response
+    if _is_effective_business_manager(request):
+        gate_response = _business_action_gate_response(request)
+        if gate_response:
+            return gate_response
+    projection = build_cashflow_projection()
+    week = next((item for item in projection["weeks"] if item["index"] == week_index), None)
+    if week is None:
+        raise Http404("Projection week not found.")
+    return render(
+        request,
+        "leadgen/cashflow_projection_week_detail.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "week": week,
+            "projection": projection,
+        },
+    )
+
+
 @role_required(User.ROLE_STAFF)
 def staff_dashboard(request):
     staff_user = _effective_staff_user(request)
@@ -1092,6 +1478,10 @@ def _effective_finance_user(request):
     return getattr(request, "finance_workspace_user", None)
 
 
+def _effective_business_user(request):
+    return getattr(request, "business_workspace_user", None)
+
+
 def _is_effective_supervisor(request):
     return _is_supervisor_workspace(request)
 
@@ -1104,7 +1494,17 @@ def _is_effective_sales_manager(request):
     return getattr(request, "current_workspace", None) == "sales" and _effective_sales_user(request) is not None
 
 
+def _is_effective_finance_manager(request):
+    return getattr(request, "current_workspace", None) == "finance" and _effective_finance_user(request) is not None
+
+
+def _is_effective_business_manager(request):
+    return getattr(request, "current_workspace", None) == "business" and _effective_business_user(request) is not None
+
+
 def _workspace_eyebrow(request):
+    if getattr(request, "current_workspace", None) == "business":
+        return "Business"
     if getattr(request, "current_workspace", None) == "finance":
         return "Finance"
     if getattr(request, "current_workspace", None) == "staff":
@@ -1116,6 +1516,10 @@ def _workspace_eyebrow(request):
 
 def _allow_sales_company_name_edits(request):
     return _is_effective_supervisor(request)
+
+
+def _allow_expected_collection_date_edits(request):
+    return _is_effective_supervisor(request) or _is_effective_sales_manager(request)
 
 
 def _sales_pipeline_queryset_for_request(request):
@@ -1331,6 +1735,10 @@ def sales_conversation_delete(request, conversation_id):
 
 @roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER, User.ROLE_FINANCE_MANAGER)
 def contracts_dashboard(request):
+    if _is_effective_finance_manager(request):
+        gate_response = _finance_upload_gate_response(request)
+        if gate_response:
+            return gate_response
     contracts = _contracts_queryset_for_request(request).order_by("-updated_at")
     context = {
         "contracts": contracts,
@@ -1349,6 +1757,7 @@ def contract_collection_create(request):
         request.POST or None,
         request.FILES or None,
         allow_locked_field_edits=_is_effective_supervisor(request),
+        allow_expected_collection_date_edits=_allow_expected_collection_date_edits(request),
     )
     form = _configure_contract_form(form, request)
     if request.method == "POST" and form.is_valid():
@@ -1365,6 +1774,7 @@ def contract_collection_create(request):
             form.cleaned_data,
             _uploaded_contract_files(request),
             allow_locked_field_edits=_is_effective_supervisor(request),
+            allow_expected_collection_date_edits=_allow_expected_collection_date_edits(request),
         )
         messages.success(request, "Contract added to contracts and collections.")
         return redirect("contract_collection_update", contract_id=contract_collection.pk)
@@ -1388,10 +1798,15 @@ def contract_collection_create(request):
 def contract_collection_update(request, contract_id):
     contract_collection = _contract_collection_for_request_or_404(request, contract_id)
     can_edit_terms = _is_effective_supervisor(request) or _is_effective_sales_manager(request)
-    can_edit_finance = getattr(request, "current_workspace", None) == "finance" and _effective_finance_user(request) is not None
+    can_edit_finance = _is_effective_finance_manager(request)
+    if can_edit_finance:
+        gate_response = _finance_upload_gate_response(request)
+        if gate_response:
+            return gate_response
     terms_form = ContractCollectionForm(
         instance=contract_collection,
         allow_locked_field_edits=_is_effective_supervisor(request),
+        allow_expected_collection_date_edits=_allow_expected_collection_date_edits(request),
     )
     terms_form = _configure_contract_form(terms_form, request)
     finance_form = FinanceCollectionUpdateForm(contract_collection=contract_collection)
@@ -1402,6 +1817,7 @@ def contract_collection_update(request, contract_id):
             request.FILES or None,
             instance=contract_collection,
             allow_locked_field_edits=_is_effective_supervisor(request),
+            allow_expected_collection_date_edits=_allow_expected_collection_date_edits(request),
         )
         terms_form = _configure_contract_form(terms_form, request)
         finance_form = FinanceCollectionUpdateForm(contract_collection=contract_collection)
@@ -1416,6 +1832,7 @@ def contract_collection_update(request, contract_id):
                 terms_form.cleaned_data,
                 _uploaded_contract_files(request),
                 allow_locked_field_edits=_is_effective_supervisor(request),
+                allow_expected_collection_date_edits=_allow_expected_collection_date_edits(request),
             )
             messages.success(request, "Contract details updated.")
             return redirect("contract_collection_update", contract_id=contract_collection.pk)
@@ -1425,6 +1842,7 @@ def contract_collection_update(request, contract_id):
         terms_form = ContractCollectionForm(
             instance=contract_collection,
             allow_locked_field_edits=_is_effective_supervisor(request),
+            allow_expected_collection_date_edits=_allow_expected_collection_date_edits(request),
         )
         terms_form = _configure_contract_form(terms_form, request)
         if finance_form.is_valid():
@@ -1450,6 +1868,10 @@ def contract_collection_update(request, contract_id):
 
 @roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER, User.ROLE_FINANCE_MANAGER)
 def pending_collections_view(request):
+    if _is_effective_finance_manager(request):
+        gate_response = _finance_upload_gate_response(request)
+        if gate_response:
+            return gate_response
     summary = build_pending_collections(_contracts_queryset_for_request(request))
     summary["workspace_eyebrow"] = _workspace_eyebrow(request)
     return render(request, "leadgen/pending_collections.html", summary)

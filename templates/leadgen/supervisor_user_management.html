@@ -19,6 +19,7 @@
         {% if is_system_admin_view %}
             <a class="button" href="{% url 'sales_manager_create' %}">Add sales manager</a>
             <a class="button" href="{% url 'finance_manager_create' %}">Add finance manager</a>
+            <a class="button" href="{% url 'business_manager_create' %}">Add business manager</a>
         {% endif %}
     </div>
 </section>
@@ -206,6 +207,40 @@
             </tr>
         {% empty %}
             <tr><td colspan="5">No finance managers added yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Business managers</p>
+            <h2>Users who classify payables, build payment plans, and monitor the 12-week cash flow</h2>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for business_manager in business_managers %}
+            <tr>
+                <td>{{ business_manager.name }}</td>
+                <td>{{ business_manager.email }}</td>
+                <td>{% if business_manager.is_active %}Active{% else %}Inactive{% endif %}</td>
+                <td class="actions">
+                    <a href="{% url 'business_manager_update' business_manager.id %}">Edit</a>
+                    <a href="{% url 'business_manager_delete' business_manager.id %}">Deactivate</a>
+                </td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="4">No business managers added yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>
