@@ -7,7 +7,6 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from allauth.socialaccount.models import SocialAccount
-from django.db import IntegrityError
 from django.core import mail
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -1203,7 +1202,7 @@ class LeadgenWorkflowTests(TestCase):
         self.assertNotIn(MeetingReminder.TYPE_WHATSAPP_28_DAY, choice_map)
 
     def test_only_one_supervisor_allowed(self):
-        with self.assertRaises(IntegrityError):
+        with self.assertRaisesMessage(ValidationError, "Only one supervisor user record is allowed."):
             User.objects.create(
                 email="second-supervisor@example.com",
                 username="second-supervisor@example.com",

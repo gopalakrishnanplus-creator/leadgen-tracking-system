@@ -32,16 +32,9 @@ class User(AbstractUser):
     whatsapp_number = models.CharField(max_length=20, blank=True)
     must_change_password = models.BooleanField(default=False)
 
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["role"],
-                condition=Q(role="supervisor"),
-                name="unique_supervisor_user",
-            )
-        ]
-
     def clean(self):
+        if self.role == self.ROLE_SUPERVISOR and User.objects.exclude(pk=self.pk).filter(role=self.ROLE_SUPERVISOR).exists():
+            raise ValidationError("Only one supervisor user record is allowed.")
         if self.role == self.ROLE_STAFF and not self.calling_number:
             raise ValidationError("Lead gen staff must have a calling number.")
         if self.role in {
@@ -56,6 +49,8 @@ class User(AbstractUser):
 
     def save(self, *args, **kwargs):
         self.email = (self.email or "").lower()
+        if self.role == self.ROLE_SUPERVISOR and User.objects.exclude(pk=self.pk).filter(role=self.ROLE_SUPERVISOR).exists():
+            raise ValidationError("Only one supervisor user record is allowed.")
         needs_username = not self.username
         if not needs_username and User.objects.exclude(pk=self.pk).filter(username=self.username).exists():
             needs_username = True
