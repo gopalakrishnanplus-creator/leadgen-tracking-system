@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Marketing Dashboard{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>Direct marketing dashboard</h1>
+    </div>
+    <div class="button-row">
+        <a class="button button-primary" href="{% url 'marketing_playbook_create' %}">Add playbook</a>
+        <a class="button" href="{% url 'pharma_manager_upload' %}">Upload molecule data</a>
+        <a class="button" href="{% url 'marketing_email_campaign_create' %}">Send email campaign</a>
+        <a class="button" href="{% url 'marketing_linkedin_activity_create' %}">Record LinkedIn activity</a>
+    </div>
+</section>
+<section class="stats-grid">
+    <article class="stat-card"><span>{{ playbook_count }}</span><p>Playbooks</p></article>
+    <article class="stat-card"><span>{{ pharma_manager_count }}</span><p>Pharma managers</p></article>
+    <article class="stat-card"><span>{{ subscribed_count }}</span><p>Subscribed contacts</p></article>
+    <article class="stat-card"><span>{{ campaign_count }}</span><p>Email campaigns sent</p></article>
+    <article class="stat-card"><span>{{ linkedin_activity_count }}</span><p>LinkedIn activity records</p></article>
+</section>
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <h2>Playbook activity status</h2>
+        </div>
+        <div class="button-row">
+            <a class="button" href="{% url 'marketing_playbook_list' %}">Open playbooks</a>
+            <a class="button" href="{% url 'pharma_manager_list' %}">Open database</a>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Playbook</th>
+                <th>Therapy / molecule</th>
+                <th>Week</th>
+                <th>Email campaigns</th>
+                <th>LinkedIn actions</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for playbook in playbooks %}
+            <tr>
+                <td>{{ playbook.title }}</td>
+                <td>{{ playbook.therapy_area }} / {{ playbook.molecule_or_formulation }}</td>
+                <td>{{ playbook.start_date }} to {{ playbook.end_date }}</td>
+                <td>
+                    {% for campaign in playbook.email_campaigns.all %}
+                        {{ campaign.get_campaign_type_display }}: {{ campaign.recipient_count }} sent, {{ campaign.failed_count }} failed on {{ campaign.sent_at|date:"M j, Y" }}<br>
+                    {% empty %}
+                        No email campaign recorded.
+                    {% endfor %}
+                </td>
+                <td>
+                    {% for activity in playbook.linkedin_activities.all %}
+                        {{ activity.get_activity_type_display }}: {{ activity.count }} from {{ activity.activity_start_date }} to {{ activity.activity_end_date }}<br>
+                    {% empty %}
+                        No LinkedIn activity recorded.
+                    {% endfor %}
+                </td>
+                <td class="actions"><a href="{% url 'marketing_playbook_update' playbook.id %}">Edit</a></td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="6">No playbooks have been added yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+<section class="panel">
+    <h2>Recent molecule/formulation uploads</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Molecule/formulation</th>
+                <th>Rows</th>
+                <th>Created</th>
+                <th>Updated</th>
+                <th>Skipped</th>
+                <th>Uploaded</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for upload in recent_uploads %}
+            <tr>
+                <td>{{ upload.molecule_or_formulation }}</td>
+                <td>{{ upload.total_rows }}</td>
+                <td>{{ upload.created_count }}</td>
+                <td>{{ upload.updated_count }}</td>
+                <td>{{ upload.skipped_count }}</td>
+                <td>{{ upload.created_at }}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="6">No molecule uploads yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

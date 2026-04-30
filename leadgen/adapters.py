@@ -16,6 +16,7 @@ class LeadgenSocialAccountAdapter(DefaultSocialAccountAdapter):
         User.ROLE_STAFF,
         User.ROLE_FINANCE_MANAGER,
         User.ROLE_BUSINESS_MANAGER,
+        User.ROLE_MARKETING_MANAGER,
     ]
 
     def _supervisor_access_map(self):

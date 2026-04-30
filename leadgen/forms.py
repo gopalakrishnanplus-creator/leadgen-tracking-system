@@ -16,6 +16,11 @@ from .models import (
     DirectMarketingActivity,
     Meeting,
     MeetingReminder,
+    MarketingEmailCampaign,
+    MarketingLinkedInActivity,
+    MarketingPlaybook,
+    PharmaManager,
+    PharmaManagerUploadBatch,
     PublicDownloadFile,
     Prospect,
     SalesConversation,
@@ -268,6 +273,55 @@ class BusinessManagerUpdateForm(FixedRoleUserFormMixin, StyledFormMixin, forms.M
     def save(self, commit=True):
         user = super().save(commit=False)
         user.role = User.ROLE_BUSINESS_MANAGER
+        user.calling_number = None
+        user.whatsapp_number = ""
+        if commit:
+            user.save()
+        return user
+
+
+class MarketingManagerCreateForm(FixedRoleUserFormMixin, StyledFormMixin, forms.ModelForm):
+    target_role = User.ROLE_MARKETING_MANAGER
+
+    class Meta:
+        model = User
+        fields = ["name", "email"]
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].lower()
+        if role_email_exists(email, User.ROLE_MARKETING_MANAGER):
+            raise ValidationError("A marketing manager with this email already exists.")
+        return email
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.role = User.ROLE_MARKETING_MANAGER
+        user.email = user.email.lower()
+        user.must_change_password = False
+        user.calling_number = None
+        user.whatsapp_number = ""
+        user.set_unusable_password()
+        if commit:
+            user.save()
+        return user
+
+
+class MarketingManagerUpdateForm(FixedRoleUserFormMixin, StyledFormMixin, forms.ModelForm):
+    target_role = User.ROLE_MARKETING_MANAGER
+
+    class Meta:
+        model = User
+        fields = ["name", "email", "is_active"]
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].lower()
+        if role_email_exists(email, User.ROLE_MARKETING_MANAGER, exclude_pk=self.instance.pk):
+            raise ValidationError("A marketing manager with this email already exists.")
+        return email
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.role = User.ROLE_MARKETING_MANAGER
         user.calling_number = None
         user.whatsapp_number = ""
         if commit:
@@ -686,6 +740,129 @@ class DirectMarketingActivityForm(StyledFormMixin, forms.ModelForm):
 
     def clean_therapy_area(self):
         return (self.cleaned_data.get("therapy_area") or "").strip()
+
+
+class MarketingPlaybookForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = MarketingPlaybook
+        fields = [
+            "title",
+            "therapy_area",
+            "molecule_or_formulation",
+            "website_download_url",
+            "pdf_file",
+            "notion_page_url",
+            "start_date",
+            "end_date",
+            "linkedin_invitation_message",
+            "direct_email_subject",
+            "direct_email_body",
+            "linkedin_connected_message",
+            "targeted_email_subject",
+            "targeted_email_body",
+        ]
+        widgets = {
+            "start_date": forms.DateInput(attrs={"type": "date"}),
+            "end_date": forms.DateInput(attrs={"type": "date"}),
+            "linkedin_invitation_message": forms.Textarea(attrs={"rows": 4}),
+            "direct_email_body": forms.Textarea(attrs={"rows": 6}),
+            "linkedin_connected_message": forms.Textarea(attrs={"rows": 4}),
+            "targeted_email_body": forms.Textarea(attrs={"rows": 6}),
+        }
+
+    def clean(self):
+        cleaned_data = super().clean()
+        start_date = cleaned_data.get("start_date")
+        end_date = cleaned_data.get("end_date")
+        if start_date and end_date and end_date < start_date:
+            raise ValidationError("Playbook end date cannot be before the start date.")
+        return cleaned_data
+
+
+class PharmaManagerForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = PharmaManager
+        fields = [
+            "name",
+            "company_name",
+            "designation",
+            "email",
+            "whatsapp_number",
+            "therapy_area_1",
+            "therapy_area_2",
+            "therapy_area_3",
+            "therapy_area_4",
+            "therapy_area_5",
+            "molecule_1",
+            "molecule_2",
+            "molecule_3",
+            "molecule_4",
+            "molecule_5",
+            "molecule_6",
+            "molecule_7",
+            "molecule_8",
+            "molecule_9",
+            "molecule_10",
+            "linkedin_url",
+            "unsubscribed",
+        ]
+
+    def clean_email(self):
+        email = (self.cleaned_data.get("email") or "").strip().lower()
+        queryset = PharmaManager.objects.filter(email=email)
+        if self.instance.pk:
+            queryset = queryset.exclude(pk=self.instance.pk)
+        if queryset.exists():
+            raise ValidationError("A pharma manager with this email already exists.")
+        return email
+
+    def clean_linkedin_url(self):
+        linkedin_url = (self.cleaned_data.get("linkedin_url") or "").strip()
+        if linkedin_url and "://" not in linkedin_url:
+            linkedin_url = f"https://{linkedin_url}"
+        return linkedin_url
+
+
+class PharmaManagerFilterForm(StyledFormMixin, forms.Form):
+    therapy_area = forms.CharField(required=False, label="Therapy area")
+    molecule_or_formulation = forms.CharField(required=False, label="Molecule/formulation")
+
+
+class MarketingEmailCampaignForm(StyledFormMixin, forms.Form):
+    playbook = forms.ModelChoiceField(queryset=MarketingPlaybook.objects.none())
+    campaign_type = forms.ChoiceField(choices=MarketingEmailCampaign.TYPE_CHOICES)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["playbook"].queryset = MarketingPlaybook.objects.order_by("-start_date", "title")
+
+
+class MarketingLinkedInActivityForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = MarketingLinkedInActivity
+        fields = ["playbook", "activity_type", "activity_start_date", "activity_end_date", "count"]
+        widgets = {
+            "activity_start_date": forms.DateInput(attrs={"type": "date"}),
+            "activity_end_date": forms.DateInput(attrs={"type": "date"}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["playbook"].queryset = MarketingPlaybook.objects.order_by("-start_date", "title")
+
+    def clean(self):
+        cleaned_data = super().clean()
+        start_date = cleaned_data.get("activity_start_date")
+        end_date = cleaned_data.get("activity_end_date")
+        if start_date and end_date and end_date < start_date:
+            raise ValidationError("LinkedIn activity end date cannot be before the start date.")
+        return cleaned_data
+
+
+class PharmaManagerUploadForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = PharmaManagerUploadBatch
+        fields = ["molecule_or_formulation", "therapy_area", "uploaded_file"]
 
 
 class SalesConversationForm(StyledFormMixin, forms.ModelForm):

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>{{ title }}</h1>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'marketing_playbook_list' %}">Back to playbooks</a>
+    </div>
+</section>
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <section class="two-col">
+        <article class="panel">
+            <h2>Playbook details</h2>
+            {% for field in form %}
+                {% if field.name in "title therapy_area molecule_or_formulation website_download_url pdf_file notion_page_url start_date end_date" %}
+                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% for error in field.errors %}<div class="message error">{{ error }}</div>{% endfor %}
+                {% endif %}
+            {% endfor %}
+        </article>
+        <article class="panel">
+            <h2>Messages</h2>
+            {% for field in form %}
+                {% if field.name not in "title therapy_area molecule_or_formulation website_download_url pdf_file notion_page_url start_date end_date" %}
+                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% for error in field.errors %}<div class="message error">{{ error }}</div>{% endfor %}
+                {% endif %}
+            {% endfor %}
+        </article>
+    </section>
+    <section class="panel">
+        <div class="button-row">
+            <button class="button button-primary" type="submit">Save playbook</button>
+        </div>
+    </section>
+</form>
+{% endblock %}

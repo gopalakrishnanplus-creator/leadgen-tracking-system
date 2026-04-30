@@ -23,6 +23,7 @@ from .forms import (
     CashflowImportedItemForm,
     ContractCollectionForm,
     FinanceManagerCreateForm,
+    MarketingManagerCreateForm,
     MeetingStatusUpdateForm,
     ProspectCreateForm,
     PUBLIC_DOWNLOAD_MAX_FILE_SIZE,
@@ -41,8 +42,12 @@ from .models import (
     ContractCollection,
     ContractCollectionInstallment,
     DirectMarketingActivity,
+    MarketingEmailCampaign,
+    MarketingPlaybook,
     Meeting,
     MeetingReminder,
+    PharmaManager,
+    PharmaManagerUploadBatch,
     PublicDownloadFile,
     Prospect,
     ProspectStatusUpdate,
@@ -66,12 +71,15 @@ from .services import (
     get_or_create_contract_collection_from_sales_conversation,
     import_cashflow_snapshot,
     import_exotel_report,
+    import_pharma_manager_molecule_batch,
     log_whatsapp_reminder,
+    marketing_email_recipients,
     send_email,
     send_due_meeting_reminder_emails,
     send_meeting_invitation,
     send_test_email_diagnostic,
     send_due_invoice_notifications,
+    send_marketing_email_campaign,
     reschedule_meeting,
     sync_contract_collection_data,
     update_meeting_outcome,
@@ -150,6 +158,14 @@ class LeadgenWorkflowTests(TestCase):
         )
         self.business_manager.set_unusable_password()
         self.business_manager.save()
+        self.marketing_manager = User.objects.create(
+            email="marketing@example.com",
+            username="marketing@example.com",
+            role=User.ROLE_MARKETING_MANAGER,
+            name="Marketing User",
+        )
+        self.marketing_manager.set_unusable_password()
+        self.marketing_manager.save()
         SystemSetting.load()
         self.prospect = Prospect.objects.create(
             company_name="Acme",
@@ -2870,6 +2886,120 @@ class LeadgenWorkflowTests(TestCase):
         user = form.save()
         self.assertEqual(user.role, User.ROLE_BUSINESS_MANAGER)
         self.assertEqual(user.calling_number, None)
+
+    def test_marketing_manager_create_form_creates_role_specific_user(self):
+        form = MarketingManagerCreateForm(
+            data={
+                "name": "Marketing User",
+                "email": "new.marketing@example.com",
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+        user = form.save()
+        self.assertEqual(user.role, User.ROLE_MARKETING_MANAGER)
+        self.assertEqual(user.calling_number, None)
+
+    def test_home_redirects_marketing_manager_to_marketing_dashboard(self):
+        self.client.force_login(self.marketing_manager)
+        response = self.client.get("/")
+        self.assertRedirects(response, "/marketing/")
+
+    def _marketing_playbook(self):
+        return MarketingPlaybook.objects.create(
+            title="Vaccination Reminder Playbook",
+            therapy_area="Vaccines",
+            molecule_or_formulation="Pneumococcal",
+            website_download_url="https://inditech.co.in/playbooks/vaccines",
+            pdf_file="marketing-playbooks/vaccines.pdf",
+            notion_page_url="https://notion.so/playbook",
+            start_date=datetime(2026, 5, 4).date(),
+            end_date=datetime(2026, 5, 10).date(),
+            linkedin_invitation_message="Outcome-linked campaign ideas for vaccine brands.",
+            direct_email_subject="Playbook for <company>",
+            direct_email_body="Dear <name>,\nPlease see <playbook_link>.",
+            linkedin_connected_message="Dear <name>, sharing this week's playbook.",
+            targeted_email_subject="Pneumococcal campaign ideas for <name>",
+            targeted_email_body="Dear <name>,\nThis is for <molecule> brands: <playbook_link>.",
+            created_by=self.marketing_manager,
+        )
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
+    def test_marketing_email_campaign_personalizes_and_excludes_unsubscribed(self):
+        playbook = self._marketing_playbook()
+        PharmaManager.objects.create(
+            name="Asha Brand",
+            company_name="VaccineCo",
+            email="asha@example.com",
+            molecule_1="Pneumococcal",
+            created_by=self.marketing_manager,
+        )
+        PharmaManager.objects.create(
+            name="Unsubscribed Brand",
+            company_name="OptoutCo",
+            email="optout@example.com",
+            molecule_1="Pneumococcal",
+            unsubscribed=True,
+            created_by=self.marketing_manager,
+        )
+        campaign = send_marketing_email_campaign(
+            playbook,
+            MarketingEmailCampaign.TYPE_MOLECULE_TARGETED,
+            self.marketing_manager,
+        )
+        self.assertEqual(campaign.recipient_count, 1)
+        self.assertEqual(campaign.failed_count, 0)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["asha@example.com"])
+        self.assertIn("Asha Brand", mail.outbox[0].subject)
+        self.assertIn("https://inditech.co.in/playbooks/vaccines", mail.outbox[0].body)
+
+    def test_marketing_molecule_upload_updates_existing_record_by_email(self):
+        existing = PharmaManager.objects.create(
+            name="Asha Brand",
+            company_name="OldCo",
+            email="asha@example.com",
+            created_by=self.marketing_manager,
+        )
+        batch = PharmaManagerUploadBatch.objects.create(
+            molecule_or_formulation="Pneumococcal",
+            therapy_area="Vaccines",
+            uploaded_file=self._cashflow_workbook_upload(
+                "pneumococcal.xlsx",
+                ["Name", "Company Name", "Email Address", "Designation"],
+                [
+                    ["Asha Brand", "VaccineCo", "asha@example.com", "Brand Manager"],
+                    ["New Brand", "NewCo", "new@example.com", "Marketing Lead"],
+                ],
+            ),
+            uploaded_by=self.marketing_manager,
+        )
+        import_pharma_manager_molecule_batch(batch)
+        existing.refresh_from_db()
+        self.assertEqual(PharmaManager.objects.count(), 2)
+        self.assertEqual(existing.molecule_1, "Pneumococcal")
+        self.assertEqual(existing.therapy_area_1, "Vaccines")
+        self.assertEqual(existing.designation, "Brand Manager")
+        self.assertEqual(batch.created_count, 1)
+        self.assertEqual(batch.updated_count, 1)
+
+    def test_marketing_recipients_filter_by_playbook_molecule(self):
+        playbook = self._marketing_playbook()
+        matching = PharmaManager.objects.create(
+            name="Asha Brand",
+            company_name="VaccineCo",
+            email="asha@example.com",
+            molecule_2="Pneumococcal",
+            created_by=self.marketing_manager,
+        )
+        PharmaManager.objects.create(
+            name="Other Brand",
+            company_name="OtherCo",
+            email="other@example.com",
+            molecule_1="Insulin",
+            created_by=self.marketing_manager,
+        )
+        recipients = list(marketing_email_recipients(playbook, MarketingEmailCampaign.TYPE_MOLECULE_TARGETED))
+        self.assertEqual(recipients, [matching])
 
     def test_cashflow_snapshot_import_creates_current_items(self):
         snapshot = CashflowSnapshot.objects.create(

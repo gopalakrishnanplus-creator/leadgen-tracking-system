@@ -26,6 +26,7 @@ def role_required(role):
                 "sales_manager": "sales",
                 "finance_manager": "finance",
                 "business_manager": "business",
+                "marketing_manager": "marketing",
             }
             if role in workspace_map and _workspace_allowed(request, workspace_map[role]):
                 return view_func(request, *args, **kwargs)
@@ -51,6 +52,7 @@ def roles_required(*roles):
                 "sales_manager": "sales",
                 "finance_manager": "finance",
                 "business_manager": "business",
+                "marketing_manager": "marketing",
             }
             for role in set(roles):
                 workspace_name = workspace_map.get(role)

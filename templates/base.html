@@ -57,6 +57,13 @@
                         <a href="{% url 'cashflow_projected_collection_list' %}">Projected Collections</a>
                         <a href="{% url 'cashflow_work_order_list' %}">Work Orders</a>
                         <a href="{% url 'cashflow_projection' %}">12-Week Projection</a>
+                    {% elif request.current_workspace == "marketing" %}
+                        <a href="{% url 'marketing_dashboard' %}">Dashboard</a>
+                        <a href="{% url 'marketing_playbook_list' %}">Playbooks</a>
+                        <a href="{% url 'pharma_manager_list' %}">Pharma Managers</a>
+                        <a href="{% url 'marketing_email_campaign_create' %}">Send Email</a>
+                        <a href="{% url 'marketing_linkedin_activity_create' %}">LinkedIn Activity</a>
+                        <a href="{% url 'pharma_manager_upload' %}">Upload Molecule Data</a>
                     {% else %}
                         <a href="{% url 'staff_dashboard' %}">Dashboard</a>
                         <a href="{% url 'staff_prospect_list' %}">Prospects</a>

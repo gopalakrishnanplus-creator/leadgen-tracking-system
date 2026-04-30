@@ -59,5 +59,15 @@
             </div>
         </article>
     {% endif %}
+    {% if request.has_marketing_workspace_access %}
+        <article class="panel">
+            <p class="eyebrow">Marketing manager</p>
+            <h2>Open the direct marketing dashboard</h2>
+            <p class="note">Use this workspace for playbooks, pharma manager database work, email sends, and LinkedIn activity tracking.</p>
+            <div class="button-row">
+                <a class="button button-primary" href="{% url 'select_workspace' 'marketing' %}">Use as marketing manager</a>
+            </div>
+        </article>
+    {% endif %}
 </section>
 {% endblock %}

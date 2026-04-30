@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<section class="panel">
+    <p class="eyebrow">System admin</p>
+    <h1>{{ title }}</h1>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        {% for field in form %}
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% for error in field.errors %}
+                <div class="message error">{{ error }}</div>
+            {% endfor %}
+        {% endfor %}
+        <div class="button-row">
+            <button class="button button-primary" type="submit">Save</button>
+            <a class="button" href="{% url 'supervisor_user_management' %}">Cancel</a>
+        </div>
+    </form>
+</section>
+{% endblock %}

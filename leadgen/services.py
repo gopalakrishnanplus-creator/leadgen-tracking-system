@@ -1,6 +1,7 @@
 import logging
 import base64
 import socket
+from html import escape
 from calendar import monthrange
 from decimal import Decimal, InvalidOperation
 from datetime import date, datetime, timedelta
@@ -32,6 +33,11 @@ from .models import (
     ContractCollectionInstallment,
     Meeting,
     MeetingReminder,
+    MarketingEmailCampaign,
+    MarketingLinkedInActivity,
+    MarketingPlaybook,
+    PharmaManager,
+    PharmaManagerUploadBatch,
     Prospect,
     ProspectStatusUpdate,
     SalesConversation,
@@ -623,6 +629,103 @@ def send_email(subject, html_body, text_body, to_emails, cc_emails=None, attachm
     )
 
 
+def _personalize_marketing_text(template, pharma_manager, playbook):
+    replacements = {
+        "name": pharma_manager.name,
+        "company": pharma_manager.company_name,
+        "company_name": pharma_manager.company_name,
+        "designation": pharma_manager.designation,
+        "therapy_area": playbook.therapy_area,
+        "molecule": playbook.molecule_or_formulation,
+        "formulation": playbook.molecule_or_formulation,
+        "molecule_or_formulation": playbook.molecule_or_formulation,
+        "playbook_title": playbook.title,
+        "playbook_link": playbook.website_download_url,
+    }
+    rendered = template or ""
+    for key, value in replacements.items():
+        rendered = rendered.replace(f"<{key}>", value or "")
+    return rendered
+
+
+def _marketing_html_from_text(text):
+    escaped = escape(text or "")
+    paragraphs = [line for line in escaped.splitlines()]
+    return "<br>".join(paragraphs)
+
+
+def pharma_manager_molecule_query(molecule_or_formulation):
+    query = Q()
+    value = (molecule_or_formulation or "").strip()
+    if not value:
+        return Q(pk__isnull=True)
+    for index in range(1, 11):
+        query |= Q(**{f"molecule_{index}__iexact": value})
+    return query
+
+
+def pharma_manager_therapy_query(therapy_area):
+    query = Q()
+    value = (therapy_area or "").strip()
+    if not value:
+        return Q(pk__isnull=True)
+    for index in range(1, 6):
+        query |= Q(**{f"therapy_area_{index}__iexact": value})
+    return query
+
+
+def marketing_email_recipients(playbook, campaign_type):
+    queryset = PharmaManager.objects.filter(unsubscribed=False).exclude(email="")
+    if campaign_type == MarketingEmailCampaign.TYPE_MOLECULE_TARGETED:
+        queryset = queryset.filter(pharma_manager_molecule_query(playbook.molecule_or_formulation))
+    return queryset.order_by("name", "company_name")
+
+
+def send_marketing_email_campaign(playbook, campaign_type, sent_by):
+    if campaign_type == MarketingEmailCampaign.TYPE_FULL_DATABASE:
+        subject_template = playbook.direct_email_subject
+        body_template = playbook.direct_email_body
+    elif campaign_type == MarketingEmailCampaign.TYPE_MOLECULE_TARGETED:
+        subject_template = playbook.targeted_email_subject
+        body_template = playbook.targeted_email_body
+    else:
+        raise ValueError(f"Unsupported marketing campaign type: {campaign_type}")
+
+    campaign = MarketingEmailCampaign.objects.create(
+        playbook=playbook,
+        campaign_type=campaign_type,
+        sent_by=sent_by,
+    )
+    sent_count = 0
+    failed_count = 0
+    for recipient in marketing_email_recipients(playbook, campaign_type):
+        subject = _personalize_marketing_text(subject_template, recipient, playbook)
+        text_body = _personalize_marketing_text(body_template, recipient, playbook)
+        if playbook.website_download_url and playbook.website_download_url not in text_body:
+            text_body = f"{text_body.rstrip()}\n\nPlaybook link: {playbook.website_download_url}"
+        html_body = _marketing_html_from_text(text_body)
+        try:
+            send_email(
+                subject=subject,
+                html_body=html_body,
+                text_body=text_body,
+                to_emails=[recipient.email],
+            )
+        except Exception:
+            failed_count += 1
+            logger.exception(
+                "Failed to send marketing campaign email campaign_id=%s recipient_id=%s",
+                campaign.pk,
+                recipient.pk,
+            )
+            continue
+        sent_count += 1
+    campaign.recipient_count = sent_count
+    campaign.failed_count = failed_count
+    campaign.save(update_fields=["recipient_count", "failed_count"])
+    return campaign
+
+
 def send_test_email_diagnostic(recipient_email):
     timestamp = timezone.now()
     subject = f"Leadgen email diagnostics {timestamp:%Y-%m-%d %H:%M:%S %Z}"
@@ -1066,6 +1169,14 @@ def active_business_manager_emails():
     )
 
 
+def active_marketing_manager_emails():
+    return list(
+        User.objects.filter(role=User.ROLE_MARKETING_MANAGER, is_active=True)
+        .exclude(email="")
+        .values_list("email", flat=True)
+    )
+
+
 def latest_cashflow_snapshot():
     return CashflowSnapshot.objects.order_by("-as_of_date", "-created_at").first()
 
@@ -1314,6 +1425,108 @@ def sync_projected_collection(projected_collection, cleaned_data):
     projected_collection.revised_collection_date = cleaned_data["revised_collection_date"]
     projected_collection.save()
     return projected_collection
+
+
+PHARMA_MANAGER_UPLOAD_HEADER_ALIASES = {
+    "name": {"name", "person name", "manager name", "contact name", "brand manager name"},
+    "company_name": {"company", "company name", "organisation", "organization"},
+    "designation": {"designation", "title", "role"},
+    "email": {"email", "email address", "mail", "e mail"},
+    "whatsapp_number": {"whatsapp", "whatsapp number", "mobile", "phone", "phone number"},
+    "linkedin_url": {"linkedin", "linkedin url", "linkedin page", "linkedin profile url"},
+    "therapy_area": {"therapy area", "therapy", "therapy areas"},
+    "molecule_or_formulation": {"molecule", "formulation", "molecule formulation", "molecule or formulation"},
+}
+
+
+def _resolve_pharma_manager_upload_columns(header_row):
+    normalized = {normalize_cashflow_header(value): index for index, value in enumerate(header_row)}
+    resolved = {}
+    for field_name, aliases in PHARMA_MANAGER_UPLOAD_HEADER_ALIASES.items():
+        for alias in aliases:
+            if alias in normalized:
+                resolved[field_name] = normalized[alias]
+                break
+    if "email" not in resolved:
+        raise ValueError("The upload must contain an email address column.")
+    return resolved
+
+
+def _row_value(row, column_map, field_name):
+    if field_name not in column_map:
+        return ""
+    value = row[column_map[field_name]]
+    return "" if value is None else str(value).strip()
+
+
+def _append_unique_slot(instance, prefix, value, max_slots):
+    value = (value or "").strip()
+    if not value:
+        return False
+    existing_values = [
+        (getattr(instance, f"{prefix}_{index}") or "").strip()
+        for index in range(1, max_slots + 1)
+    ]
+    if any(existing.lower() == value.lower() for existing in existing_values if existing):
+        return False
+    for index in range(1, max_slots + 1):
+        field_name = f"{prefix}_{index}"
+        if not getattr(instance, field_name):
+            setattr(instance, field_name, value)
+            return True
+    return False
+
+
+def import_pharma_manager_molecule_batch(batch):
+    workbook = load_workbook(batch.uploaded_file.path, data_only=True)
+    sheet = workbook[workbook.sheetnames[0]]
+    header = list(next(sheet.iter_rows(values_only=True)))
+    column_map = _resolve_pharma_manager_upload_columns(header)
+    total_rows = created_count = updated_count = skipped_count = 0
+
+    for row in sheet.iter_rows(min_row=2, values_only=True):
+        if not any(row):
+            continue
+        total_rows += 1
+        email = _row_value(row, column_map, "email").lower()
+        if not email:
+            skipped_count += 1
+            continue
+        defaults = {
+            "name": _row_value(row, column_map, "name") or email,
+            "company_name": _row_value(row, column_map, "company_name"),
+            "designation": _row_value(row, column_map, "designation"),
+            "whatsapp_number": _row_value(row, column_map, "whatsapp_number"),
+            "linkedin_url": _row_value(row, column_map, "linkedin_url"),
+        }
+        if not defaults["company_name"]:
+            defaults["company_name"] = "Unknown"
+        pharma_manager, created = PharmaManager.objects.get_or_create(
+            email=email,
+            defaults={**defaults, "created_by": batch.uploaded_by},
+        )
+        changed = created
+        if not created:
+            for field_name, value in defaults.items():
+                if value and not getattr(pharma_manager, field_name):
+                    setattr(pharma_manager, field_name, value)
+                    changed = True
+        row_therapy = _row_value(row, column_map, "therapy_area") or batch.therapy_area
+        row_molecule = _row_value(row, column_map, "molecule_or_formulation") or batch.molecule_or_formulation
+        changed = _append_unique_slot(pharma_manager, "therapy_area", row_therapy, 5) or changed
+        changed = _append_unique_slot(pharma_manager, "molecule", row_molecule, 10) or changed
+        if changed:
+            pharma_manager.save()
+        if created:
+            created_count += 1
+        else:
+            updated_count += 1 if changed else 0
+    batch.total_rows = total_rows
+    batch.created_count = created_count
+    batch.updated_count = updated_count
+    batch.skipped_count = skipped_count
+    batch.save(update_fields=["total_rows", "created_count", "updated_count", "skipped_count"])
+    return batch
 
 
 def create_cashflow_work_order(cleaned_data, created_by):

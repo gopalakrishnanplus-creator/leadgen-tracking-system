@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Upload Molecule Data{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>Upload molecule/formulation data</h1>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'marketing_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+<section class="panel">
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        {% for field in form %}
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% for error in field.errors %}<div class="message error">{{ error }}</div>{% endfor %}
+        {% endfor %}
+        <div class="button-row">
+            <button class="button button-primary" type="submit">Upload and ingest</button>
+        </div>
+    </form>
+</section>
+<section class="panel">
+    <h2>Recent uploads</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Molecule/formulation</th>
+                <th>Therapy area</th>
+                <th>Rows</th>
+                <th>Created</th>
+                <th>Updated</th>
+                <th>Skipped</th>
+                <th>Uploaded</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for upload in uploads %}
+            <tr>
+                <td>{{ upload.molecule_or_formulation }}</td>
+                <td>{{ upload.therapy_area|default:"-" }}</td>
+                <td>{{ upload.total_rows }}</td>
+                <td>{{ upload.created_count }}</td>
+                <td>{{ upload.updated_count }}</td>
+                <td>{{ upload.skipped_count }}</td>
+                <td>{{ upload.created_at }}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="7">No uploads yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

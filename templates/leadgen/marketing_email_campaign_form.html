@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Send Marketing Email{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>Send marketing email campaign</h1>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'marketing_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+<section class="panel">
+    <form method="post">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        {% for field in form %}
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% for error in field.errors %}<div class="message error">{{ error }}</div>{% endfor %}
+        {% endfor %}
+        {% if preview_count != None %}
+            <p class="note">Current matching subscribed recipients: {{ preview_count }}</p>
+        {% endif %}
+        <div class="button-row">
+            <button class="button button-primary" type="submit">Send campaign</button>
+        </div>
+    </form>
+</section>
+{% endblock %}

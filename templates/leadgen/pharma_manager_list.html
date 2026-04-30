@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Pharma Managers{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>Pharma manager database</h1>
+    </div>
+    <div class="button-row">
+        <a class="button button-primary" href="{% url 'pharma_manager_create' %}">Add pharma manager</a>
+        <a class="button" href="{% url 'pharma_manager_upload' %}">Upload molecule data</a>
+        <a class="button" href="{% url 'marketing_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+<section class="panel">
+    <form method="get" class="filter-form">
+        <div>
+            <label for="{{ filter_form.therapy_area.id_for_label }}">Therapy area</label>
+            {{ filter_form.therapy_area }}
+        </div>
+        <div>
+            <label for="{{ filter_form.molecule_or_formulation.id_for_label }}">Molecule/formulation</label>
+            {{ filter_form.molecule_or_formulation }}
+        </div>
+        <div class="button-row">
+            <button class="button button-primary" type="submit">Apply filters</button>
+            <a class="button" href="{% url 'pharma_manager_list' %}">Clear</a>
+        </div>
+    </form>
+</section>
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Company</th>
+                <th>Email</th>
+                <th>Therapy areas</th>
+                <th>Molecules/formulations</th>
+                <th>Unsubscribed</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for pharma_manager in page_obj.object_list %}
+            <tr>
+                <td>{{ pharma_manager.name }}</td>
+                <td>{{ pharma_manager.company_name }}</td>
+                <td>{{ pharma_manager.email }}</td>
+                <td>{{ pharma_manager.therapy_areas|join:", " }}</td>
+                <td>{{ pharma_manager.molecules|join:", " }}</td>
+                <td>{% if pharma_manager.unsubscribed %}Yes{% else %}No{% endif %}</td>
+                <td class="actions">
+                    <a href="{% url 'pharma_manager_update' pharma_manager.id %}">Edit</a>
+                    <a href="{% url 'pharma_manager_delete' pharma_manager.id %}">Delete</a>
+                </td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="7">No pharma managers found.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% if page_obj.paginator.num_pages > 1 %}
+        <div class="button-row">
+            {% if page_obj.has_previous %}
+                <a class="button" href="?page={{ page_obj.previous_page_number }}&therapy_area={{ request.GET.therapy_area }}&molecule_or_formulation={{ request.GET.molecule_or_formulation }}">Previous</a>
+            {% endif %}
+            <span class="note">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+            {% if page_obj.has_next %}
+                <a class="button" href="?page={{ page_obj.next_page_number }}&therapy_area={{ request.GET.therapy_area }}&molecule_or_formulation={{ request.GET.molecule_or_formulation }}">Next</a>
+            {% endif %}
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

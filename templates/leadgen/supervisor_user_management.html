@@ -20,6 +20,7 @@
             <a class="button" href="{% url 'sales_manager_create' %}">Add sales manager</a>
             <a class="button" href="{% url 'finance_manager_create' %}">Add finance manager</a>
             <a class="button" href="{% url 'business_manager_create' %}">Add business manager</a>
+            <a class="button" href="{% url 'marketing_manager_create' %}">Add marketing manager</a>
         {% endif %}
     </div>
 </section>
@@ -241,6 +242,40 @@
             </tr>
         {% empty %}
             <tr><td colspan="4">No business managers added yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+
+<section class="panel">
+    <div class="section-head">
+        <div>
+            <p class="eyebrow">Marketing managers</p>
+            <h2>Users who manage playbooks, pharma manager data, and direct marketing actions</h2>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for marketing_manager in marketing_managers %}
+            <tr>
+                <td>{{ marketing_manager.name }}</td>
+                <td>{{ marketing_manager.email }}</td>
+                <td>{% if marketing_manager.is_active %}Active{% else %}Inactive{% endif %}</td>
+                <td class="actions">
+                    <a href="{% url 'marketing_manager_update' marketing_manager.id %}">Edit</a>
+                    <a href="{% url 'marketing_manager_delete' marketing_manager.id %}">Deactivate</a>
+                </td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="4">No marketing managers added yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>

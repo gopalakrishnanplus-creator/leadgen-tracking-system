@@ -5,7 +5,8 @@ from zoneinfo import ZoneInfo
 from django.contrib import messages
 from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
-from django.db.models import F, Prefetch
+from django.core.paginator import Paginator
+from django.db.models import F, Prefetch, Q
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -31,6 +32,14 @@ from .forms import (
     MeetingDateFilterForm,
     MeetingStatusUpdateForm,
     MeetingReminderLogForm,
+    MarketingEmailCampaignForm,
+    MarketingLinkedInActivityForm,
+    MarketingManagerCreateForm,
+    MarketingManagerUpdateForm,
+    MarketingPlaybookForm,
+    PharmaManagerFilterForm,
+    PharmaManagerForm,
+    PharmaManagerUploadForm,
     PublicDownloadUploadForm,
     ProspectCreateForm,
     SupervisorProspectActionForm,
@@ -54,7 +63,12 @@ from .models import (
     CashflowSnapshot,
     ContractCollection,
     DirectMarketingActivity,
+    MarketingEmailCampaign,
+    MarketingLinkedInActivity,
+    MarketingPlaybook,
     Meeting,
+    PharmaManager,
+    PharmaManagerUploadBatch,
     PublicDownloadFile,
     Prospect,
     ProspectStatusUpdate,
@@ -84,11 +98,14 @@ from .services import (
     delete_meeting,
     get_or_create_contract_collection_from_sales_conversation,
     import_exotel_report,
+    import_pharma_manager_molecule_batch,
     latest_cashflow_snapshot,
     log_whatsapp_reminder,
+    marketing_email_recipients,
     overdue_contract_installments,
     overdue_projected_collections,
     send_cashflow_work_order_email,
+    send_marketing_email_campaign,
     reschedule_meeting,
     send_due_invoice_notifications,
     sync_contract_collection_data,
@@ -138,6 +155,8 @@ def home(request):
             return redirect("cashflow_dashboard")
         if request.current_workspace == "business":
             return redirect("cashflow_dashboard")
+        if request.current_workspace == "marketing":
+            return redirect("marketing_dashboard")
         return workspace_choice(request)
     if getattr(request, "current_workspace", None) == "supervisor":
         return redirect("supervisor_dashboard")
@@ -149,6 +168,8 @@ def home(request):
         return redirect("cashflow_dashboard")
     if getattr(request, "current_workspace", None) == "business":
         return redirect("cashflow_dashboard")
+    if getattr(request, "current_workspace", None) == "marketing":
+        return redirect("marketing_dashboard")
     return redirect("staff_dashboard")
 
 
@@ -161,7 +182,7 @@ def workspace_choice(request):
 
 @login_required
 def select_workspace(request, workspace):
-    if workspace not in {"supervisor", "staff", "sales", "finance", "business"}:
+    if workspace not in {"supervisor", "staff", "sales", "finance", "business", "marketing"}:
         raise Http404("Workspace not found.")
     if not getattr(request, "is_dual_workspace_user", False):
         return redirect("home")
@@ -175,6 +196,8 @@ def select_workspace(request, workspace):
         raise Http404("Workspace not found.")
     if workspace == "business" and not getattr(request, "has_business_workspace_access", False):
         raise Http404("Workspace not found.")
+    if workspace == "marketing" and not getattr(request, "has_marketing_workspace_access", False):
+        raise Http404("Workspace not found.")
     request.session["workspace_mode"] = workspace
     if workspace == "supervisor":
         return redirect("supervisor_dashboard")
@@ -184,6 +207,8 @@ def select_workspace(request, workspace):
         return redirect("cashflow_dashboard")
     if workspace == "business":
         return redirect("cashflow_dashboard")
+    if workspace == "marketing":
+        return redirect("marketing_dashboard")
     return redirect("sales_pipeline_dashboard")
 
 
@@ -212,6 +237,7 @@ def supervisor_dashboard(request):
         "sales_manager_count": User.objects.filter(role=User.ROLE_SALES_MANAGER, is_active=True).count(),
         "finance_manager_count": User.objects.filter(role=User.ROLE_FINANCE_MANAGER, is_active=True).count(),
         "business_manager_count": User.objects.filter(role=User.ROLE_BUSINESS_MANAGER, is_active=True).count(),
+        "marketing_manager_count": User.objects.filter(role=User.ROLE_MARKETING_MANAGER, is_active=True).count(),
         "active_sales_pipeline_count": SalesConversation.objects.filter(contract_signed=False).count(),
         "active_contract_count": ContractCollection.objects.count(),
         "public_download_count": PublicDownloadFile.objects.count(),
@@ -235,6 +261,7 @@ def _supervisor_user_management_context(request, access_form=None):
         "sales_managers": User.objects.filter(role=User.ROLE_SALES_MANAGER).order_by("name", "email"),
         "finance_managers": User.objects.filter(role=User.ROLE_FINANCE_MANAGER).order_by("name", "email"),
         "business_managers": User.objects.filter(role=User.ROLE_BUSINESS_MANAGER).order_by("name", "email"),
+        "marketing_managers": User.objects.filter(role=User.ROLE_MARKETING_MANAGER).order_by("name", "email"),
     }
 
 
@@ -475,6 +502,10 @@ def _get_business_manager_or_404(user_id):
     return get_object_or_404(User, pk=user_id, role=User.ROLE_BUSINESS_MANAGER)
 
 
+def _get_marketing_manager_or_404(user_id):
+    return get_object_or_404(User, pk=user_id, role=User.ROLE_MARKETING_MANAGER)
+
+
 @supervisor_access_required(
     SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN,
     SupervisorAccessEmail.ACCESS_LEADGEN_SUPERVISOR,
@@ -631,6 +662,263 @@ def business_manager_delete(request, user_id):
         request,
         "leadgen/confirm_delete.html",
         {"object": business_manager, "title": "Deactivate business manager"},
+    )
+
+
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
+def marketing_manager_create(request):
+    form = MarketingManagerCreateForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Marketing manager account created.")
+        return redirect("supervisor_user_management")
+    return render(request, "leadgen/marketing_manager_form.html", {"form": form, "title": "Add marketing manager"})
+
+
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
+def marketing_manager_update(request, user_id):
+    marketing_manager = _get_marketing_manager_or_404(user_id)
+    form = MarketingManagerUpdateForm(request.POST or None, instance=marketing_manager)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Marketing manager updated.")
+        return redirect("supervisor_user_management")
+    return render(request, "leadgen/marketing_manager_form.html", {"form": form, "title": "Edit marketing manager"})
+
+
+@supervisor_access_required(SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
+def marketing_manager_delete(request, user_id):
+    marketing_manager = _get_marketing_manager_or_404(user_id)
+    if request.method == "POST":
+        marketing_manager.is_active = False
+        marketing_manager.save(update_fields=["is_active"])
+        messages.success(request, "Marketing manager deactivated.")
+        return redirect("supervisor_user_management")
+    return render(
+        request,
+        "leadgen/confirm_delete.html",
+        {"object": marketing_manager, "title": "Deactivate marketing manager"},
+    )
+
+
+@role_required(User.ROLE_MARKETING_MANAGER)
+def marketing_dashboard(request):
+    playbooks = (
+        MarketingPlaybook.objects.prefetch_related("email_campaigns", "linkedin_activities")
+        .select_related("created_by")
+        .order_by("-start_date", "title")
+    )
+    context = {
+        "workspace_eyebrow": _workspace_eyebrow(request),
+        "playbook_count": MarketingPlaybook.objects.count(),
+        "pharma_manager_count": PharmaManager.objects.count(),
+        "subscribed_count": PharmaManager.objects.filter(unsubscribed=False).count(),
+        "campaign_count": MarketingEmailCampaign.objects.count(),
+        "linkedin_activity_count": MarketingLinkedInActivity.objects.count(),
+        "playbooks": playbooks[:25],
+        "recent_uploads": PharmaManagerUploadBatch.objects.select_related("uploaded_by")[:5],
+    }
+    return render(request, "leadgen/marketing_dashboard.html", context)
+
+
+@role_required(User.ROLE_MARKETING_MANAGER)
+def marketing_playbook_list(request):
+    playbooks = MarketingPlaybook.objects.select_related("created_by").order_by("-start_date", "title")
+    return render(
+        request,
+        "leadgen/marketing_playbook_list.html",
+        {"workspace_eyebrow": _workspace_eyebrow(request), "playbooks": playbooks},
+    )
+
+
+@role_required(User.ROLE_MARKETING_MANAGER)
+def marketing_playbook_create(request):
+    form = MarketingPlaybookForm(request.POST or None, request.FILES or None)
+    if request.method == "POST" and form.is_valid():
+        playbook = form.save(commit=False)
+        playbook.created_by = _effective_marketing_user(request) or request.user
+        playbook.save()
+        messages.success(request, "Playbook created.")
+        return redirect("marketing_playbook_list")
+    return render(
+        request,
+        "leadgen/marketing_playbook_form.html",
+        {"workspace_eyebrow": _workspace_eyebrow(request), "form": form, "title": "Add weekly playbook"},
+    )
+
+
+@role_required(User.ROLE_MARKETING_MANAGER)
+def marketing_playbook_update(request, playbook_id):
+    playbook = get_object_or_404(MarketingPlaybook, pk=playbook_id)
+    form = MarketingPlaybookForm(request.POST or None, request.FILES or None, instance=playbook)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Playbook updated.")
+        return redirect("marketing_playbook_list")
+    return render(
+        request,
+        "leadgen/marketing_playbook_form.html",
+        {"workspace_eyebrow": _workspace_eyebrow(request), "form": form, "title": "Edit playbook"},
+    )
+
+
+def _pharma_manager_filtered_queryset(form):
+    queryset = PharmaManager.objects.all().order_by("name", "company_name")
+    if form.is_valid():
+        therapy_area = (form.cleaned_data.get("therapy_area") or "").strip()
+        molecule = (form.cleaned_data.get("molecule_or_formulation") or "").strip()
+        if therapy_area:
+            query = Q()
+            for index in range(1, 6):
+                query |= Q(**{f"therapy_area_{index}__icontains": therapy_area})
+            queryset = queryset.filter(query)
+        if molecule:
+            query = Q()
+            for index in range(1, 11):
+                query |= Q(**{f"molecule_{index}__icontains": molecule})
+            queryset = queryset.filter(query)
+    return queryset
+
+
+@role_required(User.ROLE_MARKETING_MANAGER)
+def pharma_manager_list(request):
+    filter_form = PharmaManagerFilterForm(request.GET or None)
+    paginator = Paginator(_pharma_manager_filtered_queryset(filter_form), 20)
+    page_obj = paginator.get_page(request.GET.get("page"))
+    return render(
+        request,
+        "leadgen/pharma_manager_list.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "filter_form": filter_form,
+            "page_obj": page_obj,
+        },
+    )
+
+
+@role_required(User.ROLE_MARKETING_MANAGER)
+def pharma_manager_create(request):
+    form = PharmaManagerForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        pharma_manager = form.save(commit=False)
+        pharma_manager.created_by = _effective_marketing_user(request) or request.user
+        pharma_manager.save()
+        messages.success(request, "Pharma manager added.")
+        return redirect("pharma_manager_list")
+    return render(
+        request,
+        "leadgen/pharma_manager_form.html",
+        {"workspace_eyebrow": _workspace_eyebrow(request), "form": form, "title": "Add pharma manager"},
+    )
+
+
+@role_required(User.ROLE_MARKETING_MANAGER)
+def pharma_manager_update(request, pharma_manager_id):
+    pharma_manager = get_object_or_404(PharmaManager, pk=pharma_manager_id)
+    form = PharmaManagerForm(request.POST or None, instance=pharma_manager)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Pharma manager updated.")
+        return redirect("pharma_manager_list")
+    return render(
+        request,
+        "leadgen/pharma_manager_form.html",
+        {"workspace_eyebrow": _workspace_eyebrow(request), "form": form, "title": "Edit pharma manager"},
+    )
+
+
+@role_required(User.ROLE_MARKETING_MANAGER)
+def pharma_manager_delete(request, pharma_manager_id):
+    pharma_manager = get_object_or_404(PharmaManager, pk=pharma_manager_id)
+    if request.method == "POST":
+        pharma_manager.delete()
+        messages.success(request, "Pharma manager deleted.")
+        return redirect("pharma_manager_list")
+    return render(
+        request,
+        "leadgen/confirm_delete.html",
+        {
+            "object": pharma_manager,
+            "title": "Delete pharma manager",
+            "description": "This will remove this pharma manager from the marketing database.",
+        },
+    )
+
+
+@role_required(User.ROLE_MARKETING_MANAGER)
+def marketing_email_campaign_create(request):
+    form = MarketingEmailCampaignForm(request.POST or None)
+    preview_count = None
+    if form.is_valid():
+        preview_count = marketing_email_recipients(
+            form.cleaned_data["playbook"],
+            form.cleaned_data["campaign_type"],
+        ).count()
+    if request.method == "POST" and form.is_valid():
+        campaign = send_marketing_email_campaign(
+            form.cleaned_data["playbook"],
+            form.cleaned_data["campaign_type"],
+            _effective_marketing_user(request) or request.user,
+        )
+        messages.success(
+            request,
+            f"Marketing email campaign sent to {campaign.recipient_count} recipients. Failed: {campaign.failed_count}.",
+        )
+        return redirect("marketing_dashboard")
+    return render(
+        request,
+        "leadgen/marketing_email_campaign_form.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "form": form,
+            "preview_count": preview_count,
+        },
+    )
+
+
+@role_required(User.ROLE_MARKETING_MANAGER)
+def marketing_linkedin_activity_create(request):
+    form = MarketingLinkedInActivityForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        activity = form.save(commit=False)
+        activity.recorded_by = _effective_marketing_user(request) or request.user
+        activity.save()
+        messages.success(request, "LinkedIn activity recorded.")
+        return redirect("marketing_dashboard")
+    return render(
+        request,
+        "leadgen/marketing_linkedin_activity_form.html",
+        {"workspace_eyebrow": _workspace_eyebrow(request), "form": form},
+    )
+
+
+@role_required(User.ROLE_MARKETING_MANAGER)
+def pharma_manager_upload_create(request):
+    form = PharmaManagerUploadForm(request.POST or None, request.FILES or None)
+    uploads = PharmaManagerUploadBatch.objects.select_related("uploaded_by")[:10]
+    if request.method == "POST" and form.is_valid():
+        batch = form.save(commit=False)
+        batch.uploaded_by = _effective_marketing_user(request) or request.user
+        batch.save()
+        try:
+            import_pharma_manager_molecule_batch(batch)
+        except Exception as exc:
+            batch.delete()
+            messages.error(request, f"Pharma manager import failed: {exc}")
+        else:
+            messages.success(
+                request,
+                f"Upload processed. Created: {batch.created_count}; updated: {batch.updated_count}; skipped: {batch.skipped_count}.",
+            )
+            return redirect("pharma_manager_upload")
+    return render(
+        request,
+        "leadgen/pharma_manager_upload.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "form": form,
+            "uploads": uploads,
+        },
     )
 
 
@@ -1482,6 +1770,10 @@ def _effective_business_user(request):
     return getattr(request, "business_workspace_user", None)
 
 
+def _effective_marketing_user(request):
+    return getattr(request, "marketing_workspace_user", None)
+
+
 def _is_effective_supervisor(request):
     return _is_supervisor_workspace(request)
 
@@ -1502,7 +1794,13 @@ def _is_effective_business_manager(request):
     return getattr(request, "current_workspace", None) == "business" and _effective_business_user(request) is not None
 
 
+def _is_effective_marketing_manager(request):
+    return getattr(request, "current_workspace", None) == "marketing" and _effective_marketing_user(request) is not None
+
+
 def _workspace_eyebrow(request):
+    if getattr(request, "current_workspace", None) == "marketing":
+        return "Marketing"
     if getattr(request, "current_workspace", None) == "business":
         return "Business"
     if getattr(request, "current_workspace", None) == "finance":

@@ -17,12 +17,14 @@ class User(AbstractUser):
     ROLE_SALES_MANAGER = "sales_manager"
     ROLE_FINANCE_MANAGER = "finance_manager"
     ROLE_BUSINESS_MANAGER = "business_manager"
+    ROLE_MARKETING_MANAGER = "marketing_manager"
     ROLE_CHOICES = [
         (ROLE_SUPERVISOR, "Supervisor"),
         (ROLE_STAFF, "Lead Gen Staff"),
         (ROLE_SALES_MANAGER, "Sales Manager"),
         (ROLE_FINANCE_MANAGER, "Finance Manager"),
         (ROLE_BUSINESS_MANAGER, "Business Manager"),
+        (ROLE_MARKETING_MANAGER, "Marketing Manager"),
     ]
 
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_STAFF)
@@ -42,9 +44,10 @@ class User(AbstractUser):
             self.ROLE_SALES_MANAGER,
             self.ROLE_FINANCE_MANAGER,
             self.ROLE_BUSINESS_MANAGER,
+            self.ROLE_MARKETING_MANAGER,
         } and self.calling_number:
             raise ValidationError(
-                "Supervisor, sales manager, finance manager, and business manager accounts cannot have a calling number."
+                "Supervisor, sales manager, finance manager, business manager, and marketing manager accounts cannot have a calling number."
             )
 
     def save(self, *args, **kwargs):
@@ -81,6 +84,10 @@ class User(AbstractUser):
     @property
     def is_business_manager(self):
         return self.role == self.ROLE_BUSINESS_MANAGER
+
+    @property
+    def is_marketing_manager(self):
+        return self.role == self.ROLE_MARKETING_MANAGER
 
     def __str__(self):
         return self.name or self.email
@@ -853,6 +860,211 @@ class DirectMarketingActivity(models.Model):
 
     def __str__(self):
         return f"{self.therapy_area} / {self.sent_on:%Y-%m-%d}"
+
+
+class MarketingPlaybook(models.Model):
+    title = models.CharField(max_length=255)
+    therapy_area = models.CharField(max_length=255)
+    molecule_or_formulation = models.CharField(max_length=255)
+    website_download_url = models.URLField()
+    pdf_file = models.FileField(upload_to="marketing-playbooks/")
+    notion_page_url = models.URLField()
+    start_date = models.DateField()
+    end_date = models.DateField()
+    linkedin_invitation_message = models.TextField()
+    direct_email_subject = models.CharField(max_length=255)
+    direct_email_body = models.TextField()
+    linkedin_connected_message = models.TextField()
+    targeted_email_subject = models.CharField(max_length=255)
+    targeted_email_body = models.TextField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="marketing_playbooks",
+        on_delete=models.PROTECT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-start_date", "title"]
+        indexes = [
+            models.Index(fields=["start_date", "end_date"]),
+            models.Index(fields=["therapy_area", "molecule_or_formulation"]),
+        ]
+
+    def clean(self):
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValidationError("Playbook end date cannot be before the start date.")
+
+    def __str__(self):
+        return f"{self.title} / {self.start_date:%Y-%m-%d}"
+
+
+class PharmaManager(models.Model):
+    name = models.CharField(max_length=255)
+    company_name = models.CharField(max_length=255)
+    designation = models.CharField(max_length=255, blank=True)
+    email = models.EmailField(unique=True)
+    whatsapp_number = models.CharField(max_length=20, blank=True)
+    therapy_area_1 = models.CharField(max_length=255, blank=True)
+    therapy_area_2 = models.CharField(max_length=255, blank=True)
+    therapy_area_3 = models.CharField(max_length=255, blank=True)
+    therapy_area_4 = models.CharField(max_length=255, blank=True)
+    therapy_area_5 = models.CharField(max_length=255, blank=True)
+    molecule_1 = models.CharField(max_length=255, blank=True)
+    molecule_2 = models.CharField(max_length=255, blank=True)
+    molecule_3 = models.CharField(max_length=255, blank=True)
+    molecule_4 = models.CharField(max_length=255, blank=True)
+    molecule_5 = models.CharField(max_length=255, blank=True)
+    molecule_6 = models.CharField(max_length=255, blank=True)
+    molecule_7 = models.CharField(max_length=255, blank=True)
+    molecule_8 = models.CharField(max_length=255, blank=True)
+    molecule_9 = models.CharField(max_length=255, blank=True)
+    molecule_10 = models.CharField(max_length=255, blank=True)
+    linkedin_url = models.URLField(blank=True)
+    unsubscribed = models.BooleanField(default=False)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="created_pharma_managers",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name", "company_name"]
+        indexes = [
+            models.Index(fields=["name", "company_name"]),
+            models.Index(fields=["unsubscribed", "email"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.email = (self.email or "").strip().lower()
+        super().save(*args, **kwargs)
+
+    @property
+    def therapy_areas(self):
+        return [value for value in [
+            self.therapy_area_1,
+            self.therapy_area_2,
+            self.therapy_area_3,
+            self.therapy_area_4,
+            self.therapy_area_5,
+        ] if value]
+
+    @property
+    def molecules(self):
+        return [value for value in [
+            self.molecule_1,
+            self.molecule_2,
+            self.molecule_3,
+            self.molecule_4,
+            self.molecule_5,
+            self.molecule_6,
+            self.molecule_7,
+            self.molecule_8,
+            self.molecule_9,
+            self.molecule_10,
+        ] if value]
+
+    def __str__(self):
+        return f"{self.name} / {self.company_name}"
+
+
+class MarketingEmailCampaign(models.Model):
+    TYPE_FULL_DATABASE = "full_database"
+    TYPE_MOLECULE_TARGETED = "molecule_targeted"
+    TYPE_CHOICES = [
+        (TYPE_FULL_DATABASE, "Entire pharma manager database"),
+        (TYPE_MOLECULE_TARGETED, "Molecule/formulation targeted database"),
+    ]
+
+    playbook = models.ForeignKey(
+        MarketingPlaybook,
+        related_name="email_campaigns",
+        on_delete=models.PROTECT,
+    )
+    campaign_type = models.CharField(max_length=32, choices=TYPE_CHOICES)
+    sent_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="marketing_email_campaigns",
+        on_delete=models.PROTECT,
+    )
+    recipient_count = models.PositiveIntegerField(default=0)
+    failed_count = models.PositiveIntegerField(default=0)
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-sent_at"]
+        indexes = [
+            models.Index(fields=["campaign_type", "sent_at"]),
+        ]
+
+    @property
+    def total_attempted(self):
+        return self.recipient_count + self.failed_count
+
+    def __str__(self):
+        return f"{self.playbook.title} / {self.get_campaign_type_display()} / {self.sent_at:%Y-%m-%d}"
+
+
+class MarketingLinkedInActivity(models.Model):
+    ACTIVITY_INVITATIONS = "invitations"
+    ACTIVITY_MESSAGES = "messages"
+    ACTIVITY_CHOICES = [
+        (ACTIVITY_INVITATIONS, "Sales Navigator invitations"),
+        (ACTIVITY_MESSAGES, "LinkedIn messages"),
+    ]
+
+    playbook = models.ForeignKey(
+        MarketingPlaybook,
+        related_name="linkedin_activities",
+        on_delete=models.PROTECT,
+    )
+    activity_type = models.CharField(max_length=32, choices=ACTIVITY_CHOICES)
+    activity_start_date = models.DateField()
+    activity_end_date = models.DateField()
+    count = models.PositiveIntegerField()
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="marketing_linkedin_activities",
+        on_delete=models.PROTECT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-activity_end_date", "-created_at"]
+
+    def clean(self):
+        if self.activity_start_date and self.activity_end_date and self.activity_end_date < self.activity_start_date:
+            raise ValidationError("LinkedIn activity end date cannot be before the start date.")
+
+    def __str__(self):
+        return f"{self.playbook.title} / {self.get_activity_type_display()} / {self.count}"
+
+
+class PharmaManagerUploadBatch(models.Model):
+    molecule_or_formulation = models.CharField(max_length=255)
+    therapy_area = models.CharField(max_length=255, blank=True)
+    uploaded_file = models.FileField(upload_to="marketing-pharma-manager-imports/")
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="pharma_manager_upload_batches",
+        on_delete=models.PROTECT,
+    )
+    total_rows = models.PositiveIntegerField(default=0)
+    created_count = models.PositiveIntegerField(default=0)
+    updated_count = models.PositiveIntegerField(default=0)
+    skipped_count = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.molecule_or_formulation} / {self.created_at:%Y-%m-%d}"
 
 
 class CashflowSnapshot(models.Model):

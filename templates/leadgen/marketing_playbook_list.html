@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Playbooks{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>Playbooks</h1>
+    </div>
+    <div class="button-row">
+        <a class="button button-primary" href="{% url 'marketing_playbook_create' %}">Add playbook</a>
+        <a class="button" href="{% url 'marketing_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Therapy area</th>
+                <th>Molecule/formulation</th>
+                <th>Week</th>
+                <th>Links</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for playbook in playbooks %}
+            <tr>
+                <td>{{ playbook.title }}</td>
+                <td>{{ playbook.therapy_area }}</td>
+                <td>{{ playbook.molecule_or_formulation }}</td>
+                <td>{{ playbook.start_date }} to {{ playbook.end_date }}</td>
+                <td>
+                    <a href="{{ playbook.website_download_url }}">Website</a>
+                    <a href="{{ playbook.notion_page_url }}">Notion</a>
+                    {% if playbook.pdf_file %}<a href="{{ playbook.pdf_file.url }}">PDF</a>{% endif %}
+                </td>
+                <td class="actions"><a href="{% url 'marketing_playbook_update' playbook.id %}">Edit</a></td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="6">No playbooks have been added yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

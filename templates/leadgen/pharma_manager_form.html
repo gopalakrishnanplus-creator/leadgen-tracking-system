@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>{{ title }}</h1>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'pharma_manager_list' %}">Back to database</a>
+    </div>
+</section>
+<form method="post">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <section class="two-col">
+        <article class="panel">
+            <h2>Contact details</h2>
+            {% for field in form %}
+                {% if field.name in "name company_name designation email whatsapp_number linkedin_url unsubscribed" %}
+                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% for error in field.errors %}<div class="message error">{{ error }}</div>{% endfor %}
+                {% endif %}
+            {% endfor %}
+        </article>
+        <article class="panel">
+            <h2>Therapy areas</h2>
+            {% for field in form %}
+                {% if "therapy_area" in field.name %}
+                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% for error in field.errors %}<div class="message error">{{ error }}</div>{% endfor %}
+                {% endif %}
+            {% endfor %}
+            <h2>Molecules/formulations</h2>
+            {% for field in form %}
+                {% if "molecule_" in field.name %}
+                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% for error in field.errors %}<div class="message error">{{ error }}</div>{% endfor %}
+                {% endif %}
+            {% endfor %}
+        </article>
+    </section>
+    <section class="panel">
+        <div class="button-row">
+            <button class="button button-primary" type="submit">Save pharma manager</button>
+        </div>
+    </section>
+</form>
+{% endblock %}
