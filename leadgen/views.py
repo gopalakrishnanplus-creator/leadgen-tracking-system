@@ -2033,10 +2033,6 @@ def sales_conversation_delete(request, conversation_id):
 
 @roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER, User.ROLE_FINANCE_MANAGER)
 def contracts_dashboard(request):
-    if _is_effective_finance_manager(request):
-        gate_response = _finance_upload_gate_response(request)
-        if gate_response:
-            return gate_response
     contracts = _contracts_queryset_for_request(request).order_by("-updated_at")
     context = {
         "contracts": contracts,
@@ -2097,10 +2093,6 @@ def contract_collection_update(request, contract_id):
     contract_collection = _contract_collection_for_request_or_404(request, contract_id)
     can_edit_terms = _is_effective_supervisor(request) or _is_effective_sales_manager(request)
     can_edit_finance = _is_effective_finance_manager(request)
-    if can_edit_finance:
-        gate_response = _finance_upload_gate_response(request)
-        if gate_response:
-            return gate_response
     terms_form = ContractCollectionForm(
         instance=contract_collection,
         allow_locked_field_edits=_is_effective_supervisor(request),
@@ -2166,10 +2158,6 @@ def contract_collection_update(request, contract_id):
 
 @roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER, User.ROLE_FINANCE_MANAGER)
 def pending_collections_view(request):
-    if _is_effective_finance_manager(request):
-        gate_response = _finance_upload_gate_response(request)
-        if gate_response:
-            return gate_response
     summary = build_pending_collections(_contracts_queryset_for_request(request))
     summary["workspace_eyebrow"] = _workspace_eyebrow(request)
     return render(request, "leadgen/pending_collections.html", summary)

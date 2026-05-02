@@ -2392,6 +2392,49 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Finance Visible Co")
 
+    def test_finance_manager_can_open_contracts_dashboard_without_tally_upload(self):
+        ContractCollection.objects.create(
+            company_name="Finance Ungated Co",
+            sales_manager=self.sales_manager,
+            contract_value="120000.00",
+            created_by=self.supervisor,
+        )
+        self.client.force_login(self.finance_manager)
+        response = self.client.get("/contracts/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Finance Ungated Co")
+
+    def test_finance_manager_can_open_pending_collections_without_tally_upload(self):
+        contract_collection = ContractCollection.objects.create(
+            company_name="Pending Ungated Co",
+            sales_manager=self.sales_manager,
+            contract_value="120000.00",
+            created_by=self.supervisor,
+        )
+        ContractCollectionInstallment.objects.create(
+            contract_collection=contract_collection,
+            position=1,
+            installment_amount="60000.00",
+            invoice_date=timezone.localdate(),
+            expected_collection_date=timezone.localdate() + timedelta(days=7),
+        )
+        self.client.force_login(self.finance_manager)
+        response = self.client.get("/contracts/pending-collections/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Pending Ungated Co")
+
+    def test_finance_manager_can_open_contract_detail_without_tally_upload(self):
+        contract_collection = ContractCollection.objects.create(
+            company_name="Detail Ungated Co",
+            sales_manager=self.sales_manager,
+            contract_value="120000.00",
+            created_by=self.supervisor,
+        )
+        self.client.force_login(self.finance_manager)
+        response = self.client.get(f"/contracts/{contract_collection.pk}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Detail Ungated Co")
+
     def test_supervisor_can_open_contract_detail_page(self):
         contract_collection = ContractCollection.objects.create(
             company_name="Detail Co",
