@@ -3144,10 +3144,12 @@ class LeadgenWorkflowTests(TestCase):
         )
 
         counts = import_cashflow_snapshot(snapshot)
+        snapshot.refresh_from_db()
 
         self.assertEqual(counts[CashflowImportedItem.CATEGORY_PAYABLE], 2)
         self.assertEqual(counts[CashflowImportedItem.CATEGORY_PROVISION], 1)
         self.assertEqual(counts[CashflowImportedItem.CATEGORY_RECEIVABLE], 3)
+        self.assertEqual(snapshot.as_of_date, datetime(2026, 4, 30).date())
         receivables = CashflowImportedItem.objects.filter(category=CashflowImportedItem.CATEGORY_RECEIVABLE)
         self.assertEqual(receivables.count(), 3)
         self.assertEqual(
@@ -3157,6 +3159,73 @@ class LeadgenWorkflowTests(TestCase):
         pi_receivable = receivables.get(party_name="Client PI A")
         self.assertEqual(pi_receivable.reference_number, "PI/01/2026-2027")
         self.assertEqual(str(pi_receivable.due_date), "2026-04-20")
+
+    def test_cashflow_projection_warns_when_uploaded_report_date_is_outdated(self):
+        yesterday = business_localdate() - timedelta(days=1)
+        CashflowSnapshot.objects.create(
+            as_of_date=yesterday,
+            payables_file=self._cashflow_workbook_upload(
+                "payables.xlsx",
+                ["Party Name", "Pending Amount"],
+                [["Vendor A", 1000]],
+            ),
+            provisions_file=self._cashflow_workbook_upload(
+                "provisions.xlsx",
+                ["Party Name", "Amount"],
+                [["Provision A", 500]],
+            ),
+            receivables_file=self._cashflow_workbook_upload(
+                "receivables.xlsx",
+                ["Customer Name", "Outstanding Amount"],
+                [["Customer A", 1500]],
+            ),
+            proforma_receivables_file=self._cashflow_workbook_upload(
+                "receivables-pi.xlsx",
+                ["Date", "Particulars", "Debit Amount"],
+                [[yesterday, "Customer PI", 700]],
+            ),
+            uploaded_by=self.finance_manager,
+        )
+        self.client.force_login(self.finance_manager)
+
+        response = self.client.get("/cashflow/projection/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "latest uploaded Tally input data is dated")
+        self.assertContains(response, f"{yesterday.strftime('%B')} {yesterday.day}, {yesterday.year}")
+
+    def test_finance_upload_gate_uses_upload_date_not_detected_report_date(self):
+        yesterday = business_localdate() - timedelta(days=1)
+        CashflowSnapshot.objects.create(
+            as_of_date=yesterday,
+            payables_file=self._cashflow_workbook_upload(
+                "payables.xlsx",
+                ["Party Name", "Pending Amount"],
+                [["Vendor A", 1000]],
+            ),
+            provisions_file=self._cashflow_workbook_upload(
+                "provisions.xlsx",
+                ["Party Name", "Amount"],
+                [["Provision A", 500]],
+            ),
+            receivables_file=self._cashflow_workbook_upload(
+                "receivables.xlsx",
+                ["Customer Name", "Outstanding Amount"],
+                [["Customer A", 1500]],
+            ),
+            proforma_receivables_file=self._cashflow_workbook_upload(
+                "receivables-pi.xlsx",
+                ["Date", "Particulars", "Debit Amount"],
+                [[yesterday, "Customer PI", 700]],
+            ),
+            uploaded_by=self.finance_manager,
+        )
+        self.client.force_login(self.finance_manager)
+
+        response = self.client.get("/cashflow/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "12-week cash flow dashboard")
 
     def test_cashflow_business_blockers_include_missing_plans_and_overdue_collections(self):
         today = datetime(2026, 4, 26).date()

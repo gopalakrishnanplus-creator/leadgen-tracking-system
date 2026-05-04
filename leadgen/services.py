@@ -1,5 +1,6 @@
 import logging
 import base64
+import re
 import socket
 from io import BytesIO
 from html import escape
@@ -1184,11 +1185,15 @@ def active_marketing_manager_emails():
 
 
 def latest_cashflow_snapshot():
-    return CashflowSnapshot.objects.order_by("-as_of_date", "-created_at").first()
+    return CashflowSnapshot.objects.order_by("-created_at", "-as_of_date").first()
 
 
 def finance_upload_complete_for_date(target_date=None):
-    return CashflowSnapshot.objects.filter(as_of_date=target_date or business_localdate()).exists()
+    target_date = target_date or business_localdate()
+    tz = ZoneInfo(SystemSetting.load().default_timezone)
+    day_start = datetime.combine(target_date, datetime.min.time(), tzinfo=tz)
+    day_end = day_start + timedelta(days=1)
+    return CashflowSnapshot.objects.filter(created_at__gte=day_start, created_at__lt=day_end).exists()
 
 
 def normalize_cashflow_header(value):
@@ -1207,7 +1212,8 @@ def parse_cashflow_date(value, tz_name=None):
     text = str(value).strip()
     if not text:
         return None
-    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y", "%d.%m.%Y"):
+    text = re.sub(r"\s*([-/])\s*", r"\1", text)
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y", "%d.%m.%Y", "%d-%b-%y", "%d-%b-%Y"):
         try:
             return datetime.strptime(text, fmt).date()
         except ValueError:
@@ -1268,6 +1274,29 @@ def _cashflow_raw_row(header, row):
             label = str(header[index] or f"Column {index + 1}")
         raw_row[label] = "" if value is None else str(value)
     return raw_row
+
+
+def _cashflow_workbook_rows(file_path):
+    with open(file_path, "rb") as workbook_file:
+        workbook = load_workbook(BytesIO(workbook_file.read()), data_only=True)
+    sheet = workbook[workbook.sheetnames[0]]
+    return [tuple(row) for row in sheet.iter_rows(values_only=True)]
+
+
+def _extract_cashflow_report_date(rows):
+    date_pattern = re.compile(r"\d{1,2}\s*[-/]\s*(?:[A-Za-z]{3,9}|\d{1,2})\s*[-/]\s*\d{2,4}")
+    detected_dates = []
+    for row in rows[:20]:
+        text = " ".join(str(value) for value in row if value not in (None, ""))
+        if not text or " to " not in f" {text.lower()} ":
+            continue
+        row_dates = [parse_cashflow_date(match.group(0)) for match in date_pattern.finditer(text)]
+        row_dates = [item for item in row_dates if item is not None]
+        if row_dates:
+            detected_dates.append(row_dates[-1])
+    if detected_dates:
+        return max(detected_dates)
+    return None
 
 
 def _resolve_tally_group_summary_layout(rows, category):
@@ -1338,6 +1367,7 @@ def build_cashflow_source_key(category, party_name, reference_number, descriptio
 
 def import_cashflow_snapshot(snapshot):
     imported_counts = {}
+    detected_report_dates = []
     for category, file_fields in CASHFLOW_CATEGORY_FILE_FIELD_MAP.items():
         CashflowImportedItem.objects.filter(category=category, is_current=True).update(is_current=False)
         imported_counts[category] = 0
@@ -1347,7 +1377,7 @@ def import_cashflow_snapshot(snapshot):
             uploaded_file = getattr(snapshot, file_field, None)
             if not uploaded_file:
                 continue
-            imported_count, imported_ids = _import_cashflow_file(
+            imported_count, imported_ids, detected_report_date = _import_cashflow_file(
                 snapshot=snapshot,
                 category=category,
                 file_path=uploaded_file.path,
@@ -1355,16 +1385,19 @@ def import_cashflow_snapshot(snapshot):
             )
             imported_counts[category] += imported_count
             touched_ids.extend(imported_ids)
+            if detected_report_date:
+                detected_report_dates.append(detected_report_date)
         if touched_ids:
             CashflowImportedItem.objects.filter(pk__in=touched_ids).update(is_current=True, snapshot=snapshot)
+    if detected_report_dates:
+        snapshot.as_of_date = min(detected_report_dates)
+        snapshot.save(update_fields=["as_of_date"])
     return imported_counts
 
 
 def _import_cashflow_file(snapshot, category, file_path, duplicate_counts=None):
-    with open(file_path, "rb") as workbook_file:
-        workbook = load_workbook(BytesIO(workbook_file.read()), data_only=True)
-    sheet = workbook[workbook.sheetnames[0]]
-    rows = [tuple(row) for row in sheet.iter_rows(values_only=True)]
+    rows = _cashflow_workbook_rows(file_path)
+    detected_report_date = _extract_cashflow_report_date(rows)
     layout = _resolve_cashflow_layout(rows, category)
     header = layout["header"]
     column_map = layout["column_map"]
@@ -1422,7 +1455,7 @@ def _import_cashflow_file(snapshot, category, file_path, duplicate_counts=None):
             },
         )
         touched_ids.append(item.pk)
-    return len(touched_ids), touched_ids
+    return len(touched_ids), touched_ids, detected_report_date
 
 
 def current_cashflow_items():

@@ -11,6 +11,11 @@
         <a class="button" href="{% url 'cashflow_dashboard' %}">Back to dashboard</a>
     </div>
 </section>
+{% if input_data_outdated %}
+<section class="message warning">
+    <strong>Warning:</strong> the latest uploaded Tally input data is dated {{ latest_snapshot.as_of_date }}, but this projection is being viewed on {{ today }}. Upload the latest Tally exports before relying on this cash-flow projection.
+</section>
+{% endif %}
 <section class="panel">
     <table>
         <thead>

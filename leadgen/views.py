@@ -1321,11 +1321,11 @@ def cashflow_uploads(request):
     form = CashflowSnapshotUploadForm(
         request.POST or None,
         request.FILES or None,
-        initial={"as_of_date": business_localdate()},
     )
     snapshots = CashflowSnapshot.objects.select_related("uploaded_by").all()[:10]
     if request.method == "POST" and form.is_valid():
         snapshot = form.save(commit=False)
+        snapshot.as_of_date = business_localdate()
         snapshot.uploaded_by = _effective_finance_user(request) or request.user
         snapshot.save()
         try:
@@ -1334,7 +1334,11 @@ def cashflow_uploads(request):
             snapshot.delete()
             messages.error(request, f"Cashflow import failed: {exc}")
         else:
-            messages.success(request, "Today's Tally files were uploaded and the cashflow data has been refreshed.")
+            snapshot.refresh_from_db()
+            messages.success(
+                request,
+                f"Tally files were uploaded and the cashflow data has been refreshed. Detected report date: {snapshot.as_of_date}.",
+            )
             return redirect("cashflow_dashboard")
     return render(
         request,
@@ -1543,12 +1547,17 @@ def cashflow_projection_view(request):
         if gate_response:
             return gate_response
     projection = build_cashflow_projection()
+    latest_snapshot = latest_cashflow_snapshot()
+    today = business_localdate()
     return render(
         request,
         "leadgen/cashflow_projection.html",
         {
             "workspace_eyebrow": _workspace_eyebrow(request),
             "projection": projection,
+            "latest_snapshot": latest_snapshot,
+            "today": today,
+            "input_data_outdated": latest_snapshot is not None and latest_snapshot.as_of_date < today,
         },
     )
 
@@ -1564,6 +1573,8 @@ def cashflow_projection_week_detail(request, week_index):
         if gate_response:
             return gate_response
     projection = build_cashflow_projection()
+    latest_snapshot = latest_cashflow_snapshot()
+    today = business_localdate()
     week = next((item for item in projection["weeks"] if item["index"] == week_index), None)
     if week is None:
         raise Http404("Projection week not found.")
@@ -1574,6 +1585,9 @@ def cashflow_projection_week_detail(request, week_index):
             "workspace_eyebrow": _workspace_eyebrow(request),
             "week": week,
             "projection": projection,
+            "latest_snapshot": latest_snapshot,
+            "today": today,
+            "input_data_outdated": latest_snapshot is not None and latest_snapshot.as_of_date < today,
         },
     )
 

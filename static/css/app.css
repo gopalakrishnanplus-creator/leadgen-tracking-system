@@ -260,6 +260,11 @@ input[type="checkbox"] {
     border-color: #efb8af;
 }
 
+.message.warning {
+    background: #fff3d6;
+    border-color: #e1b963;
+}
+
 .actions {
     white-space: nowrap;
 }
