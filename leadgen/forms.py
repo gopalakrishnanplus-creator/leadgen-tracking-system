@@ -466,10 +466,22 @@ class ImportBatchForm(StyledFormMixin, forms.ModelForm):
 class CashflowSnapshotUploadForm(StyledFormMixin, forms.ModelForm):
     class Meta:
         model = CashflowSnapshot
-        fields = ["as_of_date", "payables_file", "provisions_file", "receivables_file"]
+        fields = [
+            "as_of_date",
+            "payables_file",
+            "provisions_file",
+            "receivables_file",
+            "proforma_receivables_file",
+        ]
         widgets = {
             "as_of_date": forms.DateInput(attrs={"type": "date"}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["receivables_file"].label = "Receivables file (invoices raised)"
+        self.fields["proforma_receivables_file"].label = "Receivables file (PI/pro forma raised)"
+        self.fields["proforma_receivables_file"].required = True
 
 
 class CashflowCollectionRevisionForm(StyledFormMixin, forms.Form):

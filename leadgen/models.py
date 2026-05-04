@@ -1072,6 +1072,7 @@ class CashflowSnapshot(models.Model):
     payables_file = models.FileField(upload_to="cashflow-imports/")
     provisions_file = models.FileField(upload_to="cashflow-imports/")
     receivables_file = models.FileField(upload_to="cashflow-imports/")
+    proforma_receivables_file = models.FileField(upload_to="cashflow-imports/", blank=True, null=True)
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name="cashflow_snapshots",

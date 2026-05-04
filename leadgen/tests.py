@@ -243,6 +243,21 @@ class LeadgenWorkflowTests(TestCase):
             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
+    def _cashflow_workbook_upload_from_rows(self, filename, rows):
+        workbook = Workbook()
+        sheet = workbook.active
+        for row in rows:
+            sheet.append(row)
+        from io import BytesIO
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        return SimpleUploadedFile(
+            filename,
+            buffer.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
     def test_scheduled_outcome_creates_meeting(self):
         meeting = apply_call_outcome(
@@ -3073,6 +3088,75 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(str(payable.amount), "50000.00")
         self.assertEqual(str(payable.due_date), "2026-04-30")
         self.assertTrue(payable.is_current)
+
+    def test_cashflow_snapshot_import_accepts_tally_exports_and_combines_receivables(self):
+        snapshot = CashflowSnapshot.objects.create(
+            as_of_date=datetime(2026, 4, 30).date(),
+            payables_file=self._cashflow_workbook_upload_from_rows(
+                "payable-report.xls",
+                [
+                    ["Inditech Technology Services Pvt. Ltd.", None, None],
+                    ["Sundry Creditors", None, None],
+                    ["Particulars", "1-Apr-25 to 1-May-26", None],
+                    ["", "Closing Balance", None],
+                    ["", "Debit", "Credit"],
+                    ["Vendor A", None, 14382],
+                    ["Vendor B", None, 15000],
+                    ["Grand Total", None, 29382],
+                ],
+            ),
+            provisions_file=self._cashflow_workbook_upload_from_rows(
+                "provision-report.xlsx",
+                [
+                    ["Inditech Technology Services Pvt. Ltd.", None, None],
+                    ["Provisions", None, None],
+                    ["Particulars", "1-Apr-25 to 30-Apr-26", None],
+                    ["", "Closing Balance", None],
+                    ["", "Debit", "Credit"],
+                    ["BPVP-Provision A/c", None, 350000],
+                    ["Grand Total", None, 350000],
+                ],
+            ),
+            receivables_file=self._cashflow_workbook_upload_from_rows(
+                "receivables-invoice-raised.xls",
+                [
+                    ["Inditech Technology Services Pvt. Ltd.", None, None],
+                    ["Sundry Debtors", None, None],
+                    ["Particulars", "1-Apr-25 to 30-Apr-26", None],
+                    ["", "Closing Balance", None],
+                    ["", "Debit", "Credit"],
+                    ["Client Invoice A", 2655000, None],
+                    ["Client Invoice B", 108000, None],
+                    ["Grand Total", 2763000, None],
+                ],
+            ),
+            proforma_receivables_file=self._cashflow_workbook_upload_from_rows(
+                "receivables-pi-raised.xls",
+                [
+                    ["Inditech Technology Services Pvt. Ltd.", None, None, None, None, None],
+                    ["Optional Vouchers", None, None, None, None, None],
+                    ["Date", "Particulars", "Vch Type", "Vch No.", "Debit Amount", "Credit Amount"],
+                    ["", "", "", "", "Inwards Qty", "Outwards Qty"],
+                    [datetime(2026, 4, 20), "Client PI A", "Sales", "PI/01/2026-2027", 325000, None],
+                ],
+            ),
+            uploaded_by=self.finance_manager,
+        )
+
+        counts = import_cashflow_snapshot(snapshot)
+
+        self.assertEqual(counts[CashflowImportedItem.CATEGORY_PAYABLE], 2)
+        self.assertEqual(counts[CashflowImportedItem.CATEGORY_PROVISION], 1)
+        self.assertEqual(counts[CashflowImportedItem.CATEGORY_RECEIVABLE], 3)
+        receivables = CashflowImportedItem.objects.filter(category=CashflowImportedItem.CATEGORY_RECEIVABLE)
+        self.assertEqual(receivables.count(), 3)
+        self.assertEqual(
+            sum(item.amount for item in receivables),
+            Decimal("3088000.00"),
+        )
+        pi_receivable = receivables.get(party_name="Client PI A")
+        self.assertEqual(pi_receivable.reference_number, "PI/01/2026-2027")
+        self.assertEqual(str(pi_receivable.due_date), "2026-04-20")
 
     def test_cashflow_business_blockers_include_missing_plans_and_overdue_collections(self):
         today = datetime(2026, 4, 26).date()

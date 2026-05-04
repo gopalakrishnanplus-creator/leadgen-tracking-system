@@ -1,6 +1,7 @@
 import logging
 import base64
 import socket
+from io import BytesIO
 from html import escape
 from calendar import monthrange
 from decimal import Decimal, InvalidOperation
@@ -90,9 +91,9 @@ REMINDER_LABELS = {
 }
 
 CASHFLOW_CATEGORY_FILE_FIELD_MAP = {
-    CashflowImportedItem.CATEGORY_PAYABLE: "payables_file",
-    CashflowImportedItem.CATEGORY_PROVISION: "provisions_file",
-    CashflowImportedItem.CATEGORY_RECEIVABLE: "receivables_file",
+    CashflowImportedItem.CATEGORY_PAYABLE: ("payables_file",),
+    CashflowImportedItem.CATEGORY_PROVISION: ("provisions_file",),
+    CashflowImportedItem.CATEGORY_RECEIVABLE: ("receivables_file", "proforma_receivables_file"),
 }
 
 CASHFLOW_HEADER_ALIASES = {
@@ -114,6 +115,10 @@ CASHFLOW_HEADER_ALIASES = {
         "balance",
         "dr amount",
         "cr amount",
+        "debit amount",
+        "credit amount",
+        "debit",
+        "credit",
     },
     "reference_number": {
         "reference",
@@ -122,6 +127,7 @@ CASHFLOW_HEADER_ALIASES = {
         "bill ref",
         "invoice no",
         "voucher no",
+        "vch no",
         "document no",
         "bill no",
     },
@@ -1193,6 +1199,8 @@ def parse_cashflow_date(value, tz_name=None):
     if value in (None, ""):
         return None
     if isinstance(value, datetime):
+        if timezone.is_naive(value):
+            return value.date()
         return timezone.localtime(value, ZoneInfo(tz_name or SystemSetting.load().default_timezone)).date()
     if isinstance(value, date):
         return value
@@ -1245,6 +1253,75 @@ def resolve_cashflow_columns(header_row):
     return resolved
 
 
+def _cashflow_cell(row, index):
+    if index is None or index >= len(row):
+        return None
+    return row[index]
+
+
+def _cashflow_raw_row(header, row):
+    raw_row = {}
+    for index, value in enumerate(row):
+        if index >= len(header):
+            label = f"Column {index + 1}"
+        else:
+            label = str(header[index] or f"Column {index + 1}")
+        raw_row[label] = "" if value is None else str(value)
+    return raw_row
+
+
+def _resolve_tally_group_summary_layout(rows, category):
+    for index, row in enumerate(rows[:50]):
+        normalized = [normalize_cashflow_header(value) for value in row]
+        if "particulars" not in normalized:
+            continue
+        for subheader_index in range(index + 1, min(index + 5, len(rows))):
+            subheader = rows[subheader_index]
+            subheader_normalized = [normalize_cashflow_header(value) for value in subheader]
+            if "debit" not in subheader_normalized or "credit" not in subheader_normalized:
+                continue
+            amount_label = "debit" if category == CashflowImportedItem.CATEGORY_RECEIVABLE else "credit"
+            return {
+                "header": [
+                    "Particulars",
+                    *("" if value is None else str(value) for value in subheader[1:]),
+                ],
+                "column_map": {
+                    "party_name": normalized.index("particulars"),
+                    "amount": subheader_normalized.index(amount_label),
+                },
+                "start_row": subheader_index + 1,
+            }
+    return None
+
+
+def _resolve_cashflow_layout(rows, category):
+    for index, row in enumerate(rows[:50]):
+        try:
+            column_map = resolve_cashflow_columns(row)
+        except ValueError:
+            continue
+        normalized = [normalize_cashflow_header(value) for value in row]
+        category_amount_label = "debit amount" if category == CashflowImportedItem.CATEGORY_RECEIVABLE else "credit amount"
+        fallback_amount_label = "debit" if category == CashflowImportedItem.CATEGORY_RECEIVABLE else "credit"
+        if category_amount_label in normalized:
+            column_map["amount"] = normalized.index(category_amount_label)
+        elif fallback_amount_label in normalized:
+            column_map["amount"] = normalized.index(fallback_amount_label)
+        return {
+            "header": ["" if value is None else str(value) for value in row],
+            "column_map": column_map,
+            "start_row": index + 1,
+        }
+    tally_layout = _resolve_tally_group_summary_layout(rows, category)
+    if tally_layout:
+        return tally_layout
+    raise ValueError(
+        "Could not find a usable Tally header row. Upload either the Tally group summary format "
+        "with Particulars/Debit/Credit columns or a worksheet with party/entity and amount columns."
+    )
+
+
 def build_cashflow_source_key(category, party_name, reference_number, description, due_date, duplicate_index=1):
     normalized_bits = [
         category,
@@ -1261,41 +1338,60 @@ def build_cashflow_source_key(category, party_name, reference_number, descriptio
 
 def import_cashflow_snapshot(snapshot):
     imported_counts = {}
-    for category, file_field in CASHFLOW_CATEGORY_FILE_FIELD_MAP.items():
-        imported_counts[category] = _import_cashflow_file(
-            snapshot=snapshot,
-            category=category,
-            file_path=getattr(snapshot, file_field).path,
-        )
+    for category, file_fields in CASHFLOW_CATEGORY_FILE_FIELD_MAP.items():
+        CashflowImportedItem.objects.filter(category=category, is_current=True).update(is_current=False)
+        imported_counts[category] = 0
+        duplicate_counts = {}
+        touched_ids = []
+        for file_field in file_fields:
+            uploaded_file = getattr(snapshot, file_field, None)
+            if not uploaded_file:
+                continue
+            imported_count, imported_ids = _import_cashflow_file(
+                snapshot=snapshot,
+                category=category,
+                file_path=uploaded_file.path,
+                duplicate_counts=duplicate_counts,
+            )
+            imported_counts[category] += imported_count
+            touched_ids.extend(imported_ids)
+        if touched_ids:
+            CashflowImportedItem.objects.filter(pk__in=touched_ids).update(is_current=True, snapshot=snapshot)
     return imported_counts
 
 
-def _import_cashflow_file(snapshot, category, file_path):
-    workbook = load_workbook(file_path, data_only=True)
+def _import_cashflow_file(snapshot, category, file_path, duplicate_counts=None):
+    with open(file_path, "rb") as workbook_file:
+        workbook = load_workbook(BytesIO(workbook_file.read()), data_only=True)
     sheet = workbook[workbook.sheetnames[0]]
-    header = list(next(sheet.iter_rows(values_only=True)))
-    column_map = resolve_cashflow_columns(header)
-
-    CashflowImportedItem.objects.filter(category=category, is_current=True).update(is_current=False)
-    duplicate_counts = {}
+    rows = [tuple(row) for row in sheet.iter_rows(values_only=True)]
+    layout = _resolve_cashflow_layout(rows, category)
+    header = layout["header"]
+    column_map = layout["column_map"]
+    duplicate_counts = duplicate_counts if duplicate_counts is not None else {}
     touched_ids = []
 
-    for row in sheet.iter_rows(min_row=2, values_only=True):
+    for row in rows[layout["start_row"] :]:
         if not any(row):
             continue
-        party_name = str(row[column_map["party_name"]] or "").strip()
-        amount = parse_cashflow_amount(row[column_map["amount"]])
+        party_name = str(_cashflow_cell(row, column_map["party_name"]) or "").strip()
+        if normalize_cashflow_header(party_name) == "grand total":
+            continue
+        amount = parse_cashflow_amount(_cashflow_cell(row, column_map["amount"]))
         if not party_name or amount is None:
             continue
         reference_number = ""
         if "reference_number" in column_map:
-            reference_number = str(row[column_map["reference_number"]] or "").strip()
+            reference_number = str(_cashflow_cell(row, column_map["reference_number"]) or "").strip()
         description = ""
         if "description" in column_map:
-            description = str(row[column_map["description"]] or "").strip()
+            description = str(_cashflow_cell(row, column_map["description"]) or "").strip()
         due_date = None
         if "due_date" in column_map:
-            due_date = parse_cashflow_date(row[column_map["due_date"]], tz_name=SystemSetting.load().default_timezone)
+            due_date = parse_cashflow_date(
+                _cashflow_cell(row, column_map["due_date"]),
+                tz_name=SystemSetting.load().default_timezone,
+            )
         duplicate_identity = (
             normalize_cashflow_header(party_name),
             normalize_cashflow_header(reference_number),
@@ -1321,17 +1417,12 @@ def _import_cashflow_file(snapshot, category, file_path):
                 "reference_number": reference_number,
                 "amount": amount,
                 "due_date": due_date,
-                "raw_row": {
-                    str(header[index]): ("" if value is None else str(value))
-                    for index, value in enumerate(row)
-                },
+                "raw_row": _cashflow_raw_row(header, row),
                 "is_current": True,
             },
         )
         touched_ids.append(item.pk)
-    if touched_ids:
-        CashflowImportedItem.objects.filter(pk__in=touched_ids).update(is_current=True, snapshot=snapshot)
-    return len(touched_ids)
+    return len(touched_ids), touched_ids
 
 
 def current_cashflow_items():
