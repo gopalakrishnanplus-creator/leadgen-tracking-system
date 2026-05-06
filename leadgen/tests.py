@@ -2661,6 +2661,36 @@ class LeadgenWorkflowTests(TestCase):
             matched=True,
             raw_data={},
         )
+        CallLog.objects.create(
+            call_sid="YESTERDAY-CALL-2",
+            batch=batch,
+            staff=self.staff,
+            prospect=self.prospect,
+            started_at=started_at + timedelta(hours=1),
+            ended_at=started_at + timedelta(hours=1, minutes=1),
+            from_number=self.staff.calling_number,
+            to_number=self.prospect.phone_number,
+            direction="outbound",
+            crm_status=CallLog.STATUS_NO_ANSWER,
+            was_connected=False,
+            matched=True,
+            raw_data={},
+        )
+        CallLog.objects.create(
+            call_sid="YESTERDAY-CALL-3",
+            batch=batch,
+            staff=self.staff,
+            prospect=None,
+            started_at=started_at + timedelta(hours=2),
+            ended_at=started_at + timedelta(hours=2, minutes=1),
+            from_number=self.staff.calling_number,
+            to_number="+919900001111",
+            direction="outbound",
+            crm_status=CallLog.STATUS_BUSY,
+            was_connected=False,
+            matched=False,
+            raw_data={},
+        )
         ProspectStatusUpdate.objects.create(
             prospect=self.prospect,
             staff=self.staff,
@@ -2691,7 +2721,10 @@ class LeadgenWorkflowTests(TestCase):
         with patch("leadgen.views._yesterday_bounds", return_value=(target_date, started_at.replace(hour=0, minute=0, second=0, microsecond=0), started_at.replace(hour=23, minute=59, second=59, microsecond=999999))):
             response = self.client.get(f"/supervisor/staff/{self.staff.pk}/prospects/?view=yesterday_calls")
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, self.prospect.company_name)
+        self.assertContains(response, self.prospect.company_name, count=2)
+        self.assertContains(response, "Unmatched")
+        self.assertContains(response, "+919900001111")
+        self.assertContains(response, "Busy")
         self.assertContains(response, "Call connected yesterday.")
         self.assertContains(response, "Apr 16, 2026 3:00 p.m.")
         self.assertNotContains(response, untouched.company_name)

@@ -50,18 +50,20 @@
         <tbody>
         {% for row in prospect_rows %}
             <tr>
-                <td>{{ row.prospect.company_name }}</td>
-                <td>{{ row.prospect.contact_name }}</td>
-                <td>{{ row.prospect.phone_number }}</td>
-                <td>{{ row.prospect.get_approval_status_display }}</td>
-                <td>{{ row.prospect.get_workflow_status_display }}</td>
+                <td>{% if row.prospect %}{{ row.prospect.company_name }}{% else %}Unmatched{% endif %}</td>
+                <td>{% if row.prospect %}{{ row.prospect.contact_name }}{% else %}<span class="note">No matched prospect</span>{% endif %}</td>
+                <td>{% if row.prospect %}{{ row.prospect.phone_number }}{% elif row.latest_call_log %}{{ row.latest_call_log.to_number }}{% endif %}</td>
+                <td>{% if row.prospect %}{{ row.prospect.get_approval_status_display }}{% else %}-{% endif %}</td>
+                <td>{% if row.prospect %}{{ row.prospect.get_workflow_status_display }}{% else %}-{% endif %}</td>
                 <td>
-                    {{ row.prospect.get_latest_crm_status_display }}
                     {% if row.latest_call_log %}
+                        {{ row.latest_call_log.get_crm_status_display }}
                         <div class="note">
                             {{ row.latest_call_log.started_at|date:"M j, Y g:i a" }} /
-                            {{ row.latest_call_log.get_crm_status_display }}
+                            {{ row.latest_call_log.duration_seconds }} sec
                         </div>
+                    {% elif row.prospect %}
+                        {{ row.prospect.get_latest_crm_status_display }}
                     {% endif %}
                 </td>
                 <td>
@@ -86,7 +88,7 @@
                     {% endif %}
                 </td>
                 <td>
-                    {% if is_supervisor_view %}
+                    {% if is_supervisor_view and row.prospect %}
                         <a href="{% url 'supervisor_move_prospect' row.prospect.id %}?next={{ request.get_full_path|urlencode }}">Move</a>
                         <span class="note"> | </span>
                         <a href="{% url 'supervisor_prospect_delete' row.prospect.id %}?next={{ request.get_full_path|urlencode }}">Delete</a>

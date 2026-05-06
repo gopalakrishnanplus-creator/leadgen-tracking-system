@@ -478,6 +478,43 @@ def _build_staff_prospect_rows(prospects, status_filter):
     return rows, review_date
 
 
+def _build_yesterday_call_rows(staff_user):
+    review_date, start_dt, end_dt = _yesterday_bounds(SystemSetting.load().default_timezone)
+    call_logs = (
+        CallLog.objects.filter(staff=staff_user, started_at__range=(start_dt, end_dt))
+        .select_related("prospect", "prospect__assigned_to", "prospect__created_by")
+        .order_by("-started_at", "-created_at")
+    )
+    rows = []
+    for call_log in call_logs:
+        prospect = call_log.prospect
+        status_updates = []
+        meetings = []
+        if prospect:
+            status_updates = list(
+                ProspectStatusUpdate.objects.filter(
+                    prospect=prospect,
+                    staff=staff_user,
+                    created_at__range=(start_dt, end_dt),
+                ).order_by("-created_at")
+            )
+            meetings = list(
+                Meeting.objects.filter(
+                    prospect=prospect,
+                    created_at__range=(start_dt, end_dt),
+                ).order_by("-created_at", "-scheduled_for")
+            )
+        rows.append(
+            {
+                "prospect": prospect,
+                "latest_call_log": call_log,
+                "latest_status_update": status_updates[0] if status_updates else None,
+                "latest_meeting": meetings[0] if meetings else None,
+            }
+        )
+    return rows, review_date
+
+
 @role_required(User.ROLE_SUPERVISOR)
 def supervisor_staff_dashboard(request, user_id):
     staff_member = _get_staff_or_404(user_id)
@@ -1623,12 +1660,11 @@ def staff_prospect_list(request):
 def supervisor_staff_prospect_list(request, user_id):
     staff_member = _get_staff_or_404(user_id)
     status_filter = request.GET.get("view", "all")
-    prospects = _filtered_staff_prospects_queryset(
-        staff_member,
-        status_filter,
-        include_hidden=status_filter == YESTERDAY_CALLS_FILTER,
-    )
-    prospect_rows, review_date = _build_staff_prospect_rows(prospects, status_filter)
+    if status_filter == YESTERDAY_CALLS_FILTER:
+        prospect_rows, review_date = _build_yesterday_call_rows(staff_member)
+    else:
+        prospects = _filtered_staff_prospects_queryset(staff_member, status_filter)
+        prospect_rows, review_date = _build_staff_prospect_rows(prospects, status_filter)
     return render(
         request,
         "leadgen/staff_prospect_list.html",
