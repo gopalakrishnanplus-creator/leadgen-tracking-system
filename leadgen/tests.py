@@ -1006,7 +1006,7 @@ class LeadgenWorkflowTests(TestCase):
         )
 
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
-    def test_meeting_invitation_email_uses_new_subject_and_only_meeting_link_point(self):
+    def test_meeting_invitation_email_uses_prospect_body_copy(self):
         meeting = apply_call_outcome(
             self.prospect,
             self.staff,
@@ -1029,7 +1029,26 @@ class LeadgenWorkflowTests(TestCase):
             message.subject,
             "20-min: Outcome-Linked Campaign – Discussion with Acme",
         )
-        self.assertIn("Meeting link:", message.body)
+        self.assertIn("Dear Jane Doe,", message.body)
+        self.assertIn("Thank you for scheduling time with us.", message.body)
+        self.assertIn(
+            "Across many pharma brands, we are observing that while awareness and field visibility are already strong",
+            message.body,
+        )
+        self.assertIn(
+            "Our discussion will be a short 20-minute conversation on understanding how you see the prescription behaviour in your therapy area.",
+            message.body,
+        )
+        self.assertIn(
+            "Calendar invitation for March 30, 2026, 3 p.m. and meeting details are included here -",
+            message.body,
+        )
+        self.assertIn(meeting.meeting_link, message.body)
+        self.assertIn(
+            "It would be helpful to know which therapy area or brand you are currently most focused on",
+            message.body,
+        )
+        self.assertIn("Warm regards,\nInditech Health Solutions", message.body)
         self.assertNotIn("Prospect:", message.body)
         self.assertNotIn("Company:", message.body)
         self.assertNotIn("LinkedIn:", message.body)
@@ -1038,7 +1057,11 @@ class LeadgenWorkflowTests(TestCase):
         self.assertNotIn("Meeting platform:", message.body)
         html_alternative = message.alternatives[0]
         html_body = getattr(html_alternative, "content", html_alternative[0])
-        self.assertIn("Meeting link:", html_body)
+        self.assertIn("Dear Jane Doe,", html_body)
+        self.assertIn("Thank you for scheduling time with us.", html_body)
+        self.assertIn("Calendar invitation for March 30, 2026, 3 p.m.", html_body)
+        self.assertIn(meeting.meeting_link, html_body)
+        self.assertIn("Inditech Health Solutions", html_body)
         self.assertNotIn("Prospect:", html_body)
         self.assertNotIn("Company:", html_body)
         self.assertNotIn("LinkedIn:", html_body)

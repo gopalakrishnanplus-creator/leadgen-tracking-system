@@ -1,8 +1,16 @@
-Hello,
+Dear {{ meeting.prospect.contact_name }},
 
-A meeting has been scheduled with {{ meeting.prospect.contact_name }} from {{ meeting.prospect.company_name }}.
+Thank you for scheduling time with us.
 
-{% if meeting.meeting_link %}Meeting link: {{ meeting.meeting_link }}
-{% endif %}
+Across many pharma brands, we are observing that while awareness and field visibility are already strong, growth performance often gets shaped at key decision moments inside clinics.
 
-The calendar invitation is attached.
+Our discussion will be a short 20-minute conversation on understanding how you see the prescription behaviour in your therapy area.
+
+Calendar invitation for {{ meeting.scheduled_for|date:"F j, Y, P" }} and meeting details are included here - {{ meeting.meeting_link }}
+
+It would be helpful to know which therapy area or brand you are currently most focused on, so we prepare correctly before the discussion.
+
+Looking forward to connecting.
+
+Warm regards,
+Inditech Health Solutions

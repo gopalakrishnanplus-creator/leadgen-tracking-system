@@ -1,8 +1,16 @@
-<p>Hello,</p>
-<p>A meeting has been scheduled with {{ meeting.prospect.contact_name }} from {{ meeting.prospect.company_name }}.</p>
-<ul>
-    {% if meeting.meeting_link %}
-        <li>Meeting link: <a href="{{ meeting.meeting_link }}">{{ meeting.meeting_link }}</a></li>
-    {% endif %}
-</ul>
-<p>The calendar invitation is attached.</p>
+<p>Dear {{ meeting.prospect.contact_name }},</p>
+
+<p>Thank you for scheduling time with us.</p>
+
+<p>Across many pharma brands, we are observing that while awareness and field visibility are already strong, growth performance often gets shaped at key decision moments inside clinics.</p>
+
+<p>Our discussion will be a short 20-minute conversation on understanding how you see the prescription behaviour in your therapy area.</p>
+
+<p>Calendar invitation for {{ meeting.scheduled_for|date:"F j, Y, P" }} and meeting details are included here - {% if meeting.meeting_link %}<a href="{{ meeting.meeting_link }}">{{ meeting.meeting_link }}</a>{% endif %}</p>
+
+<p>It would be helpful to know which therapy area or brand you are currently most focused on, so we prepare correctly before the discussion.</p>
+
+<p>Looking forward to connecting.</p>
+
+<p>Warm regards,<br>
+Inditech Health Solutions</p>
