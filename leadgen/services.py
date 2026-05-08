@@ -1752,7 +1752,9 @@ def build_cashflow_projection(start_date=None, weeks=12):
     inflow_rows = []
 
     for item in current_cashflow_outflow_items():
+        planned_total = Decimal("0.00")
         for plan in item.payment_plans.all():
+            planned_total += plan.amount
             if start_date <= plan.payment_date <= end_date:
                 outflow_rows.append(
                     {
@@ -1767,6 +1769,22 @@ def build_cashflow_projection(start_date=None, weeks=12):
                         "object": item,
                     }
                 )
+        unplanned_amount = (item.amount or Decimal("0.00")) - planned_total
+        if unplanned_amount > Decimal("0.00"):
+            outflow_rows.append(
+                {
+                    "source_type": item.category,
+                    "label": item.party_name,
+                    "description": item.description,
+                    "amount": item.amount,
+                    "transaction_amount": unplanned_amount,
+                    "transaction_date": start_date,
+                    "classification": item.primary_classification,
+                    "secondary_classification": item.secondary_classification,
+                    "object": item,
+                    "is_unplanned_immediate": True,
+                }
+            )
         if item.cost_type == CashflowImportedItem.COST_RECURRING and item.recurring_payable_day:
             for first_of_month in _future_month_dates(start_date, end_date):
                 day = min(item.recurring_payable_day, monthrange(first_of_month.year, first_of_month.month)[1])

@@ -3349,11 +3349,48 @@ class LeadgenWorkflowTests(TestCase):
         )
         projection = build_cashflow_projection(start_date=start_date)
         self.assertEqual(projection["weeks"][0]["inflow_total"], Decimal("300.00"))
-        self.assertEqual(projection["weeks"][0]["outflow_total"], Decimal("100.00"))
+        self.assertEqual(projection["weeks"][0]["outflow_total"], Decimal("175.00"))
         self.assertEqual(projection["weeks"][1]["inflow_total"], Decimal("125.00"))
         self.assertEqual(projection["weeks"][1]["outflow_total"], Decimal("75.00"))
         self.assertTrue(
             any(row["source_type"] == "future_provision" for row in projection["weeks"][1]["outflows"])
+        )
+
+    def test_cashflow_projection_treats_missing_payment_plans_as_immediately_payable(self):
+        start_date = datetime(2026, 5, 8).date()
+        CashflowImportedItem.objects.create(
+            category=CashflowImportedItem.CATEGORY_PAYABLE,
+            source_key="payable|unplanned-vendor",
+            party_name="Unplanned Vendor",
+            amount="1000.00",
+            is_current=True,
+        )
+        CashflowImportedItem.objects.create(
+            category=CashflowImportedItem.CATEGORY_PROVISION,
+            source_key="provision|unplanned-provision",
+            party_name="Unplanned Provision",
+            amount="250.00",
+            is_current=True,
+        )
+        partial_item = CashflowImportedItem.objects.create(
+            category=CashflowImportedItem.CATEGORY_PAYABLE,
+            source_key="payable|partial-vendor",
+            party_name="Partial Vendor",
+            amount="500.00",
+            is_current=True,
+        )
+        CashflowPaymentPlanEntry.objects.create(
+            cashflow_item=partial_item,
+            amount="200.00",
+            payment_date=start_date + timedelta(days=8),
+        )
+
+        projection = build_cashflow_projection(start_date=start_date)
+
+        self.assertEqual(projection["weeks"][0]["outflow_total"], Decimal("1550.00"))
+        self.assertEqual(projection["weeks"][1]["outflow_total"], Decimal("200.00"))
+        self.assertTrue(
+            any(row.get("is_unplanned_immediate") for row in projection["weeks"][0]["outflows"])
         )
 
     def test_sales_manager_can_edit_existing_expected_collection_dates(self):
