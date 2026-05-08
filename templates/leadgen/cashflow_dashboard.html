@@ -11,9 +11,11 @@
         {% if is_finance_workspace %}
             <a class="button button-primary" href="{% url 'cashflow_uploads' %}">Upload today's Tally files</a>
         {% endif %}
-        {% if is_business_workspace %}
+        {% if is_sales_workspace or is_business_workspace or is_finance_workspace %}
             <a class="button button-primary" href="{% url 'cashflow_action_centre' %}">Open action centre</a>
             <a class="button" href="{% url 'cashflow_outflow_list' %}">Payables & provisions</a>
+        {% endif %}
+        {% if is_sales_workspace or is_business_workspace %}
             <a class="button" href="{% url 'cashflow_projected_collection_list' %}">Projected collections</a>
             <a class="button" href="{% url 'cashflow_work_order_list' %}">Work orders</a>
         {% endif %}

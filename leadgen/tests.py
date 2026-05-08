@@ -3260,6 +3260,138 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "12-week cash flow dashboard")
 
+    def test_sales_manager_can_access_cashflow_and_edit_creditor_payment_plan(self):
+        item = CashflowImportedItem.objects.create(
+            category=CashflowImportedItem.CATEGORY_PAYABLE,
+            source_key="payable|sales-edit-vendor",
+            party_name="Sales Edit Vendor",
+            amount="1000.00",
+            is_current=True,
+        )
+        self.client.force_login(self.sales_manager)
+
+        dashboard_response = self.client.get("/sales/")
+        self.assertContains(dashboard_response, "12-week cash flow")
+        self.assertContains(dashboard_response, "Creditor payment plans")
+
+        outflow_response = self.client.get("/cashflow/outflows/")
+        self.assertEqual(outflow_response.status_code, 200)
+        self.assertContains(outflow_response, "Sales Edit Vendor")
+        self.assertContains(outflow_response, "Edit payment plan")
+
+        update_response = self.client.post(
+            f"/cashflow/outflows/{item.pk}/",
+            {
+                "primary_classification": "Operations",
+                "secondary_classification": "Vendor",
+                "cost_type": CashflowImportedItem.COST_ONE_TIME,
+                "recurring_payable_day": "",
+                "plan_1_amount": "600.00",
+                "plan_1_date": "2026-05-10",
+                "plan_2_amount": "400.00",
+                "plan_2_date": "2026-05-17",
+            },
+        )
+
+        self.assertRedirects(update_response, "/cashflow/action-centre/")
+        item.refresh_from_db()
+        self.assertEqual(item.payment_plans.count(), 2)
+        self.assertEqual(item.plan_total, Decimal("1000.00"))
+
+    def test_finance_manager_can_access_cashflow_and_edit_creditor_payment_plan(self):
+        today = business_localdate()
+        CashflowSnapshot.objects.create(
+            as_of_date=today,
+            payables_file=self._cashflow_workbook_upload(
+                "payables.xlsx",
+                ["Party Name", "Pending Amount"],
+                [["Vendor A", 1000]],
+            ),
+            provisions_file=self._cashflow_workbook_upload(
+                "provisions.xlsx",
+                ["Party Name", "Amount"],
+                [["Provision A", 500]],
+            ),
+            receivables_file=self._cashflow_workbook_upload(
+                "receivables.xlsx",
+                ["Customer Name", "Outstanding Amount"],
+                [["Customer A", 1500]],
+            ),
+            proforma_receivables_file=self._cashflow_workbook_upload(
+                "receivables-pi.xlsx",
+                ["Date", "Particulars", "Debit Amount"],
+                [[today, "Customer PI", 700]],
+            ),
+            uploaded_by=self.finance_manager,
+        )
+        item = CashflowImportedItem.objects.create(
+            category=CashflowImportedItem.CATEGORY_PAYABLE,
+            source_key="payable|finance-view-vendor",
+            party_name="Finance View Vendor",
+            amount="1000.00",
+            is_current=True,
+        )
+        self.client.force_login(self.finance_manager)
+
+        dashboard_response = self.client.get("/cashflow/")
+        self.assertContains(dashboard_response, "Open action centre")
+        self.assertContains(dashboard_response, "Payables & provisions")
+
+        response = self.client.get("/cashflow/outflows/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Finance View Vendor")
+        self.assertContains(response, "Edit payment plan")
+
+        update_response = self.client.post(
+            f"/cashflow/outflows/{item.pk}/",
+            {
+                "primary_classification": "Finance",
+                "secondary_classification": "Vendor",
+                "cost_type": CashflowImportedItem.COST_ONE_TIME,
+                "recurring_payable_day": "",
+                "plan_1_amount": "1000.00",
+                "plan_1_date": "2026-05-20",
+            },
+        )
+
+        self.assertRedirects(update_response, "/cashflow/action-centre/")
+        item.refresh_from_db()
+        self.assertEqual(item.payment_plans.count(), 1)
+        self.assertEqual(item.plan_total, Decimal("1000.00"))
+
+    def test_business_manager_can_still_edit_creditor_payment_plan(self):
+        item = CashflowImportedItem.objects.create(
+            category=CashflowImportedItem.CATEGORY_PAYABLE,
+            source_key="payable|business-edit-vendor",
+            party_name="Business Edit Vendor",
+            amount="750.00",
+            is_current=True,
+        )
+        self.client.force_login(self.business_manager)
+
+        response = self.client.post(
+            f"/cashflow/outflows/{item.pk}/",
+            {
+                "primary_classification": "Operations",
+                "secondary_classification": "Vendor",
+                "cost_type": CashflowImportedItem.COST_ONE_TIME,
+                "recurring_payable_day": "",
+                "plan_1_amount": "750.00",
+                "plan_1_date": "2026-05-21",
+            },
+        )
+
+        self.assertRedirects(response, "/cashflow/action-centre/")
+        item.refresh_from_db()
+        self.assertEqual(item.plan_total, Decimal("750.00"))
+
+    def test_leadgen_supervisor_cannot_view_cashflow_or_creditor_list(self):
+        self.client.force_login(self.supervisor)
+
+        self.assertEqual(self.client.get("/cashflow/projection/").status_code, 403)
+        self.assertEqual(self.client.get("/cashflow/outflows/").status_code, 403)
+
     def test_cashflow_business_blockers_include_missing_plans_and_overdue_collections(self):
         today = datetime(2026, 4, 26).date()
         CashflowImportedItem.objects.create(
