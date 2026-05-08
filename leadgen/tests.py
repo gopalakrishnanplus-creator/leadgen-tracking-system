@@ -39,6 +39,7 @@ from .models import (
     CashflowPaymentPlanEntry,
     CashflowProjectedCollection,
     CashflowSnapshot,
+    CashflowWorkOrderRequest,
     ContractCollection,
     ContractCollectionInstallment,
     DirectMarketingActivity,
@@ -3260,7 +3261,7 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "12-week cash flow dashboard")
 
-    def test_sales_manager_can_access_cashflow_and_edit_creditor_payment_plan(self):
+    def test_sales_manager_cannot_access_cashflow_or_creditor_payment_plan(self):
         item = CashflowImportedItem.objects.create(
             category=CashflowImportedItem.CATEGORY_PAYABLE,
             source_key="payable|sales-edit-vendor",
@@ -3271,32 +3272,14 @@ class LeadgenWorkflowTests(TestCase):
         self.client.force_login(self.sales_manager)
 
         dashboard_response = self.client.get("/sales/")
-        self.assertContains(dashboard_response, "12-week cash flow")
-        self.assertContains(dashboard_response, "Creditor payment plans")
-
-        outflow_response = self.client.get("/cashflow/outflows/")
-        self.assertEqual(outflow_response.status_code, 200)
-        self.assertContains(outflow_response, "Sales Edit Vendor")
-        self.assertContains(outflow_response, "Edit payment plan")
-
-        update_response = self.client.post(
-            f"/cashflow/outflows/{item.pk}/",
-            {
-                "primary_classification": "Operations",
-                "secondary_classification": "Vendor",
-                "cost_type": CashflowImportedItem.COST_ONE_TIME,
-                "recurring_payable_day": "",
-                "plan_1_amount": "600.00",
-                "plan_1_date": "2026-05-10",
-                "plan_2_amount": "400.00",
-                "plan_2_date": "2026-05-17",
-            },
-        )
-
-        self.assertRedirects(update_response, "/cashflow/action-centre/")
+        self.assertNotContains(dashboard_response, "12-week cash flow")
+        self.assertNotContains(dashboard_response, "Creditor payment plans")
+        self.assertEqual(self.client.get("/cashflow/").status_code, 403)
+        self.assertEqual(self.client.get("/cashflow/projection/").status_code, 403)
+        self.assertEqual(self.client.get("/cashflow/outflows/").status_code, 403)
+        self.assertEqual(self.client.get(f"/cashflow/outflows/{item.pk}/").status_code, 403)
         item.refresh_from_db()
-        self.assertEqual(item.payment_plans.count(), 2)
-        self.assertEqual(item.plan_total, Decimal("1000.00"))
+        self.assertEqual(item.payment_plans.count(), 0)
 
     def test_finance_manager_can_access_cashflow_and_edit_creditor_payment_plan(self):
         today = business_localdate()
@@ -3385,6 +3368,34 @@ class LeadgenWorkflowTests(TestCase):
         self.assertRedirects(response, "/cashflow/action-centre/")
         item.refresh_from_db()
         self.assertEqual(item.plan_total, Decimal("750.00"))
+
+    def test_business_manager_can_open_work_orders_without_server_error(self):
+        self.client.force_login(self.business_manager)
+
+        list_response = self.client.get("/cashflow/work-orders/")
+        create_response = self.client.get("/cashflow/work-orders/add/")
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertContains(list_response, "Work orders for non-operational items")
+        self.assertEqual(create_response.status_code, 200)
+        self.assertContains(create_response, "Add work order for a non-operational item")
+
+    def test_business_manager_work_order_submit_does_not_500(self):
+        self.client.force_login(self.business_manager)
+
+        response = self.client.post(
+            "/cashflow/work-orders/add/",
+            {
+                "description": "Non-operational equipment",
+                "party_name": "Vendor Z",
+                "total_amount": "1000.00",
+                "installment_1_amount": "1000.00",
+                "installment_1_payment_date": "2026-05-30",
+            },
+        )
+
+        self.assertRedirects(response, "/cashflow/work-orders/")
+        self.assertEqual(CashflowWorkOrderRequest.objects.filter(party_name="Vendor Z").count(), 1)
 
     def test_leadgen_supervisor_cannot_view_cashflow_or_creditor_list(self):
         self.client.force_login(self.supervisor)

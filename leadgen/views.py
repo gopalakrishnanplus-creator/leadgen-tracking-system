@@ -61,6 +61,7 @@ from .models import (
     CashflowImportedItem,
     CashflowProjectedCollection,
     CashflowSnapshot,
+    CashflowWorkOrderRequest,
     ContractCollection,
     DirectMarketingActivity,
     MarketingEmailCampaign,
@@ -1311,7 +1312,7 @@ def _finance_upload_gate_response(request):
     return None
 
 
-@roles_required(User.ROLE_FINANCE_MANAGER, User.ROLE_SALES_MANAGER, User.ROLE_BUSINESS_MANAGER)
+@roles_required(User.ROLE_FINANCE_MANAGER, User.ROLE_BUSINESS_MANAGER)
 def cashflow_dashboard(request):
     if _is_effective_finance_manager(request):
         gate_response = _finance_upload_gate_response(request)
@@ -1332,7 +1333,6 @@ def cashflow_dashboard(request):
         "overdue_collection_count": len(overdue_contract_installments()) + len(overdue_projected_collections()),
         "projected_collection_count": CashflowProjectedCollection.objects.count(),
         "is_finance_workspace": _is_effective_finance_manager(request),
-        "is_sales_workspace": _is_effective_sales_manager(request),
         "is_business_workspace": _is_effective_business_manager(request),
     }
     return render(request, "leadgen/cashflow_dashboard.html", context)
@@ -1374,7 +1374,7 @@ def cashflow_uploads(request):
     )
 
 
-@roles_required(User.ROLE_SALES_MANAGER, User.ROLE_BUSINESS_MANAGER, User.ROLE_FINANCE_MANAGER)
+@roles_required(User.ROLE_BUSINESS_MANAGER, User.ROLE_FINANCE_MANAGER)
 def cashflow_action_centre(request):
     if _is_effective_finance_manager(request):
         gate_response = _finance_upload_gate_response(request)
@@ -1391,7 +1391,7 @@ def cashflow_action_centre(request):
     )
 
 
-@roles_required(User.ROLE_FINANCE_MANAGER, User.ROLE_SALES_MANAGER, User.ROLE_BUSINESS_MANAGER)
+@roles_required(User.ROLE_FINANCE_MANAGER, User.ROLE_BUSINESS_MANAGER)
 def cashflow_outflow_list(request):
     if _is_effective_finance_manager(request):
         gate_response = _finance_upload_gate_response(request)
@@ -1410,8 +1410,7 @@ def cashflow_outflow_list(request):
             "items": items,
             "selected_category": category,
             "can_edit_payment_plans": (
-                _is_effective_sales_manager(request)
-                or _is_effective_business_manager(request)
+                _is_effective_business_manager(request)
                 or _is_effective_finance_manager(request)
             ),
         },
@@ -1427,7 +1426,7 @@ def _cashflow_outflow_item_or_404(item_id):
     )
 
 
-@roles_required(User.ROLE_SALES_MANAGER, User.ROLE_BUSINESS_MANAGER, User.ROLE_FINANCE_MANAGER)
+@roles_required(User.ROLE_BUSINESS_MANAGER, User.ROLE_FINANCE_MANAGER)
 def cashflow_outflow_update(request, item_id):
     if _is_effective_finance_manager(request):
         gate_response = _finance_upload_gate_response(request)
@@ -1450,7 +1449,7 @@ def cashflow_outflow_update(request, item_id):
     )
 
 
-@roles_required(User.ROLE_SALES_MANAGER, User.ROLE_BUSINESS_MANAGER)
+@role_required(User.ROLE_BUSINESS_MANAGER)
 def cashflow_overdue_installment_update(request, installment_id):
     installment = get_object_or_404(
         ContractCollectionInstallment.objects.select_related("contract_collection"),
@@ -1477,7 +1476,7 @@ def cashflow_overdue_installment_update(request, installment_id):
     )
 
 
-@roles_required(User.ROLE_SALES_MANAGER, User.ROLE_BUSINESS_MANAGER)
+@role_required(User.ROLE_BUSINESS_MANAGER)
 def cashflow_projected_collection_list(request):
     collections = CashflowProjectedCollection.objects.select_related("created_by").all()
     return render(
@@ -1490,12 +1489,12 @@ def cashflow_projected_collection_list(request):
     )
 
 
-@roles_required(User.ROLE_SALES_MANAGER, User.ROLE_BUSINESS_MANAGER)
+@role_required(User.ROLE_BUSINESS_MANAGER)
 def cashflow_projected_collection_create(request):
     form = CashflowProjectedCollectionForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         projected_collection = form.save(commit=False)
-        projected_collection.created_by = _effective_sales_user(request) or _effective_business_user(request) or request.user
+        projected_collection.created_by = _effective_business_user(request) or request.user
         projected_collection.save()
         sync_projected_collection(projected_collection, form.cleaned_data)
         messages.success(request, "Projected collection added.")
@@ -1511,7 +1510,7 @@ def cashflow_projected_collection_create(request):
     )
 
 
-@roles_required(User.ROLE_SALES_MANAGER, User.ROLE_BUSINESS_MANAGER)
+@role_required(User.ROLE_BUSINESS_MANAGER)
 def cashflow_projected_collection_update(request, collection_id):
     projected_collection = get_object_or_404(CashflowProjectedCollection, pk=collection_id)
     form = CashflowProjectedCollectionForm(request.POST or None, instance=projected_collection)
@@ -1530,7 +1529,7 @@ def cashflow_projected_collection_update(request, collection_id):
     )
 
 
-@roles_required(User.ROLE_SALES_MANAGER, User.ROLE_BUSINESS_MANAGER)
+@role_required(User.ROLE_BUSINESS_MANAGER)
 def cashflow_work_order_list(request):
     work_orders = CashflowWorkOrderRequest.objects.select_related("created_by").prefetch_related("installments").all()
     return render(
@@ -1543,13 +1542,13 @@ def cashflow_work_order_list(request):
     )
 
 
-@roles_required(User.ROLE_SALES_MANAGER, User.ROLE_BUSINESS_MANAGER)
+@role_required(User.ROLE_BUSINESS_MANAGER)
 def cashflow_work_order_create(request):
     form = CashflowWorkOrderRequestForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         create_cashflow_work_order(
             form.cleaned_data,
-            created_by=_effective_sales_user(request) or _effective_business_user(request) or request.user,
+            created_by=_effective_business_user(request) or request.user,
         )
         messages.success(request, "Work order request emailed to finance managers.")
         return redirect("cashflow_work_order_list")
@@ -1563,7 +1562,7 @@ def cashflow_work_order_create(request):
     )
 
 
-@roles_required(User.ROLE_FINANCE_MANAGER, User.ROLE_SALES_MANAGER, User.ROLE_BUSINESS_MANAGER)
+@roles_required(User.ROLE_FINANCE_MANAGER, User.ROLE_BUSINESS_MANAGER)
 def cashflow_projection_view(request):
     if _is_effective_finance_manager(request):
         gate_response = _finance_upload_gate_response(request)
@@ -1585,7 +1584,7 @@ def cashflow_projection_view(request):
     )
 
 
-@roles_required(User.ROLE_FINANCE_MANAGER, User.ROLE_SALES_MANAGER, User.ROLE_BUSINESS_MANAGER)
+@roles_required(User.ROLE_FINANCE_MANAGER, User.ROLE_BUSINESS_MANAGER)
 def cashflow_projection_week_detail(request, week_index):
     if _is_effective_finance_manager(request):
         gate_response = _finance_upload_gate_response(request)

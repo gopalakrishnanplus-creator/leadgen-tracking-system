@@ -1671,8 +1671,15 @@ def create_cashflow_work_order(cleaned_data, created_by):
             for row in cleaned_data["installment_rows"]
         ]
     )
-    transaction.on_commit(lambda: send_cashflow_work_order_email(work_order.pk))
+    transaction.on_commit(lambda: _send_cashflow_work_order_email_after_commit(work_order.pk))
     return work_order
+
+
+def _send_cashflow_work_order_email_after_commit(work_order_id):
+    try:
+        send_cashflow_work_order_email(work_order_id)
+    except Exception:
+        logger.exception("Failed to send cashflow work-order email for work_order_id=%s", work_order_id)
 
 
 def send_cashflow_work_order_email(work_order_id):

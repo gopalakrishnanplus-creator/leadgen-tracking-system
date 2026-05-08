@@ -44,10 +44,6 @@
                         <a href="{% url 'sales_conversation_create' %}">Add Conversation</a>
                         <a href="{% url 'contracts_dashboard' %}">Contracts</a>
                         <a href="{% url 'pending_collections' %}">Pending Collections</a>
-                        <a href="{% url 'cashflow_dashboard' %}">Cash Flow</a>
-                        <a href="{% url 'cashflow_action_centre' %}">Cashflow Action</a>
-                        <a href="{% url 'cashflow_outflow_list' %}">Payables & Provisions</a>
-                        <a href="{% url 'cashflow_projection' %}">12-Week Projection</a>
                     {% elif request.current_workspace == "finance" %}
                         <a href="{% url 'cashflow_dashboard' %}">Dashboard</a>
                         <a href="{% url 'cashflow_uploads' %}">Upload Tally Data</a>
