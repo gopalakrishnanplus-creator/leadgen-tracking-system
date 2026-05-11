@@ -1550,10 +1550,6 @@ def cashflow_work_order_create(request):
 
 @roles_required(User.ROLE_FINANCE_MANAGER, User.ROLE_BUSINESS_MANAGER)
 def cashflow_projection_view(request):
-    if _is_effective_finance_manager(request):
-        gate_response = _finance_upload_gate_response(request)
-        if gate_response:
-            return gate_response
     projection = build_cashflow_projection()
     latest_snapshot = latest_cashflow_snapshot()
     today = business_localdate()
@@ -1565,6 +1561,7 @@ def cashflow_projection_view(request):
             "projection": projection,
             "latest_snapshot": latest_snapshot,
             "today": today,
+            "input_data_missing": latest_snapshot is None,
             "input_data_outdated": latest_snapshot is not None and latest_snapshot.as_of_date < today,
         },
     )
@@ -1572,10 +1569,6 @@ def cashflow_projection_view(request):
 
 @roles_required(User.ROLE_FINANCE_MANAGER, User.ROLE_BUSINESS_MANAGER)
 def cashflow_projection_week_detail(request, week_index):
-    if _is_effective_finance_manager(request):
-        gate_response = _finance_upload_gate_response(request)
-        if gate_response:
-            return gate_response
     projection = build_cashflow_projection()
     latest_snapshot = latest_cashflow_snapshot()
     today = business_localdate()
@@ -1591,6 +1584,7 @@ def cashflow_projection_week_detail(request, week_index):
             "projection": projection,
             "latest_snapshot": latest_snapshot,
             "today": today,
+            "input_data_missing": latest_snapshot is None,
             "input_data_outdated": latest_snapshot is not None and latest_snapshot.as_of_date < today,
         },
     )

@@ -15,6 +15,10 @@
 <section class="message warning">
     <strong>Warning:</strong> the latest uploaded Tally input data is dated {{ latest_snapshot.as_of_date }}, but this projection is being viewed on {{ today }}. Upload the latest Tally exports before relying on this cash-flow projection.
 </section>
+{% elif input_data_missing %}
+<section class="message warning">
+    <strong>Warning:</strong> no Tally input data has been uploaded yet. Upload the Tally exports before relying on this cash-flow projection.
+</section>
 {% endif %}
 <section class="two-col">
     <div class="panel">

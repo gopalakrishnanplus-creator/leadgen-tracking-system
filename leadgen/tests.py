@@ -3339,6 +3339,15 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(item.payment_plans.count(), 1)
         self.assertEqual(item.plan_total, Decimal("1200.00"))
 
+    def test_finance_manager_can_open_projection_before_today_upload(self):
+        self.client.force_login(self.finance_manager)
+
+        response = self.client.get("/cashflow/projection/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "12-week cash flow projection")
+        self.assertContains(response, "no Tally input data has been uploaded yet")
+
     def test_finance_manager_can_access_cashflow_and_edit_creditor_payment_plan(self):
         today = business_localdate()
         CashflowSnapshot.objects.create(
