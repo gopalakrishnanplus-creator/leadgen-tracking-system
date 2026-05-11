@@ -1563,10 +1563,12 @@ class LeadgenWorkflowTests(TestCase):
         response = self.client.get("/")
         self.assertRedirects(response, "/sales/")
 
-    def test_home_redirects_finance_manager_to_cashflow_upload_gate(self):
+    def test_home_redirects_finance_manager_to_cashflow_dashboard(self):
         self.client.force_login(self.finance_manager)
         response = self.client.get("/", follow=True)
-        self.assertRedirects(response, "/cashflow/uploads/")
+        self.assertRedirects(response, "/cashflow/")
+        self.assertContains(response, "Payables & provisions")
+        self.assertContains(response, "Today's Tally files have not been uploaded yet")
 
     def test_prospect_form_accepts_linkedin_without_scheme(self):
         form = ProspectCreateForm(
@@ -3303,6 +3305,39 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(self.client.get(f"/cashflow/outflows/{item.pk}/").status_code, 403)
         item.refresh_from_db()
         self.assertEqual(item.payment_plans.count(), 0)
+
+    def test_finance_manager_can_edit_creditor_payment_plan_before_today_upload(self):
+        item = CashflowImportedItem.objects.create(
+            category=CashflowImportedItem.CATEGORY_PAYABLE,
+            source_key="payable|finance-before-upload-vendor",
+            party_name="Finance Before Upload Vendor",
+            amount="1200.00",
+            is_current=True,
+        )
+        self.client.force_login(self.finance_manager)
+
+        list_response = self.client.get("/cashflow/outflows/")
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertContains(list_response, "Finance Before Upload Vendor")
+        self.assertContains(list_response, "Edit payment plan")
+
+        update_response = self.client.post(
+            f"/cashflow/outflows/{item.pk}/",
+            {
+                "primary_classification": "Finance",
+                "secondary_classification": "Vendor",
+                "cost_type": CashflowImportedItem.COST_ONE_TIME,
+                "recurring_payable_day": "",
+                "plan_1_amount": "1200.00",
+                "plan_1_date": "2026-05-20",
+            },
+        )
+
+        self.assertRedirects(update_response, "/cashflow/action-centre/")
+        item.refresh_from_db()
+        self.assertEqual(item.payment_plans.count(), 1)
+        self.assertEqual(item.plan_total, Decimal("1200.00"))
 
     def test_finance_manager_can_access_cashflow_and_edit_creditor_payment_plan(self):
         today = business_localdate()

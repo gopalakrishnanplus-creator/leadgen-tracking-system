@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Cash Flow Dashboard{% endblock %}
 {% block content %}
+{% if is_finance_workspace and not finance_upload_complete %}
+    <section class="message warning">
+        Today's Tally files have not been uploaded yet. You can still update payables and provisions, but the 12-week projection may be based on older input data until today's files are uploaded.
+    </section>
+{% endif %}
 <section class="section-head">
     <div>
         <p class="eyebrow">{{ workspace_eyebrow }}</p>

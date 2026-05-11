@@ -1314,15 +1314,12 @@ def _finance_upload_gate_response(request):
 
 @roles_required(User.ROLE_FINANCE_MANAGER, User.ROLE_BUSINESS_MANAGER)
 def cashflow_dashboard(request):
-    if _is_effective_finance_manager(request):
-        gate_response = _finance_upload_gate_response(request)
-        if gate_response:
-            return gate_response
     latest_snapshot = latest_cashflow_snapshot()
     current_items = current_cashflow_items()
     outflow_items = current_items.filter(
         category__in=[CashflowImportedItem.CATEGORY_PAYABLE, CashflowImportedItem.CATEGORY_PROVISION]
     )
+    finance_upload_complete = finance_upload_complete_for_date()
     context = {
         "workspace_eyebrow": _workspace_eyebrow(request),
         "latest_snapshot": latest_snapshot,
@@ -1334,6 +1331,7 @@ def cashflow_dashboard(request):
         "projected_collection_count": CashflowProjectedCollection.objects.count(),
         "is_finance_workspace": _is_effective_finance_manager(request),
         "is_business_workspace": _is_effective_business_manager(request),
+        "finance_upload_complete": finance_upload_complete,
     }
     return render(request, "leadgen/cashflow_dashboard.html", context)
 
@@ -1376,10 +1374,6 @@ def cashflow_uploads(request):
 
 @roles_required(User.ROLE_BUSINESS_MANAGER, User.ROLE_FINANCE_MANAGER)
 def cashflow_action_centre(request):
-    if _is_effective_finance_manager(request):
-        gate_response = _finance_upload_gate_response(request)
-        if gate_response:
-            return gate_response
     blockers = cashflow_business_blockers()
     return render(
         request,
@@ -1393,10 +1387,6 @@ def cashflow_action_centre(request):
 
 @roles_required(User.ROLE_FINANCE_MANAGER, User.ROLE_BUSINESS_MANAGER)
 def cashflow_outflow_list(request):
-    if _is_effective_finance_manager(request):
-        gate_response = _finance_upload_gate_response(request)
-        if gate_response:
-            return gate_response
     category = request.GET.get("category", "")
     items = current_cashflow_outflow_items()
     if category in {CashflowImportedItem.CATEGORY_PAYABLE, CashflowImportedItem.CATEGORY_PROVISION}:
@@ -1428,10 +1418,6 @@ def _cashflow_outflow_item_or_404(item_id):
 
 @roles_required(User.ROLE_BUSINESS_MANAGER, User.ROLE_FINANCE_MANAGER)
 def cashflow_outflow_update(request, item_id):
-    if _is_effective_finance_manager(request):
-        gate_response = _finance_upload_gate_response(request)
-        if gate_response:
-            return gate_response
     item = _cashflow_outflow_item_or_404(item_id)
     form = CashflowImportedItemForm(request.POST or None, instance=item)
     if request.method == "POST" and form.is_valid():
