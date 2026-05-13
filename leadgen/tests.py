@@ -2147,6 +2147,8 @@ class LeadgenWorkflowTests(TestCase):
 
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
     def test_send_due_invoice_notifications_sends_email_for_today(self):
+        invoice_date = datetime(2026, 5, 13).date()
+        nine_am_ist = timezone.make_aware(datetime(2026, 5, 13, 3, 30), ZoneInfo("UTC"))
         contract_collection = ContractCollection.objects.create(
             company_name="Invoice Co",
             sales_manager=self.sales_manager,
@@ -2158,13 +2160,13 @@ class LeadgenWorkflowTests(TestCase):
             contract_collection=contract_collection,
             position=1,
             installment_amount="25000.00",
-            invoice_date=timezone.localdate(),
-            expected_collection_date=timezone.localdate(),
+            invoice_date=invoice_date,
+            expected_collection_date=invoice_date,
             contract_summary="Agreement between Inditech and Invoice Co dated April 1, 2026",
             invoiced_service_description="Campaign setup and launch services",
             legal_due_reason="Milestone one deliverables were accepted by the client.",
         )
-        sent_count = send_due_invoice_notifications(timezone.localdate())
+        sent_count = send_due_invoice_notifications(invoice_date, now=nine_am_ist)
         installment.refresh_from_db()
         self.assertEqual(sent_count, 1)
         self.assertIsNotNone(installment.invoice_notification_sent_at)
@@ -2204,7 +2206,7 @@ class LeadgenWorkflowTests(TestCase):
             invoiced_service_description="Installment 2 campaign services",
             legal_due_reason="Installment 2 is due under the signed contract milestones.",
         )
-        utc_now = timezone.make_aware(datetime(2026, 4, 15, 19, 0), ZoneInfo("UTC"))
+        utc_now = timezone.make_aware(datetime(2026, 4, 16, 3, 30), ZoneInfo("UTC"))
 
         self.assertEqual(business_localdate("Asia/Kolkata", now=utc_now), datetime(2026, 4, 16).date())
         sent_count = send_due_invoice_notifications(now=utc_now)
@@ -2214,6 +2216,42 @@ class LeadgenWorkflowTests(TestCase):
         self.assertIsNotNone(installment.invoice_notification_sent_at)
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("India Immunologicals", mail.outbox[0].subject)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_send_due_invoice_notifications_waits_until_9_am_ist_unless_forced(self):
+        invoice_date = datetime(2026, 5, 13).date()
+        contract_collection = ContractCollection.objects.create(
+            company_name="Nine AM Invoice Co",
+            sales_manager=self.sales_manager,
+            contract_value="250000.00",
+            created_by=self.supervisor,
+        )
+        contract_collection.contacts.create(position=1, name="Jane Doe", email="jane@example.com")
+        installment = ContractCollectionInstallment.objects.create(
+            contract_collection=contract_collection,
+            position=1,
+            installment_amount="100000.00",
+            invoice_date=invoice_date,
+            expected_collection_date=invoice_date + timedelta(days=7),
+            contract_summary="Agreement between Inditech and Nine AM Invoice Co dated May 1, 2026",
+            invoiced_service_description="Installment 1 campaign services",
+            legal_due_reason="Installment 1 is due under the signed contract milestones.",
+        )
+        before_9_am_ist = timezone.make_aware(datetime(2026, 5, 13, 3, 29), ZoneInfo("UTC"))
+
+        sent_count = send_due_invoice_notifications(now=before_9_am_ist)
+
+        installment.refresh_from_db()
+        self.assertEqual(sent_count, 0)
+        self.assertIsNone(installment.invoice_notification_sent_at)
+        self.assertEqual(len(mail.outbox), 0)
+
+        sent_count = send_due_invoice_notifications(now=before_9_am_ist, force=True)
+
+        installment.refresh_from_db()
+        self.assertEqual(sent_count, 1)
+        self.assertIsNotNone(installment.invoice_notification_sent_at)
+        self.assertEqual(len(mail.outbox), 1)
 
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
     def test_updating_invoice_date_to_today_sends_invoice_email_immediately(self):

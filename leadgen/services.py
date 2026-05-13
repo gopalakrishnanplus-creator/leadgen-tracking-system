@@ -6,7 +6,7 @@ from io import BytesIO
 from html import escape
 from calendar import monthrange
 from decimal import Decimal, InvalidOperation
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -1149,6 +1149,28 @@ def business_localdate(tz_name=None, now=None):
     return timezone.localtime(current_time, tz).date()
 
 
+def business_localtime(tz_name=None, now=None):
+    tz = ZoneInfo(tz_name or SystemSetting.load().default_timezone)
+    current_time = now or timezone.now()
+    return timezone.localtime(current_time, tz)
+
+
+INVOICE_DUE_NOTIFICATION_HOUR = 9
+
+
+def invoice_due_notification_ready(target_date=None, now=None, force=False):
+    if force:
+        return True
+    local_now = business_localtime(now=now)
+    target_date = target_date or local_now.date()
+    send_after = datetime.combine(
+        target_date,
+        time(hour=INVOICE_DUE_NOTIFICATION_HOUR),
+        tzinfo=local_now.tzinfo,
+    )
+    return local_now >= send_after
+
+
 def active_finance_manager_emails():
     return list(
         User.objects.filter(role=User.ROLE_FINANCE_MANAGER, is_active=True)
@@ -2149,8 +2171,10 @@ def send_invoice_due_email(installment):
     )
 
 
-def send_due_invoice_notifications(target_date=None, now=None):
+def send_due_invoice_notifications(target_date=None, now=None, force=False):
     target_date = target_date or business_localdate(now=now)
+    if not invoice_due_notification_ready(target_date=target_date, now=now, force=force):
+        return 0
     installments = ContractCollectionInstallment.objects.select_related(
         "contract_collection",
         "contract_collection__sales_manager",

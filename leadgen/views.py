@@ -2176,7 +2176,7 @@ def pending_collections_view(request):
 
 @role_required(User.ROLE_SUPERVISOR)
 def send_invoice_due_notifications_now(request):
-    sent_count = send_due_invoice_notifications()
+    sent_count = send_due_invoice_notifications(force=True)
     messages.success(request, f"Invoice due notifications sent: {sent_count}")
     return redirect("contracts_dashboard")
 

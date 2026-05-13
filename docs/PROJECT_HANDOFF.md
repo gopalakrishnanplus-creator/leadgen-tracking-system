@@ -625,10 +625,17 @@ cd /var/www/leadgen-tracking-system && /var/www/.venv/bin/python manage.py send_
 
 ### Invoice due notifications
 
-Should be run daily:
+Should be run daily at 9:00 AM India time:
 
 ```bash
-cd /var/www/leadgen-tracking-system && /var/www/.venv/bin/python manage.py send_invoice_due_notifications
+CRON_TZ=Asia/Kolkata
+0 9 * * * root cd /var/www/leadgen-tracking-system && /var/www/.venv/bin/python manage.py send_invoice_due_notifications >> /var/log/leadgen-invoice-notifications.log 2>&1
+```
+
+To manually send today's unsent invoice reminders immediately:
+
+```bash
+cd /var/www/leadgen-tracking-system && /var/www/.venv/bin/python manage.py send_invoice_due_notifications --force
 ```
 
 ### Bootstrap supervisor

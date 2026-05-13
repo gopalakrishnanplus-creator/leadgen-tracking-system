@@ -1,0 +1,2 @@
+CRON_TZ=Asia/Kolkata
+0 9 * * * root cd /var/www/leadgen-tracking-system && /var/www/.venv/bin/python manage.py send_invoice_due_notifications >> /var/log/leadgen-invoice-notifications.log 2>&1

@@ -105,10 +105,17 @@ Matching logic:
 - Use `APP_ENV=production`
 - Set `SECURE_SSL_REDIRECT=True` and a non-zero `SECURE_HSTS_SECONDS` behind HTTPS
 
-To send invoice reminders automatically each day, schedule:
+To send invoice reminders automatically each day at 9:00 AM India time, schedule:
 
 ```bash
-python manage.py send_invoice_due_notifications
+CRON_TZ=Asia/Kolkata
+0 9 * * * root cd /var/www/leadgen-tracking-system && /var/www/.venv/bin/python manage.py send_invoice_due_notifications >> /var/log/leadgen-invoice-notifications.log 2>&1
+```
+
+To manually send today's unsent invoice reminders immediately:
+
+```bash
+cd /var/www/leadgen-tracking-system && /var/www/.venv/bin/python manage.py send_invoice_due_notifications --force
 ```
 
 ## EC2 / AWS preparation
