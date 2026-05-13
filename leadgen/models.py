@@ -97,6 +97,7 @@ class SystemSetting(models.Model):
     supervisor_name = models.CharField(max_length=255, default="Bhavesh Kataria")
     supervisor_sender_email = models.EmailField(default="bhavesh.kataria@inditech.co.in")
     default_timezone = models.CharField(max_length=64, default="Asia/Kolkata")
+    cashflow_opening_balance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     sales_email_1 = models.EmailField(blank=True)
     sales_email_2 = models.EmailField(blank=True)
     sales_email_3 = models.EmailField(blank=True)

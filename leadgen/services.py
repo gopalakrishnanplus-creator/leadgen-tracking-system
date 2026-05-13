@@ -1953,6 +1953,7 @@ def _future_month_dates(start_date, end_date):
 
 def build_cashflow_projection(start_date=None, weeks=12):
     start_date = start_date or business_localdate()
+    opening_balance = SystemSetting.load().cashflow_opening_balance or Decimal("0.00")
     windows = build_twelve_week_windows(start_date=start_date, weeks=weeks)
     end_date = windows[-1]["end_date"]
     outflow_rows = []
@@ -2047,23 +2048,30 @@ def build_cashflow_projection(start_date=None, weeks=12):
             )
 
     projection_rows = []
+    cumulative_position = opening_balance
     for window in windows:
         week_inflows = [row for row in inflow_rows if window["start_date"] <= row["transaction_date"] <= window["end_date"]]
         week_outflows = [row for row in outflow_rows if window["start_date"] <= row["transaction_date"] <= window["end_date"]]
         inflow_total = sum((row["transaction_amount"] for row in week_inflows), Decimal("0.00"))
         outflow_total = sum((row["transaction_amount"] for row in week_outflows), Decimal("0.00"))
+        net_total = inflow_total - outflow_total
+        opening_position = cumulative_position
+        cumulative_position += net_total
         projection_rows.append(
             {
                 **window,
                 "inflow_total": inflow_total,
                 "outflow_total": outflow_total,
-                "net_total": inflow_total - outflow_total,
+                "net_total": net_total,
+                "opening_position": opening_position,
+                "closing_position": cumulative_position,
                 "inflows": week_inflows,
                 "outflows": week_outflows,
             }
         )
     return {
         "start_date": start_date,
+        "opening_balance": opening_balance,
         "weeks": projection_rows,
     }
 

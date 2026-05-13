@@ -710,6 +710,7 @@ class SystemSettingForm(StyledFormMixin, forms.ModelForm):
             "supervisor_name",
             "supervisor_sender_email",
             "default_timezone",
+            "cashflow_opening_balance",
             "sales_email_1",
             "sales_email_2",
             "sales_email_3",

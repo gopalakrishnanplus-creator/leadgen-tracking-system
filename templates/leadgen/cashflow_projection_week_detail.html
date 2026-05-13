@@ -6,6 +6,11 @@
         <p class="eyebrow">{{ workspace_eyebrow }}</p>
         <h1>Week {{ week.index }} cash flow detail</h1>
         <p class="note">{{ week.start_date }} to {{ week.end_date }}</p>
+        <p class="note">
+            Opening position: Rs {{ week.opening_position }}.
+            Weekly net: Rs {{ week.net_total }}.
+            Closing position: Rs {{ week.closing_position }}.
+        </p>
     </div>
     <div class="button-row">
         <a class="button" href="{% url 'cashflow_projection' %}">Back to projection</a>

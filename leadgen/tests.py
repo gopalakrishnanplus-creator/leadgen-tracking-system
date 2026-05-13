@@ -3680,6 +3680,9 @@ class LeadgenWorkflowTests(TestCase):
 
     def test_cashflow_projection_builds_inflows_outflows_and_future_provisions(self):
         start_date = datetime(2026, 4, 26).date()
+        settings_obj = SystemSetting.load()
+        settings_obj.cashflow_opening_balance = "50.00"
+        settings_obj.save()
         one_time_item = CashflowImportedItem.objects.create(
             category=CashflowImportedItem.CATEGORY_PAYABLE,
             source_key="payable|vendor-b",
@@ -3731,8 +3734,11 @@ class LeadgenWorkflowTests(TestCase):
         projection = build_cashflow_projection(start_date=start_date)
         self.assertEqual(projection["weeks"][0]["inflow_total"], Decimal("300.00"))
         self.assertEqual(projection["weeks"][0]["outflow_total"], Decimal("175.00"))
+        self.assertEqual(projection["weeks"][0]["net_total"], Decimal("125.00"))
+        self.assertEqual(projection["weeks"][0]["closing_position"], Decimal("175.00"))
         self.assertEqual(projection["weeks"][1]["inflow_total"], Decimal("125.00"))
         self.assertEqual(projection["weeks"][1]["outflow_total"], Decimal("75.00"))
+        self.assertEqual(projection["weeks"][1]["closing_position"], Decimal("225.00"))
         self.assertTrue(
             any(row["source_type"] == "future_provision" for row in projection["weeks"][1]["outflows"])
         )
