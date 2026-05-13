@@ -6,8 +6,9 @@ from django.contrib import messages
 from django.contrib.auth import logout
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import F, Prefetch, Q
-from django.http import FileResponse, Http404, JsonResponse
+from django.http import FileResponse, Http404, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -1899,6 +1900,22 @@ def _uploaded_contract_files(request):
     }
 
 
+def _can_delete_contract_collection(request):
+    return _is_effective_supervisor(request) or _is_effective_sales_manager(request)
+
+
+def _delete_contract_collection(contract_collection):
+    source_sales_conversation = contract_collection.source_sales_conversation
+    contract_files = list(contract_collection.files.all())
+    with transaction.atomic():
+        if source_sales_conversation:
+            source_sales_conversation.contract_signed = False
+            source_sales_conversation.save(update_fields=["contract_signed", "updated_at"])
+        for contract_file in contract_files:
+            contract_file.file.delete(save=False)
+        contract_collection.delete()
+
+
 @roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER)
 def sales_pipeline_dashboard(request):
     conversations = _sales_pipeline_queryset_for_request(request).filter(contract_signed=False)
@@ -2042,6 +2059,7 @@ def contracts_dashboard(request):
         "workspace_eyebrow": _workspace_eyebrow(request),
         "can_send_invoice_alerts": _is_effective_supervisor(request),
         "can_add_contract": _is_effective_supervisor(request) or _is_effective_sales_manager(request),
+        "can_delete_contract": _can_delete_contract_collection(request),
         "active_count": contracts.count(),
         "pending_count": build_pending_collections(_contracts_queryset_for_request(request))["invoiced_pending"].count(),
     }
@@ -2086,6 +2104,7 @@ def contract_collection_create(request):
             "title": "Add contract",
             "can_edit_terms": True,
             "can_edit_finance": False,
+            "can_delete_contract": False,
             "workspace_eyebrow": _workspace_eyebrow(request),
         },
     )
@@ -2154,7 +2173,32 @@ def contract_collection_update(request, contract_id):
             "title": f"Contract {contract_collection.contract_collection_id}",
             "can_edit_terms": can_edit_terms,
             "can_edit_finance": can_edit_finance,
+            "can_delete_contract": _can_delete_contract_collection(request),
             "workspace_eyebrow": _workspace_eyebrow(request),
+        },
+    )
+
+
+@roles_required(User.ROLE_SUPERVISOR, User.ROLE_SALES_MANAGER)
+def contract_collection_delete(request, contract_id):
+    contract_collection = _contract_collection_for_request_or_404(request, contract_id)
+    if not _can_delete_contract_collection(request):
+        return HttpResponseForbidden("You do not have access to this page.")
+    if request.method == "POST":
+        company_name = contract_collection.company_name
+        _delete_contract_collection(contract_collection)
+        messages.success(
+            request,
+            f"Contract deleted: {company_name}. Related installments, invoice dates, and collection records were removed.",
+        )
+        return redirect("contracts_dashboard")
+    return render(
+        request,
+        "leadgen/confirm_delete.html",
+        {
+            "object": contract_collection,
+            "title": "Delete contract",
+            "description": "This permanently removes the contract, its contacts, contract files, installments, invoice details, and collection details. If it came from a sales conversation, that sales conversation will return to the sales pipeline.",
         },
     )
 

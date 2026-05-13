@@ -47,7 +47,12 @@
                 <td>{% if contract.sales_manager %}{{ contract.sales_manager.name }}{% else %}Unassigned{% endif %}</td>
                 <td>{% if contract.contract_value %}Rs {{ contract.contract_value }}{% else %}-{% endif %}</td>
                 <td>{{ contract.updated_at }}</td>
-                <td class="actions"><a href="{% url 'contract_collection_update' contract.id %}">Edit</a></td>
+                <td class="actions">
+                    <a href="{% url 'contract_collection_update' contract.id %}">Edit</a>
+                    {% if can_delete_contract %}
+                        <a href="{% url 'contract_collection_delete' contract.id %}">Delete</a>
+                    {% endif %}
+                </td>
             </tr>
         {% empty %}
             <tr><td colspan="7">No contracts have entered collections yet.</td></tr>

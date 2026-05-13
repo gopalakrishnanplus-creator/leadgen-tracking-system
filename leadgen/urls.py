@@ -105,6 +105,7 @@ urlpatterns = [
     path("contracts/", views.contracts_dashboard, name="contracts_dashboard"),
     path("contracts/add/", views.contract_collection_create, name="contract_collection_create"),
     path("contracts/<int:contract_id>/", views.contract_collection_update, name="contract_collection_update"),
+    path("contracts/<int:contract_id>/delete/", views.contract_collection_delete, name="contract_collection_delete"),
     path("contracts/pending-collections/", views.pending_collections_view, name="pending_collections"),
     path("contracts/send-invoice-due-notifications/", views.send_invoice_due_notifications_now, name="send_invoice_due_notifications_now"),
     path("staff/dashboard/", views.staff_dashboard, name="staff_dashboard"),

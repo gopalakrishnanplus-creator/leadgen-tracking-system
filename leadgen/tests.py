@@ -42,6 +42,7 @@ from .models import (
     CashflowSnapshot,
     CashflowWorkOrderRequest,
     ContractCollection,
+    ContractCollectionContact,
     ContractCollectionInstallment,
     DirectMarketingActivity,
     MarketingEmailCampaign,
@@ -1883,6 +1884,57 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(contract_collection.company_name, "Signed Co")
         self.assertEqual(contract_collection.sales_manager, self.sales_manager)
         self.assertEqual(contract_collection.contacts.count(), 1)
+
+    def test_supervisor_can_delete_contract_and_related_collection_data(self):
+        sales_conversation = SalesConversation.objects.create(
+            company_name="Delete Contract Co",
+            assigned_sales_manager=self.sales_manager,
+            contract_signed=True,
+            created_by=self.supervisor,
+        )
+        contract_collection = ContractCollection.objects.create(
+            source_sales_conversation=sales_conversation,
+            company_name="Delete Contract Co",
+            sales_manager=self.sales_manager,
+            contract_value="100000.00",
+            created_by=self.supervisor,
+        )
+        contract_collection.contacts.create(position=1, name="Jane Doe", email="jane@example.com")
+        ContractCollectionInstallment.objects.create(
+            contract_collection=contract_collection,
+            position=1,
+            installment_amount="50000.00",
+            invoice_date=datetime(2026, 5, 15).date(),
+            expected_collection_date=datetime(2026, 5, 30).date(),
+            collected_amount="25000.00",
+            collection_date=datetime(2026, 5, 31).date(),
+            contract_summary="Contract summary",
+            invoiced_service_description="Services",
+            legal_due_reason="Due under contract",
+        )
+
+        self.client.force_login(self.supervisor)
+        response = self.client.post(f"/contracts/{contract_collection.pk}/delete/")
+
+        self.assertRedirects(response, "/contracts/")
+        self.assertFalse(ContractCollection.objects.filter(pk=contract_collection.pk).exists())
+        self.assertFalse(ContractCollectionContact.objects.filter(contract_collection_id=contract_collection.pk).exists())
+        self.assertFalse(
+            ContractCollectionInstallment.objects.filter(contract_collection_id=contract_collection.pk).exists()
+        )
+        sales_conversation.refresh_from_db()
+        self.assertFalse(sales_conversation.contract_signed)
+
+    def test_finance_manager_cannot_delete_contract(self):
+        contract_collection = ContractCollection.objects.create(
+            company_name="Finance Delete Blocked Co",
+            sales_manager=self.sales_manager,
+            created_by=self.supervisor,
+        )
+        self.client.force_login(self.finance_manager)
+        response = self.client.post(f"/contracts/{contract_collection.pk}/delete/")
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(ContractCollection.objects.filter(pk=contract_collection.pk).exists())
 
     def test_contract_form_enforces_one_contact_and_collects_installments(self):
         form = ContractCollectionForm(

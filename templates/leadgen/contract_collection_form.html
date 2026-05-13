@@ -12,6 +12,9 @@
     <div class="button-row">
         <a class="button" href="{% url 'contracts_dashboard' %}">Back to contracts</a>
         <a class="button" href="{% url 'pending_collections' %}">Pending collections</a>
+        {% if contract_collection and can_delete_contract %}
+            <a class="button button-danger" href="{% url 'contract_collection_delete' contract_collection.id %}">Delete contract</a>
+        {% endif %}
     </div>
 </section>
 <section class="two-col">
