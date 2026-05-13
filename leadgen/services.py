@@ -1,5 +1,6 @@
 import logging
 import base64
+import mimetypes
 import re
 import socket
 from io import BytesIO
@@ -692,14 +693,45 @@ def pharma_manager_therapy_query(therapy_area):
     return query
 
 
-def marketing_email_recipients(playbook, campaign_type):
+def _pharma_manager_multi_value_query(values, prefix, max_slots):
+    query = Q()
+    cleaned_values = [(value or "").strip() for value in values or [] if (value or "").strip()]
+    if not cleaned_values:
+        return Q(pk__isnull=True)
+    for value in cleaned_values:
+        for index in range(1, max_slots + 1):
+            query |= Q(**{f"{prefix}_{index}__iexact": value})
+    return query
+
+
+def marketing_email_recipients(playbook, campaign_type, therapy_areas=None, molecules=None):
     queryset = PharmaManager.objects.filter(unsubscribed=False).exclude(email="")
     if campaign_type == MarketingEmailCampaign.TYPE_MOLECULE_TARGETED:
-        queryset = queryset.filter(pharma_manager_molecule_query(playbook.molecule_or_formulation))
+        target_query = Q()
+        if therapy_areas:
+            target_query |= _pharma_manager_multi_value_query(therapy_areas, "therapy_area", 5)
+        if molecules:
+            target_query |= _pharma_manager_multi_value_query(molecules, "molecule", 10)
+        if not target_query:
+            target_query = pharma_manager_molecule_query(playbook.molecule_or_formulation)
+        queryset = queryset.filter(target_query)
     return queryset.order_by("name", "company_name")
 
 
-def send_marketing_email_campaign(playbook, campaign_type, sent_by):
+def _playbook_pdf_attachment(playbook):
+    if not playbook.pdf_file:
+        return None
+    storage = playbook.pdf_file.storage
+    if not storage.exists(playbook.pdf_file.name):
+        return None
+    with storage.open(playbook.pdf_file.name, "rb") as pdf_file:
+        content = pdf_file.read()
+    filename = playbook.pdf_file.name.rsplit("/", 1)[-1]
+    content_type = mimetypes.guess_type(filename)[0] or "application/pdf"
+    return {"filename": filename, "content": content, "type": content_type}
+
+
+def send_marketing_email_campaign(playbook, campaign_type, sent_by, therapy_areas=None, molecules=None):
     if campaign_type == MarketingEmailCampaign.TYPE_FULL_DATABASE:
         subject_template = playbook.direct_email_subject
         body_template = playbook.direct_email_body
@@ -713,10 +745,17 @@ def send_marketing_email_campaign(playbook, campaign_type, sent_by):
         playbook=playbook,
         campaign_type=campaign_type,
         sent_by=sent_by,
+        target_therapy_areas=", ".join(therapy_areas or []),
+        target_molecules=", ".join(molecules or []),
     )
+    attachment = _playbook_pdf_attachment(playbook)
+    attachments = [attachment] if attachment else []
+    if attachment:
+        campaign.attachment_filename = attachment["filename"]
+        campaign.save(update_fields=["attachment_filename"])
     sent_count = 0
     failed_count = 0
-    for recipient in marketing_email_recipients(playbook, campaign_type):
+    for recipient in marketing_email_recipients(playbook, campaign_type, therapy_areas=therapy_areas, molecules=molecules):
         subject = _personalize_marketing_text(subject_template, recipient, playbook)
         text_body = _personalize_marketing_text(body_template, recipient, playbook)
         if playbook.website_download_url and playbook.website_download_url not in text_body:
@@ -728,6 +767,7 @@ def send_marketing_email_campaign(playbook, campaign_type, sent_by):
                 html_body=html_body,
                 text_body=text_body,
                 to_emails=[recipient.email],
+                attachments=attachments,
             )
         except Exception:
             failed_count += 1
@@ -1684,6 +1724,133 @@ def import_pharma_manager_molecule_batch(batch):
     batch.skipped_count = skipped_count
     batch.save(update_fields=["total_rows", "created_count", "updated_count", "skipped_count"])
     return batch
+
+
+BRANDS_DATABASE_COLUMN_ALIASES = {
+    "name": {"name", "name of person", "person name", "contact name"},
+    "company_name": {"company", "company name", "organisation", "organization"},
+    "designation": {"designation", "title", "role"},
+    "linkedin_url": {"linkedin", "linkedin url", "linkedin page url", "linkedin profile url"},
+}
+
+
+def _resolve_brands_database_columns(header_row):
+    normalized = {normalize_cashflow_header(value): index for index, value in enumerate(header_row)}
+    resolved = {}
+    for field_name, aliases in BRANDS_DATABASE_COLUMN_ALIASES.items():
+        for alias in aliases:
+            if alias in normalized:
+                resolved[field_name] = normalized[alias]
+                break
+    for index in range(1, 3):
+        normalized_key = normalize_cashflow_header(f"Email {index}")
+        if normalized_key in normalized:
+            resolved[f"email_{index}"] = normalized[normalized_key]
+    for index in range(1, 4):
+        normalized_key = normalize_cashflow_header(f"Phone {index}")
+        if normalized_key in normalized:
+            resolved[f"phone_{index}"] = normalized[normalized_key]
+    for index in range(1, 6):
+        normalized_key = normalize_cashflow_header(f"Therapy area {index}")
+        if normalized_key in normalized:
+            resolved[f"therapy_area_{index}"] = normalized[normalized_key]
+    for index in range(1, 11):
+        normalized_key = normalize_cashflow_header(f"Brand {index}")
+        if normalized_key in normalized:
+            resolved[f"brand_{index}"] = normalized[normalized_key]
+    if "email_1" not in resolved and "email_2" not in resolved:
+        raise ValueError("The brands database must contain Email 1 or Email 2.")
+    return resolved
+
+
+def _row_values_for_prefix(row, column_map, prefix, max_slots):
+    values = []
+    seen = set()
+    for index in range(1, max_slots + 1):
+        value = _row_value(row, column_map, f"{prefix}_{index}")
+        normalized = value.lower()
+        if value and normalized not in seen:
+            values.append(value)
+            seen.add(normalized)
+    return values
+
+
+def _clean_linkedin_url(value):
+    value = (value or "").strip()
+    if value and not value.startswith(("http://", "https://")):
+        return f"https://{value}"
+    return value
+
+
+def import_pharma_manager_brand_database(workbook_source, uploaded_by=None, batch=None):
+    workbook = load_workbook(workbook_source, data_only=True)
+    sheet = workbook[workbook.sheetnames[0]]
+    header = list(next(sheet.iter_rows(values_only=True)))
+    column_map = _resolve_brands_database_columns(header)
+    total_rows = created_count = updated_count = skipped_count = 0
+
+    for row in sheet.iter_rows(min_row=2, values_only=True):
+        if not any(row):
+            continue
+        total_rows += 1
+        emails = _row_values_for_prefix(row, column_map, "email", 2)
+        normalized_emails = []
+        seen_emails = set()
+        for email in emails:
+            normalized_email = email.strip().lower()
+            if "@" not in normalized_email or normalized_email in seen_emails:
+                continue
+            normalized_emails.append(normalized_email)
+            seen_emails.add(normalized_email)
+        if not normalized_emails:
+            skipped_count += 1
+            continue
+
+        phone_values = _row_values_for_prefix(row, column_map, "phone", 3)
+        therapy_values = _row_values_for_prefix(row, column_map, "therapy_area", 5)
+        brand_values = _row_values_for_prefix(row, column_map, "brand", 10)
+        defaults = {
+            "name": _row_value(row, column_map, "name"),
+            "company_name": _row_value(row, column_map, "company_name") or "Unknown",
+            "designation": _row_value(row, column_map, "designation"),
+            "whatsapp_number": normalize_phone(phone_values[0]) if phone_values else "",
+            "linkedin_url": _clean_linkedin_url(_row_value(row, column_map, "linkedin_url")),
+        }
+
+        for email in normalized_emails:
+            pharma_manager, created = PharmaManager.objects.get_or_create(
+                email=email,
+                defaults={**defaults, "name": defaults["name"] or email, "created_by": uploaded_by},
+            )
+            changed = created
+            if not created:
+                for field_name, value in defaults.items():
+                    if value and getattr(pharma_manager, field_name) != value:
+                        setattr(pharma_manager, field_name, value)
+                        changed = True
+            for value in therapy_values:
+                changed = _append_unique_slot(pharma_manager, "therapy_area", value, 5) or changed
+            for value in brand_values:
+                changed = _append_unique_slot(pharma_manager, "molecule", value, 10) or changed
+            if changed:
+                pharma_manager.save()
+            if created:
+                created_count += 1
+            elif changed:
+                updated_count += 1
+
+    if batch:
+        batch.total_rows = total_rows
+        batch.created_count = created_count
+        batch.updated_count = updated_count
+        batch.skipped_count = skipped_count
+        batch.save(update_fields=["total_rows", "created_count", "updated_count", "skipped_count"])
+    return {
+        "total_rows": total_rows,
+        "created_count": created_count,
+        "updated_count": updated_count,
+        "skipped_count": skipped_count,
+    }
 
 
 def create_cashflow_work_order(cleaned_data, created_by):

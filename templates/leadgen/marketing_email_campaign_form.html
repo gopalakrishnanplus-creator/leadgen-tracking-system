@@ -15,9 +15,12 @@
         {% csrf_token %}
         {{ form.non_field_errors }}
         {% for field in form %}
-            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-            {{ field }}
-            {% for error in field.errors %}<div class="message error">{{ error }}</div>{% endfor %}
+            {% if campaign_type != "full_database" or field.name != "therapy_areas" and field.name != "molecules" %}
+                <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field }}
+                {% if field.help_text %}<p class="note">{{ field.help_text }}</p>{% endif %}
+                {% for error in field.errors %}<div class="message error">{{ error }}</div>{% endfor %}
+            {% endif %}
         {% endfor %}
         {% if preview_count != None %}
             <p class="note">Current matching subscribed recipients: {{ preview_count }}</p>

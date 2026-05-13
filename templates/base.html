@@ -37,6 +37,7 @@
                         <a href="{% url 'supervisor_reports' %}">Reports</a>
                         <a href="{% url 'supervisor_daily_targets' %}">Daily Targets</a>
                         <a href="{% url 'direct_marketing_create' %}">Direct Marketing</a>
+                        <a href="{% url 'pharma_manager_list' %}">Brand Database</a>
                         <a href="{% url 'system_settings' %}">Settings</a>
                     {% elif request.current_workspace == "sales" %}
                         <a href="{% url 'sales_pipeline_dashboard' %}">Dashboard</a>
@@ -64,6 +65,7 @@
                         <a href="{% url 'marketing_playbook_list' %}">Playbooks</a>
                         <a href="{% url 'pharma_manager_list' %}">Pharma Managers</a>
                         <a href="{% url 'marketing_email_campaign_create' %}">Send Email</a>
+                        <a href="{% url 'pharma_manager_base_upload' %}">Upload Brand Database</a>
                         <a href="{% url 'marketing_linkedin_activity_create' %}">LinkedIn Activity</a>
                         <a href="{% url 'pharma_manager_upload' %}">Upload Molecule Data</a>
                     {% else %}

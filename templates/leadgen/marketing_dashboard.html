@@ -8,8 +8,10 @@
     </div>
     <div class="button-row">
         <a class="button button-primary" href="{% url 'marketing_playbook_create' %}">Add playbook</a>
+        <a class="button" href="{% url 'pharma_manager_base_upload' %}">Upload brand database</a>
         <a class="button" href="{% url 'pharma_manager_upload' %}">Upload molecule data</a>
-        <a class="button" href="{% url 'marketing_email_campaign_create' %}">Send email campaign</a>
+        <a class="button" href="{% url 'marketing_email_campaign_create' %}?campaign_type=full_database">Send generic mailer</a>
+        <a class="button" href="{% url 'marketing_email_campaign_create' %}?campaign_type=molecule_targeted">Send targeted mailer</a>
         <a class="button" href="{% url 'marketing_linkedin_activity_create' %}">Record LinkedIn activity</a>
     </div>
 </section>
@@ -49,7 +51,11 @@
                 <td>{{ playbook.start_date }} to {{ playbook.end_date }}</td>
                 <td>
                     {% for campaign in playbook.email_campaigns.all %}
-                        {{ campaign.get_campaign_type_display }}: {{ campaign.recipient_count }} sent, {{ campaign.failed_count }} failed on {{ campaign.sent_at|date:"M j, Y" }}<br>
+                        {{ campaign.get_campaign_type_display }}: {{ campaign.recipient_count }} sent, {{ campaign.failed_count }} failed on {{ campaign.sent_at|date:"M j, Y" }}
+                        {% if campaign.target_therapy_areas or campaign.target_molecules %}
+                            ({{ campaign.target_therapy_areas }}{% if campaign.target_therapy_areas and campaign.target_molecules %}; {% endif %}{{ campaign.target_molecules }})
+                        {% endif %}
+                        {% if campaign.attachment_filename %}Attachment: {{ campaign.attachment_filename }}{% endif %}<br>
                     {% empty %}
                         No email campaign recorded.
                     {% endfor %}

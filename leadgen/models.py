@@ -992,6 +992,9 @@ class MarketingEmailCampaign(models.Model):
         related_name="marketing_email_campaigns",
         on_delete=models.PROTECT,
     )
+    target_therapy_areas = models.TextField(blank=True)
+    target_molecules = models.TextField(blank=True)
+    attachment_filename = models.CharField(max_length=255, blank=True)
     recipient_count = models.PositiveIntegerField(default=0)
     failed_count = models.PositiveIntegerField(default=0)
     sent_at = models.DateTimeField(auto_now_add=True)

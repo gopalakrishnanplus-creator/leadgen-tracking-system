@@ -836,13 +836,67 @@ class PharmaManagerFilterForm(StyledFormMixin, forms.Form):
     molecule_or_formulation = forms.CharField(required=False, label="Molecule/formulation")
 
 
+def _distinct_pharma_manager_values(prefix, max_slots):
+    values = set()
+    for index in range(1, max_slots + 1):
+        field_name = f"{prefix}_{index}"
+        values.update(
+            value.strip()
+            for value in PharmaManager.objects.exclude(**{field_name: ""}).values_list(field_name, flat=True)
+            if value and value.strip()
+        )
+    return [(value, value) for value in sorted(values, key=str.lower)]
+
+
 class MarketingEmailCampaignForm(StyledFormMixin, forms.Form):
     playbook = forms.ModelChoiceField(queryset=MarketingPlaybook.objects.none())
     campaign_type = forms.ChoiceField(choices=MarketingEmailCampaign.TYPE_CHOICES)
+    therapy_areas = forms.MultipleChoiceField(
+        required=False,
+        choices=(),
+        label="Therapy areas",
+        help_text="Targeted campaigns can use up to 3 therapy areas.",
+    )
+    molecules = forms.MultipleChoiceField(
+        required=False,
+        choices=(),
+        label="Molecules/formulations",
+        help_text="Targeted campaigns can use up to 2 molecules/formulations.",
+    )
 
     def __init__(self, *args, **kwargs):
+        campaign_type = kwargs.pop("campaign_type", None)
         super().__init__(*args, **kwargs)
         self.fields["playbook"].queryset = MarketingPlaybook.objects.order_by("-start_date", "title")
+        self.fields["therapy_areas"].choices = _distinct_pharma_manager_values("therapy_area", 5)
+        self.fields["molecules"].choices = _distinct_pharma_manager_values("molecule", 10)
+        self.fields["therapy_areas"].widget.attrs["size"] = "8"
+        self.fields["molecules"].widget.attrs["size"] = "8"
+        if campaign_type:
+            self.initial["campaign_type"] = campaign_type
+            self.fields["campaign_type"].widget = forms.HiddenInput()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        campaign_type = cleaned_data.get("campaign_type")
+        therapy_areas = cleaned_data.get("therapy_areas") or []
+        molecules = cleaned_data.get("molecules") or []
+        if campaign_type == MarketingEmailCampaign.TYPE_FULL_DATABASE:
+            cleaned_data["therapy_areas"] = []
+            cleaned_data["molecules"] = []
+            return cleaned_data
+        if campaign_type == MarketingEmailCampaign.TYPE_MOLECULE_TARGETED:
+            if len(therapy_areas) > 3:
+                self.add_error("therapy_areas", "Choose no more than 3 therapy areas.")
+            if len(molecules) > 2:
+                self.add_error("molecules", "Choose no more than 2 molecules/formulations.")
+            if not therapy_areas and not molecules:
+                raise ValidationError("Choose at least one therapy area or molecule/formulation for a targeted campaign.")
+        return cleaned_data
+
+
+class PharmaManagerBaseDatabaseUploadForm(StyledFormMixin, forms.Form):
+    uploaded_file = forms.FileField(label="Brands database file")
 
 
 class MarketingLinkedInActivityForm(StyledFormMixin, forms.ModelForm):

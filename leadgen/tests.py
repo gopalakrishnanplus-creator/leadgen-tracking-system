@@ -24,6 +24,7 @@ from .forms import (
     ContractCollectionForm,
     FinanceManagerCreateForm,
     MarketingManagerCreateForm,
+    MarketingEmailCampaignForm,
     MeetingStatusUpdateForm,
     ProspectCreateForm,
     PUBLIC_DOWNLOAD_MAX_FILE_SIZE,
@@ -73,6 +74,7 @@ from .services import (
     import_cashflow_snapshot,
     import_exotel_report,
     import_pharma_manager_molecule_batch,
+    import_pharma_manager_brand_database,
     log_whatsapp_reminder,
     marketing_email_recipients,
     send_email,
@@ -3155,6 +3157,137 @@ class LeadgenWorkflowTests(TestCase):
         )
         recipients = list(marketing_email_recipients(playbook, MarketingEmailCampaign.TYPE_MOLECULE_TARGETED))
         self.assertEqual(recipients, [matching])
+
+    def test_marketing_recipients_filter_by_selected_therapy_or_molecule(self):
+        playbook = self._marketing_playbook()
+        therapy_match = PharmaManager.objects.create(
+            name="Therapy Match",
+            company_name="TherapyCo",
+            email="therapy@example.com",
+            therapy_area_1="Vaccines",
+            created_by=self.marketing_manager,
+        )
+        molecule_match = PharmaManager.objects.create(
+            name="Molecule Match",
+            company_name="MoleculeCo",
+            email="molecule@example.com",
+            molecule_1="Cefixime",
+            created_by=self.marketing_manager,
+        )
+        PharmaManager.objects.create(
+            name="Other Brand",
+            company_name="OtherCo",
+            email="other@example.com",
+            therapy_area_1="Diabetes",
+            molecule_1="Insulin",
+            created_by=self.marketing_manager,
+        )
+        recipients = list(
+            marketing_email_recipients(
+                playbook,
+                MarketingEmailCampaign.TYPE_MOLECULE_TARGETED,
+                therapy_areas=["Vaccines"],
+                molecules=["Cefixime"],
+            )
+        )
+        self.assertEqual(recipients, [molecule_match, therapy_match])
+
+    def test_marketing_email_campaign_form_caps_target_filters(self):
+        for index in range(1, 5):
+            PharmaManager.objects.create(
+                name=f"Brand {index}",
+                company_name="TestCo",
+                email=f"brand{index}@example.com",
+                therapy_area_1=f"Therapy {index}",
+                molecule_1=f"Molecule {index}",
+                created_by=self.marketing_manager,
+            )
+        playbook = self._marketing_playbook()
+        form = MarketingEmailCampaignForm(
+            data={
+                "playbook": str(playbook.pk),
+                "campaign_type": MarketingEmailCampaign.TYPE_MOLECULE_TARGETED,
+                "therapy_areas": ["Therapy 1", "Therapy 2", "Therapy 3", "Therapy 4"],
+                "molecules": ["Molecule 1", "Molecule 2", "Molecule 3"],
+            }
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("therapy_areas", form.errors)
+        self.assertIn("molecules", form.errors)
+
+    def test_brand_database_import_creates_records_for_both_email_columns(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(
+            [
+                "Name of person",
+                "Company name",
+                "Therapy area 1",
+                "Therapy area 2",
+                "Designation",
+                "Phone 1",
+                "Email 1",
+                "Email 2",
+                "Brand 1",
+                "Brand 2",
+                "LinkedIn page URL",
+            ]
+        )
+        sheet.append(
+            [
+                "Asha Brand",
+                "VaccineCo",
+                "Vaccines",
+                "Pediatrics",
+                "Brand Manager",
+                "9810063592",
+                "asha@example.com",
+                "asha.alt@example.com",
+                "Pneumococcal",
+                "Rotavirus",
+                "www.linkedin.com/in/asha",
+            ]
+        )
+        from io import BytesIO
+
+        buffer = BytesIO()
+        workbook.save(buffer)
+        buffer.seek(0)
+        result = import_pharma_manager_brand_database(buffer, uploaded_by=self.marketing_manager)
+        self.assertEqual(result["total_rows"], 1)
+        self.assertEqual(result["created_count"], 2)
+        self.assertEqual(PharmaManager.objects.filter(company_name="VaccineCo").count(), 2)
+        imported = PharmaManager.objects.get(email="asha@example.com")
+        self.assertEqual(imported.therapy_area_1, "Vaccines")
+        self.assertEqual(imported.therapy_area_2, "Pediatrics")
+        self.assertEqual(imported.molecule_1, "Pneumococcal")
+        self.assertEqual(imported.molecule_2, "Rotavirus")
+        self.assertEqual(imported.linkedin_url, "https://www.linkedin.com/in/asha")
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
+    def test_marketing_email_campaign_attaches_playbook_pdf(self):
+        playbook = self._marketing_playbook()
+        playbook.pdf_file.save(
+            "campaign.pdf",
+            SimpleUploadedFile("campaign.pdf", b"%PDF-1.4\nsample", content_type="application/pdf"),
+            save=True,
+        )
+        PharmaManager.objects.create(
+            name="Asha Brand",
+            company_name="VaccineCo",
+            email="asha@example.com",
+            created_by=self.marketing_manager,
+        )
+        campaign = send_marketing_email_campaign(
+            playbook,
+            MarketingEmailCampaign.TYPE_FULL_DATABASE,
+            self.marketing_manager,
+        )
+        self.assertEqual(campaign.recipient_count, 1)
+        self.assertTrue(campaign.attachment_filename.startswith("campaign"))
+        self.assertTrue(campaign.attachment_filename.endswith(".pdf"))
+        self.assertEqual(len(mail.outbox[0].attachments), 1)
+        self.assertEqual(mail.outbox[0].attachments[0][0], campaign.attachment_filename)
 
     def test_cashflow_snapshot_import_creates_current_items(self):
         snapshot = CashflowSnapshot.objects.create(

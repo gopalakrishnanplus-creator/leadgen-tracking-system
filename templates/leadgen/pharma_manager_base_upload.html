@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Upload Brand Database{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>Upload brand database</h1>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'pharma_manager_list' %}">Back to database</a>
+        <a class="button" href="{% url back_url %}">Back to dashboard</a>
+    </div>
+</section>
+<section class="panel">
+    <p class="note">
+        Upload the full brands workbook with columns such as Name of person, Company name,
+        Therapy area 1-5, Email 1-2, Brand 1-10, and LinkedIn page URL.
+        Email address is the duplicate check; Email 1 and Email 2 become separate campaign recipients.
+    </p>
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        {% for field in form %}
+            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            {{ field }}
+            {% for error in field.errors %}<div class="message error">{{ error }}</div>{% endfor %}
+        {% endfor %}
+        <div class="button-row">
+            <button class="button button-primary" type="submit">Upload and import brand database</button>
+        </div>
+    </form>
+</section>
+<section class="panel">
+    <h2>Recent brand database imports</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Rows</th>
+                <th>Created</th>
+                <th>Updated</th>
+                <th>Skipped</th>
+                <th>Uploaded</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for upload in uploads %}
+            <tr>
+                <td>{{ upload.total_rows }}</td>
+                <td>{{ upload.created_count }}</td>
+                <td>{{ upload.updated_count }}</td>
+                <td>{{ upload.skipped_count }}</td>
+                <td>{{ upload.created_at }}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="5">No brand database imports yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

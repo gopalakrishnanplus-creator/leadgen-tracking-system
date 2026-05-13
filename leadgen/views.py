@@ -37,6 +37,7 @@ from .forms import (
     MarketingManagerCreateForm,
     MarketingManagerUpdateForm,
     MarketingPlaybookForm,
+    PharmaManagerBaseDatabaseUploadForm,
     PharmaManagerFilterForm,
     PharmaManagerForm,
     PharmaManagerUploadForm,
@@ -99,6 +100,7 @@ from .services import (
     delete_meeting,
     get_or_create_contract_collection_from_sales_conversation,
     import_exotel_report,
+    import_pharma_manager_brand_database,
     import_pharma_manager_molecule_batch,
     latest_cashflow_snapshot,
     log_whatsapp_reminder,
@@ -818,7 +820,13 @@ def _pharma_manager_filtered_queryset(form):
     return queryset
 
 
-@role_required(User.ROLE_MARKETING_MANAGER)
+def _marketing_database_back_url(request):
+    if getattr(request, "current_workspace", None) == "supervisor":
+        return "supervisor_dashboard"
+    return "marketing_dashboard"
+
+
+@roles_required(User.ROLE_MARKETING_MANAGER, User.ROLE_SUPERVISOR)
 def pharma_manager_list(request):
     filter_form = PharmaManagerFilterForm(request.GET or None)
     paginator = Paginator(_pharma_manager_filtered_queryset(filter_form), 20)
@@ -830,11 +838,12 @@ def pharma_manager_list(request):
             "workspace_eyebrow": _workspace_eyebrow(request),
             "filter_form": filter_form,
             "page_obj": page_obj,
+            "back_url": _marketing_database_back_url(request),
         },
     )
 
 
-@role_required(User.ROLE_MARKETING_MANAGER)
+@roles_required(User.ROLE_MARKETING_MANAGER, User.ROLE_SUPERVISOR)
 def pharma_manager_create(request):
     form = PharmaManagerForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
@@ -846,11 +855,16 @@ def pharma_manager_create(request):
     return render(
         request,
         "leadgen/pharma_manager_form.html",
-        {"workspace_eyebrow": _workspace_eyebrow(request), "form": form, "title": "Add pharma manager"},
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "form": form,
+            "title": "Add pharma manager",
+            "back_url": _marketing_database_back_url(request),
+        },
     )
 
 
-@role_required(User.ROLE_MARKETING_MANAGER)
+@roles_required(User.ROLE_MARKETING_MANAGER, User.ROLE_SUPERVISOR)
 def pharma_manager_update(request, pharma_manager_id):
     pharma_manager = get_object_or_404(PharmaManager, pk=pharma_manager_id)
     form = PharmaManagerForm(request.POST or None, instance=pharma_manager)
@@ -861,11 +875,16 @@ def pharma_manager_update(request, pharma_manager_id):
     return render(
         request,
         "leadgen/pharma_manager_form.html",
-        {"workspace_eyebrow": _workspace_eyebrow(request), "form": form, "title": "Edit pharma manager"},
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "form": form,
+            "title": "Edit pharma manager",
+            "back_url": _marketing_database_back_url(request),
+        },
     )
 
 
-@role_required(User.ROLE_MARKETING_MANAGER)
+@roles_required(User.ROLE_MARKETING_MANAGER, User.ROLE_SUPERVISOR)
 def pharma_manager_delete(request, pharma_manager_id):
     pharma_manager = get_object_or_404(PharmaManager, pk=pharma_manager_id)
     if request.method == "POST":
@@ -885,18 +904,25 @@ def pharma_manager_delete(request, pharma_manager_id):
 
 @role_required(User.ROLE_MARKETING_MANAGER)
 def marketing_email_campaign_create(request):
-    form = MarketingEmailCampaignForm(request.POST or None)
+    requested_campaign_type = request.GET.get("campaign_type")
+    if requested_campaign_type not in dict(MarketingEmailCampaign.TYPE_CHOICES):
+        requested_campaign_type = None
+    form = MarketingEmailCampaignForm(request.POST or None, campaign_type=requested_campaign_type)
     preview_count = None
     if form.is_valid():
         preview_count = marketing_email_recipients(
             form.cleaned_data["playbook"],
             form.cleaned_data["campaign_type"],
+            therapy_areas=form.cleaned_data.get("therapy_areas"),
+            molecules=form.cleaned_data.get("molecules"),
         ).count()
     if request.method == "POST" and form.is_valid():
         campaign = send_marketing_email_campaign(
             form.cleaned_data["playbook"],
             form.cleaned_data["campaign_type"],
             _effective_marketing_user(request) or request.user,
+            therapy_areas=form.cleaned_data.get("therapy_areas"),
+            molecules=form.cleaned_data.get("molecules"),
         )
         messages.success(
             request,
@@ -910,6 +936,7 @@ def marketing_email_campaign_create(request):
             "workspace_eyebrow": _workspace_eyebrow(request),
             "form": form,
             "preview_count": preview_count,
+            "campaign_type": form["campaign_type"].value(),
         },
     )
 
@@ -927,6 +954,42 @@ def marketing_linkedin_activity_create(request):
         request,
         "leadgen/marketing_linkedin_activity_form.html",
         {"workspace_eyebrow": _workspace_eyebrow(request), "form": form},
+    )
+
+
+@roles_required(User.ROLE_MARKETING_MANAGER, User.ROLE_SUPERVISOR)
+def pharma_manager_base_database_upload(request):
+    form = PharmaManagerBaseDatabaseUploadForm(request.POST or None, request.FILES or None)
+    uploads = PharmaManagerUploadBatch.objects.filter(molecule_or_formulation="Full brands database").select_related(
+        "uploaded_by"
+    )[:10]
+    if request.method == "POST" and form.is_valid():
+        batch = PharmaManagerUploadBatch.objects.create(
+            molecule_or_formulation="Full brands database",
+            therapy_area="",
+            uploaded_file=form.cleaned_data["uploaded_file"],
+            uploaded_by=_effective_marketing_user(request) or request.user,
+        )
+        try:
+            import_pharma_manager_brand_database(batch.uploaded_file.path, uploaded_by=batch.uploaded_by, batch=batch)
+        except Exception as exc:
+            batch.delete()
+            messages.error(request, f"Brands database import failed: {exc}")
+        else:
+            messages.success(
+                request,
+                f"Brands database imported. Created: {batch.created_count}; updated: {batch.updated_count}; skipped rows: {batch.skipped_count}.",
+            )
+            return redirect("pharma_manager_base_upload")
+    return render(
+        request,
+        "leadgen/pharma_manager_base_upload.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "form": form,
+            "uploads": uploads,
+            "back_url": _marketing_database_back_url(request),
+        },
     )
 
 
