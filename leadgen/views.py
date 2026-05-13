@@ -39,7 +39,6 @@ from .forms import (
     MarketingPlaybookForm,
     PharmaManagerFilterForm,
     PharmaManagerForm,
-    PharmaManagerUploadForm,
     PublicDownloadUploadForm,
     ProspectCreateForm,
     SupervisorProspectActionForm,
@@ -69,7 +68,6 @@ from .models import (
     MarketingPlaybook,
     Meeting,
     PharmaManager,
-    PharmaManagerUploadBatch,
     PublicDownloadFile,
     Prospect,
     ProspectStatusUpdate,
@@ -100,7 +98,6 @@ from .services import (
     get_or_create_contract_collection_from_sales_conversation,
     import_exotel_report,
     import_pharma_manager_brand_database,
-    import_pharma_manager_molecule_batch,
     latest_cashflow_snapshot,
     log_whatsapp_reminder,
     marketing_email_recipients,
@@ -755,7 +752,6 @@ def marketing_dashboard(request):
         "campaign_count": MarketingEmailCampaign.objects.count(),
         "linkedin_activity_count": MarketingLinkedInActivity.objects.count(),
         "playbooks": playbooks[:25],
-        "recent_uploads": PharmaManagerUploadBatch.objects.select_related("uploaded_by")[:5],
     }
     return render(request, "leadgen/marketing_dashboard.html", context)
 
@@ -953,36 +949,6 @@ def marketing_linkedin_activity_create(request):
         request,
         "leadgen/marketing_linkedin_activity_form.html",
         {"workspace_eyebrow": _workspace_eyebrow(request), "form": form},
-    )
-
-
-@role_required(User.ROLE_MARKETING_MANAGER)
-def pharma_manager_upload_create(request):
-    form = PharmaManagerUploadForm(request.POST or None, request.FILES or None)
-    uploads = PharmaManagerUploadBatch.objects.select_related("uploaded_by")[:10]
-    if request.method == "POST" and form.is_valid():
-        batch = form.save(commit=False)
-        batch.uploaded_by = _effective_marketing_user(request) or request.user
-        batch.save()
-        try:
-            import_pharma_manager_molecule_batch(batch)
-        except Exception as exc:
-            batch.delete()
-            messages.error(request, f"Pharma manager import failed: {exc}")
-        else:
-            messages.success(
-                request,
-                f"Upload processed. Created: {batch.created_count}; updated: {batch.updated_count}; skipped: {batch.skipped_count}.",
-            )
-            return redirect("pharma_manager_upload")
-    return render(
-        request,
-        "leadgen/pharma_manager_upload.html",
-        {
-            "workspace_eyebrow": _workspace_eyebrow(request),
-            "form": form,
-            "uploads": uploads,
-        },
     )
 
 

@@ -98,7 +98,6 @@ urlpatterns = [
     path("marketing/pharma-managers/<int:pharma_manager_id>/delete/", views.pharma_manager_delete, name="pharma_manager_delete"),
     path("marketing/email-campaigns/send/", views.marketing_email_campaign_create, name="marketing_email_campaign_create"),
     path("marketing/linkedin-activity/add/", views.marketing_linkedin_activity_create, name="marketing_linkedin_activity_create"),
-    path("marketing/pharma-manager-upload/", views.pharma_manager_upload_create, name="pharma_manager_upload"),
     path("sales/", views.sales_pipeline_dashboard, name="sales_pipeline_dashboard"),
     path("sales/add/", views.sales_conversation_create, name="sales_conversation_create"),
     path("sales/<int:conversation_id>/", views.sales_conversation_update, name="sales_conversation_update"),

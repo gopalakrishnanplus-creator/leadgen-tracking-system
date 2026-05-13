@@ -20,7 +20,6 @@ from .models import (
     MarketingLinkedInActivity,
     MarketingPlaybook,
     PharmaManager,
-    PharmaManagerUploadBatch,
     PublicDownloadFile,
     Prospect,
     SalesConversation,
@@ -915,12 +914,6 @@ class MarketingLinkedInActivityForm(StyledFormMixin, forms.ModelForm):
         if start_date and end_date and end_date < start_date:
             raise ValidationError("LinkedIn activity end date cannot be before the start date.")
         return cleaned_data
-
-
-class PharmaManagerUploadForm(StyledFormMixin, forms.ModelForm):
-    class Meta:
-        model = PharmaManagerUploadBatch
-        fields = ["molecule_or_formulation", "therapy_area", "uploaded_file"]
 
 
 class SalesConversationForm(StyledFormMixin, forms.ModelForm):
