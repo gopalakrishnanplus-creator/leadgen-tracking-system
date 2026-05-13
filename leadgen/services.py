@@ -481,6 +481,11 @@ def unique_emails(*groups):
     return emails
 
 
+def remove_emails(emails, emails_to_remove):
+    blocked = {(email or "").strip().lower() for email in emails_to_remove}
+    return [email for email in emails if (email or "").strip().lower() not in blocked]
+
+
 def mask_secret(value):
     if not value:
         return ""
@@ -580,7 +585,13 @@ def _deliver_email(subject, html_body, text_body, to_emails, cc_emails=None, att
                 }
                 for attachment in attachments
             ]
-        response = SendGridAPIClient(settings.SENDGRID_API_KEY).client.mail.send.post(request_body=payload)
+        try:
+            response = SendGridAPIClient(settings.SENDGRID_API_KEY).client.mail.send.post(request_body=payload)
+        except Exception as exc:
+            response_body = getattr(exc, "body", "")
+            if isinstance(response_body, bytes):
+                response_body = response_body.decode("utf-8", errors="ignore")
+            raise RuntimeError(f"SendGrid request failed: {exc}; body={response_body[:2000]}") from exc
         response_body = getattr(response, "body", b"")
         if isinstance(response_body, bytes):
             response_body = response_body.decode("utf-8", errors="ignore")
@@ -2160,6 +2171,7 @@ def send_invoice_due_email(installment):
         active_leadgen_supervisor_emails(),
         active_sales_manager_emails(),
     )
+    cc_emails = remove_emails(cc_emails, to_emails)
     if not to_emails:
         raise ValueError("No active finance manager email is configured for invoice notifications.")
     send_email(
