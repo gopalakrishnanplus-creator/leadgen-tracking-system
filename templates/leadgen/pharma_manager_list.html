@@ -9,7 +9,6 @@
     <div class="button-row">
         <a class="button button-primary" href="{% url 'pharma_manager_create' %}">Add pharma manager</a>
         {% if request.current_workspace == "marketing" %}
-            <a class="button" href="{% url 'pharma_manager_base_upload' %}">Upload brand database</a>
             <a class="button" href="{% url 'pharma_manager_upload' %}">Upload molecule data</a>
         {% endif %}
         <a class="button" href="{% url back_url %}">Back to dashboard</a>

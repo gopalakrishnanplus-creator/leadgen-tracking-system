@@ -895,10 +895,6 @@ class MarketingEmailCampaignForm(StyledFormMixin, forms.Form):
         return cleaned_data
 
 
-class PharmaManagerBaseDatabaseUploadForm(StyledFormMixin, forms.Form):
-    uploaded_file = forms.FileField(label="Brands database file")
-
-
 class MarketingLinkedInActivityForm(StyledFormMixin, forms.ModelForm):
     class Meta:
         model = MarketingLinkedInActivity
