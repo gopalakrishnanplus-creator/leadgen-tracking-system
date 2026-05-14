@@ -648,22 +648,43 @@ def send_email(subject, html_body, text_body, to_emails, cc_emails=None, attachm
     )
 
 
-def _personalize_marketing_text(template, pharma_manager, playbook):
+def _marketing_sender_name(sent_by):
+    if not sent_by:
+        return ""
+    return sent_by.name or sent_by.email or ""
+
+
+def _replace_marketing_placeholder(rendered, token, value):
+    value = value or ""
+    token_pattern = re.escape(token).replace(r"\ ", r"\s+")
+    rendered = re.sub(rf"<\s*{token_pattern}\s*>", value, rendered, flags=re.IGNORECASE)
+    rendered = re.sub(rf"\[\s*{token_pattern}\s*\]", value, rendered, flags=re.IGNORECASE)
+    return rendered
+
+
+def _personalize_marketing_text(template, pharma_manager, playbook, sent_by=None):
     replacements = {
         "name": pharma_manager.name,
         "company": pharma_manager.company_name,
         "company_name": pharma_manager.company_name,
+        "company name": pharma_manager.company_name,
         "designation": pharma_manager.designation,
         "therapy_area": playbook.therapy_area,
+        "therapy area": playbook.therapy_area,
         "molecule": playbook.molecule_or_formulation,
         "formulation": playbook.molecule_or_formulation,
+        "molecule/formulation": playbook.molecule_or_formulation,
         "molecule_or_formulation": playbook.molecule_or_formulation,
         "playbook_title": playbook.title,
+        "playbook title": playbook.title,
         "playbook_link": playbook.website_download_url,
+        "playbook link": playbook.website_download_url,
+        "your name": _marketing_sender_name(sent_by),
+        "sender name": _marketing_sender_name(sent_by),
     }
     rendered = template or ""
     for key, value in replacements.items():
-        rendered = rendered.replace(f"<{key}>", value or "")
+        rendered = _replace_marketing_placeholder(rendered, key, value)
     return rendered
 
 
@@ -756,8 +777,8 @@ def send_marketing_email_campaign(playbook, campaign_type, sent_by, therapy_area
     sent_count = 0
     failed_count = 0
     for recipient in marketing_email_recipients(playbook, campaign_type, therapy_areas=therapy_areas, molecules=molecules):
-        subject = _personalize_marketing_text(subject_template, recipient, playbook)
-        text_body = _personalize_marketing_text(body_template, recipient, playbook)
+        subject = _personalize_marketing_text(subject_template, recipient, playbook, sent_by=sent_by)
+        text_body = _personalize_marketing_text(body_template, recipient, playbook, sent_by=sent_by)
         if playbook.website_download_url and playbook.website_download_url not in text_body:
             text_body = f"{text_body.rstrip()}\n\nPlaybook link: {playbook.website_download_url}"
         html_body = _marketing_html_from_text(text_body)

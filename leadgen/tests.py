@@ -3210,6 +3210,41 @@ class LeadgenWorkflowTests(TestCase):
         recipients = list(marketing_email_recipients(playbook, MarketingEmailCampaign.TYPE_MOLECULE_TARGETED))
         self.assertEqual(recipients, [matching])
 
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
+    def test_marketing_email_campaign_personalizes_square_bracket_tokens(self):
+        playbook = self._marketing_playbook()
+        playbook.direct_email_subject = "Playbook for [Company Name]"
+        playbook.direct_email_body = (
+            "Hi [Name],\n"
+            "This is for [Molecule/Formulation] in [Therapy Area].\n"
+            "Download: [Playbook Link]\n"
+            "Regards,\n"
+            "[Your Name]"
+        )
+        playbook.save()
+        PharmaManager.objects.create(
+            name="Asha Brand",
+            company_name="VaccineCo",
+            email="asha@example.com",
+            designation="Brand Lead",
+            created_by=self.marketing_manager,
+        )
+
+        campaign = send_marketing_email_campaign(
+            playbook,
+            MarketingEmailCampaign.TYPE_FULL_DATABASE,
+            self.marketing_manager,
+        )
+
+        self.assertEqual(campaign.recipient_count, 1)
+        self.assertEqual(mail.outbox[0].subject, "Playbook for VaccineCo")
+        self.assertIn("Hi Asha Brand", mail.outbox[0].body)
+        self.assertIn("Pneumococcal in Vaccines", mail.outbox[0].body)
+        self.assertIn("Download: https://inditech.co.in/playbooks/vaccines", mail.outbox[0].body)
+        self.assertIn("Marketing User", mail.outbox[0].body)
+        self.assertNotIn("[Name]", mail.outbox[0].body)
+        self.assertNotIn("[Your Name]", mail.outbox[0].body)
+
     def test_marketing_recipients_filter_by_selected_therapy_or_molecule(self):
         playbook = self._marketing_playbook()
         therapy_match = PharmaManager.objects.create(

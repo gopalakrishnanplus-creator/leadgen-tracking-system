@@ -751,6 +751,12 @@ class DirectMarketingActivityForm(StyledFormMixin, forms.ModelForm):
 
 
 class MarketingPlaybookForm(StyledFormMixin, forms.ModelForm):
+    PERSONALIZATION_HELP = (
+        "Personalization tokens: [Name], [Company Name], [Designation], [Therapy Area], "
+        "[Molecule/Formulation], [Playbook Title], [Playbook Link], [Your Name]. "
+        "Angle bracket versions like <name> also work."
+    )
+
     class Meta:
         model = MarketingPlaybook
         fields = [
@@ -785,6 +791,16 @@ class MarketingPlaybookForm(StyledFormMixin, forms.ModelForm):
         if start_date and end_date and end_date < start_date:
             raise ValidationError("Playbook end date cannot be before the start date.")
         return cleaned_data
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field_name in [
+            "direct_email_subject",
+            "direct_email_body",
+            "targeted_email_subject",
+            "targeted_email_body",
+        ]:
+            self.fields[field_name].help_text = self.PERSONALIZATION_HELP
 
 
 class PharmaManagerForm(StyledFormMixin, forms.ModelForm):

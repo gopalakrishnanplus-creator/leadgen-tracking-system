@@ -26,10 +26,16 @@
         </article>
         <article class="panel">
             <h2>Messages</h2>
+            <p class="note">
+                Use personalization tokens in email subject lines and bodies:
+                [Name], [Company Name], [Designation], [Therapy Area],
+                [Molecule/Formulation], [Playbook Title], [Playbook Link], [Your Name].
+            </p>
             {% for field in form %}
                 {% if field.name not in "title therapy_area molecule_or_formulation website_download_url pdf_file notion_page_url start_date end_date" %}
                     <label for="{{ field.id_for_label }}">{{ field.label }}</label>
                     {{ field }}
+                    {% if field.help_text %}<p class="note">{{ field.help_text }}</p>{% endif %}
                     {% for error in field.errors %}<div class="message error">{{ error }}</div>{% endfor %}
                 {% endif %}
             {% endfor %}
