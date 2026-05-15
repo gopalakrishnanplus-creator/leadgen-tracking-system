@@ -3512,6 +3512,43 @@ class LeadgenWorkflowTests(TestCase):
         self.assertContains(response, "latest uploaded Tally input data is dated")
         self.assertContains(response, f"{yesterday.strftime('%B')} {yesterday.day}, {yesterday.year}")
 
+    def test_cashflow_projection_warns_about_outdated_collections_and_payables(self):
+        today = business_localdate()
+        contract_collection = ContractCollection.objects.create(
+            company_name="Outdated Client",
+            sales_manager=self.sales_manager,
+            created_by=self.supervisor,
+        )
+        ContractCollectionInstallment.objects.create(
+            contract_collection=contract_collection,
+            position=1,
+            installment_amount="1000.00",
+            invoice_date=today - timedelta(days=10),
+            expected_collection_date=today - timedelta(days=1),
+            contract_summary="Contract",
+            invoiced_service_description="Service",
+            legal_due_reason="Due",
+        )
+        item = CashflowImportedItem.objects.create(
+            category=CashflowImportedItem.CATEGORY_PAYABLE,
+            source_key="payable|old-plan",
+            party_name="Old Plan Vendor",
+            amount="500.00",
+            is_current=True,
+        )
+        CashflowPaymentPlanEntry.objects.create(
+            cashflow_item=item,
+            amount="500.00",
+            payment_date=today - timedelta(days=2),
+        )
+        self.client.force_login(self.finance_manager)
+
+        response = self.client.get("/cashflow/projection/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "2 cashflow items have a collection or payable date before")
+        self.assertContains(response, "Review and fix outdated items")
+
     def test_finance_upload_gate_uses_upload_date_not_detected_report_date(self):
         yesterday = business_localdate() - timedelta(days=1)
         CashflowSnapshot.objects.create(
@@ -3731,12 +3768,25 @@ class LeadgenWorkflowTests(TestCase):
 
     def test_cashflow_business_blockers_include_missing_plans_and_overdue_collections(self):
         today = datetime(2026, 4, 26).date()
-        CashflowImportedItem.objects.create(
+        missing_item = CashflowImportedItem.objects.create(
             category=CashflowImportedItem.CATEGORY_PAYABLE,
             source_key="payable|vendor-a",
             party_name="Vendor A",
             amount="1000.00",
+            due_date=today - timedelta(days=5),
             is_current=True,
+        )
+        planned_item = CashflowImportedItem.objects.create(
+            category=CashflowImportedItem.CATEGORY_PROVISION,
+            source_key="provision|vendor-b",
+            party_name="Vendor B",
+            amount="2000.00",
+            is_current=True,
+        )
+        CashflowPaymentPlanEntry.objects.create(
+            cashflow_item=planned_item,
+            amount="2000.00",
+            payment_date=today - timedelta(days=1),
         )
         contract_collection = ContractCollection.objects.create(
             company_name="Client A",
@@ -3764,6 +3814,9 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(len(blockers["missing_payment_plans"]), 1)
         self.assertEqual(len(blockers["overdue_installments"]), 1)
         self.assertEqual(len(blockers["overdue_projected_collections"]), 1)
+        self.assertEqual(len(blockers["overdue_payment_plans"]), 1)
+        self.assertEqual(blockers["overdue_unplanned_items"], [missing_item])
+        self.assertEqual(blockers["outdated_item_count"], 4)
         self.assertTrue(blockers["is_blocked"])
 
     def test_cashflow_projection_builds_inflows_outflows_and_future_provisions(self):

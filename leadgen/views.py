@@ -1620,6 +1620,7 @@ def cashflow_projection_view(request):
     projection = build_cashflow_projection()
     latest_snapshot = latest_cashflow_snapshot()
     today = business_localdate()
+    blockers = cashflow_business_blockers(today=projection["start_date"])
     return render(
         request,
         "leadgen/cashflow_projection.html",
@@ -1630,6 +1631,8 @@ def cashflow_projection_view(request):
             "today": today,
             "input_data_missing": latest_snapshot is None,
             "input_data_outdated": latest_snapshot is not None and latest_snapshot.as_of_date < today,
+            "cashflow_blockers": blockers,
+            "outdated_item_count": blockers["outdated_item_count"],
         },
     )
 
@@ -1639,6 +1642,7 @@ def cashflow_projection_week_detail(request, week_index):
     projection = build_cashflow_projection()
     latest_snapshot = latest_cashflow_snapshot()
     today = business_localdate()
+    blockers = cashflow_business_blockers(today=projection["start_date"])
     week = next((item for item in projection["weeks"] if item["index"] == week_index), None)
     if week is None:
         raise Http404("Projection week not found.")
@@ -1653,6 +1657,8 @@ def cashflow_projection_week_detail(request, week_index):
             "today": today,
             "input_data_missing": latest_snapshot is None,
             "input_data_outdated": latest_snapshot is not None and latest_snapshot.as_of_date < today,
+            "cashflow_blockers": blockers,
+            "outdated_item_count": blockers["outdated_item_count"],
         },
     )
 

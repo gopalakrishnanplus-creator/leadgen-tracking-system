@@ -1572,6 +1572,33 @@ def cashflow_items_missing_payment_plan():
     return [item for item in items if not item.has_complete_payment_plan]
 
 
+def overdue_cashflow_payment_plan_entries(today=None):
+    today = today or business_localdate()
+    return list(
+        CashflowPaymentPlanEntry.objects.select_related("cashflow_item")
+        .filter(
+            cashflow_item__is_current=True,
+            cashflow_item__category__in=[
+                CashflowImportedItem.CATEGORY_PAYABLE,
+                CashflowImportedItem.CATEGORY_PROVISION,
+            ],
+            payment_date__lt=today,
+        )
+        .order_by("payment_date", "cashflow_item__party_name", "pk")
+    )
+
+
+def overdue_unplanned_cashflow_items(today=None):
+    today = today or business_localdate()
+    overdue_items = []
+    for item in current_cashflow_outflow_items():
+        if item.payment_plans.exists():
+            continue
+        if item.due_date and item.due_date < today:
+            overdue_items.append(item)
+    return overdue_items
+
+
 def contract_installment_effective_collection_date(installment):
     return installment.revised_collection_date or installment.expected_collection_date
 
@@ -1608,11 +1635,22 @@ def cashflow_business_blockers(today=None):
     missing_plans = cashflow_items_missing_payment_plan()
     overdue_installments = overdue_contract_installments(today=today)
     overdue_projections = overdue_projected_collections(today=today)
+    overdue_payment_plans = overdue_cashflow_payment_plan_entries(today=today)
+    overdue_unplanned_items = overdue_unplanned_cashflow_items(today=today)
+    outdated_item_count = (
+        len(overdue_installments)
+        + len(overdue_projections)
+        + len(overdue_payment_plans)
+        + len(overdue_unplanned_items)
+    )
     return {
         "missing_payment_plans": missing_plans,
         "overdue_installments": overdue_installments,
         "overdue_projected_collections": overdue_projections,
-        "is_blocked": bool(missing_plans or overdue_installments or overdue_projections),
+        "overdue_payment_plans": overdue_payment_plans,
+        "overdue_unplanned_items": overdue_unplanned_items,
+        "outdated_item_count": outdated_item_count,
+        "is_blocked": bool(missing_plans or outdated_item_count),
     }
 
 

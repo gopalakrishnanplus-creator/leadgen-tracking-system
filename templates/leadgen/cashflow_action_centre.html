@@ -38,6 +38,46 @@
     </table>
 </section>
 <section class="panel">
+    <h2>Payable or provision dates that are already past</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Type</th>
+                <th>Party</th>
+                <th>Amount</th>
+                <th>Outdated date</th>
+                <th>Reason</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for plan in blockers.overdue_payment_plans %}
+            <tr>
+                <td>{{ plan.cashflow_item.get_category_display }}</td>
+                <td>{{ plan.cashflow_item.party_name }}</td>
+                <td>Rs {{ plan.amount }}</td>
+                <td>{{ plan.payment_date }}</td>
+                <td>Payment plan date is before today</td>
+                <td class="actions"><a href="{% url 'cashflow_outflow_update' plan.cashflow_item.id %}">Fix payment plan</a></td>
+            </tr>
+        {% endfor %}
+        {% for item in blockers.overdue_unplanned_items %}
+            <tr>
+                <td>{{ item.get_category_display }}</td>
+                <td>{{ item.party_name }}</td>
+                <td>Rs {{ item.amount }}</td>
+                <td>{{ item.due_date }}</td>
+                <td>Imported due date is before today and no payment plan exists</td>
+                <td class="actions"><a href="{% url 'cashflow_outflow_update' item.id %}">Add payment plan</a></td>
+            </tr>
+        {% endfor %}
+        {% if not blockers.overdue_payment_plans and not blockers.overdue_unplanned_items %}
+            <tr><td colspan="6">No payable or provision dates are before today.</td></tr>
+        {% endif %}
+        </tbody>
+    </table>
+</section>
+<section class="panel">
     <h2>Collections whose expected date has already passed</h2>
     <table>
         <thead>

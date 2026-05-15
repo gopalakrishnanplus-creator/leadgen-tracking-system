@@ -21,6 +21,12 @@
     <strong>Warning:</strong> no Tally input data has been uploaded yet. Upload the Tally exports before relying on this cash-flow projection.
 </section>
 {% endif %}
+{% if outdated_item_count %}
+<section class="message warning">
+    <strong>Warning:</strong> {{ outdated_item_count }} cashflow item{{ outdated_item_count|pluralize }} ha{{ outdated_item_count|pluralize:"s,ve" }} a collection or payable date before {{ projection.start_date }}.
+    <a class="button" href="{% url 'cashflow_action_centre' %}">Review and fix outdated items</a>
+</section>
+{% endif %}
 <section class="panel">
     <table>
         <thead>
