@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>{{ title }}</h1>
+        <p class="note">Choose Debt, TDS or GST; mark whether it is incoming or outgoing; and enter the date on which it should appear in the 12-week cashflow.</p>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'cashflow_manual_entry_list' %}">Back to entries</a>
+    </div>
+</section>
+<section class="panel form-panel">
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button class="button button-primary" type="submit">Save entry</button>
+    </form>
+</section>
+{% endblock %}

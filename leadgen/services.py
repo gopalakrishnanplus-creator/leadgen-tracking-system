@@ -25,6 +25,7 @@ from .models import (
     CallImportBatch,
     CallLog,
     CashflowImportedItem,
+    CashflowManualEntry,
     CashflowPaymentPlanEntry,
     CashflowProjectedCollection,
     CashflowSnapshot,
@@ -2067,6 +2068,24 @@ def build_cashflow_projection(start_date=None, weeks=12):
                     "object": projected,
                 }
             )
+
+    for entry in CashflowManualEntry.objects.filter(transaction_date__range=(start_date, end_date)).order_by(
+        "transaction_date",
+        "category",
+        "pk",
+    ):
+        row = {
+            "source_type": "manual_cashflow_entry",
+            "label": entry.get_category_display(),
+            "description": entry.description,
+            "transaction_amount": entry.amount,
+            "transaction_date": entry.transaction_date,
+            "object": entry,
+        }
+        if entry.direction == CashflowManualEntry.DIRECTION_INCOMING:
+            inflow_rows.append(row)
+        else:
+            outflow_rows.append(row)
 
     projection_rows = []
     cumulative_position = opening_balance

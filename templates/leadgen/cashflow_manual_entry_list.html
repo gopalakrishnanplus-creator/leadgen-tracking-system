@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Debt, TDS and GST Entries{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>Debt, TDS and GST entries</h1>
+        <p class="note">Add finance-only cashflow entries that are not imported from Tally but should affect the 12-week projection.</p>
+    </div>
+    <div class="button-row">
+        <a class="button button-primary" href="{% url 'cashflow_manual_entry_create' %}">Add entry</a>
+        <a class="button" href="{% url 'cashflow_projection' %}">12-week projection</a>
+        <a class="button" href="{% url 'cashflow_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Category</th>
+                <th>Direction</th>
+                <th>Amount</th>
+                <th>Description</th>
+                <th>Added by</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for entry in entries %}
+            <tr>
+                <td>{{ entry.transaction_date }}</td>
+                <td>{{ entry.get_category_display }}</td>
+                <td>{{ entry.get_direction_display }}</td>
+                <td>Rs {{ entry.amount }}</td>
+                <td>{{ entry.description|default:"-" }}</td>
+                <td>{{ entry.created_by.name }}</td>
+                <td class="table-actions">
+                    <a href="{% url 'cashflow_manual_entry_update' entry.id %}">Edit</a>
+                    <a href="{% url 'cashflow_manual_entry_delete' entry.id %}">Delete</a>
+                </td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="7">No debt, TDS or GST entries have been added yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

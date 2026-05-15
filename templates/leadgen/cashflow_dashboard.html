@@ -15,6 +15,7 @@
     <div class="button-row">
         {% if is_finance_workspace %}
             <a class="button button-primary" href="{% url 'cashflow_uploads' %}">Upload today's Tally files</a>
+            <a class="button" href="{% url 'cashflow_manual_entry_list' %}">Debt, TDS and GST entries</a>
         {% endif %}
         {% if is_business_workspace or is_finance_workspace %}
             <a class="button button-primary" href="{% url 'cashflow_action_centre' %}">Open action centre</a>

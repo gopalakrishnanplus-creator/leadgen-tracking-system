@@ -80,6 +80,18 @@ urlpatterns = [
         views.cashflow_projected_collection_update,
         name="cashflow_projected_collection_update",
     ),
+    path("cashflow/manual-entries/", views.cashflow_manual_entry_list, name="cashflow_manual_entry_list"),
+    path("cashflow/manual-entries/add/", views.cashflow_manual_entry_create, name="cashflow_manual_entry_create"),
+    path(
+        "cashflow/manual-entries/<int:entry_id>/",
+        views.cashflow_manual_entry_update,
+        name="cashflow_manual_entry_update",
+    ),
+    path(
+        "cashflow/manual-entries/<int:entry_id>/delete/",
+        views.cashflow_manual_entry_delete,
+        name="cashflow_manual_entry_delete",
+    ),
     path("cashflow/work-orders/", views.cashflow_work_order_list, name="cashflow_work_order_list"),
     path("cashflow/work-orders/add/", views.cashflow_work_order_create, name="cashflow_work_order_create"),
     path("cashflow/projection/", views.cashflow_projection_view, name="cashflow_projection"),

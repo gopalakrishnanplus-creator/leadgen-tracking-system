@@ -37,6 +37,7 @@ from .models import (
     CallImportBatch,
     CallLog,
     CashflowImportedItem,
+    CashflowManualEntry,
     CashflowPaymentPlanEntry,
     CashflowProjectedCollection,
     CashflowSnapshot,
@@ -3866,6 +3867,88 @@ class LeadgenWorkflowTests(TestCase):
         self.assertTrue(
             any(row.get("is_unplanned_immediate") for row in projection["weeks"][0]["outflows"])
         )
+
+    def test_cashflow_projection_includes_manual_debt_tds_gst_entries(self):
+        start_date = datetime(2026, 5, 15).date()
+        CashflowManualEntry.objects.create(
+            category=CashflowManualEntry.CATEGORY_DEBT,
+            direction=CashflowManualEntry.DIRECTION_INCOMING,
+            amount="1000.00",
+            transaction_date=start_date + timedelta(days=1),
+            description="Short-term debt drawdown",
+            created_by=self.finance_manager,
+        )
+        CashflowManualEntry.objects.create(
+            category=CashflowManualEntry.CATEGORY_GST,
+            direction=CashflowManualEntry.DIRECTION_OUTGOING,
+            amount="300.00",
+            transaction_date=start_date + timedelta(days=8),
+            description="GST payment",
+            created_by=self.finance_manager,
+        )
+        CashflowManualEntry.objects.create(
+            category=CashflowManualEntry.CATEGORY_TDS,
+            direction=CashflowManualEntry.DIRECTION_OUTGOING,
+            amount="150.00",
+            transaction_date=start_date + timedelta(days=90),
+            description="Outside reporting period",
+            created_by=self.finance_manager,
+        )
+
+        projection = build_cashflow_projection(start_date=start_date)
+
+        self.assertEqual(projection["weeks"][0]["inflow_total"], Decimal("1000.00"))
+        self.assertEqual(projection["weeks"][1]["outflow_total"], Decimal("300.00"))
+        self.assertTrue(
+            any(row["source_type"] == "manual_cashflow_entry" for row in projection["weeks"][0]["inflows"])
+        )
+        self.assertFalse(
+            any(row["transaction_amount"] == Decimal("150.00") for row in projection["weeks"][11]["outflows"])
+        )
+
+    def test_finance_manager_can_manage_manual_cashflow_entries(self):
+        self.client.force_login(self.finance_manager)
+
+        create_response = self.client.post(
+            "/cashflow/manual-entries/add/",
+            {
+                "category": CashflowManualEntry.CATEGORY_TDS,
+                "direction": CashflowManualEntry.DIRECTION_OUTGOING,
+                "amount": "500.00",
+                "transaction_date": "2026-05-15",
+                "description": "TDS payable",
+            },
+        )
+
+        self.assertEqual(create_response.status_code, 302)
+        entry = CashflowManualEntry.objects.get()
+        self.assertEqual(entry.created_by, self.finance_manager)
+
+        update_response = self.client.post(
+            f"/cashflow/manual-entries/{entry.id}/",
+            {
+                "category": CashflowManualEntry.CATEGORY_GST,
+                "direction": CashflowManualEntry.DIRECTION_INCOMING,
+                "amount": "750.00",
+                "transaction_date": "2026-05-16",
+                "description": "GST refund",
+            },
+        )
+
+        self.assertEqual(update_response.status_code, 302)
+        entry.refresh_from_db()
+        self.assertEqual(entry.category, CashflowManualEntry.CATEGORY_GST)
+        self.assertEqual(entry.direction, CashflowManualEntry.DIRECTION_INCOMING)
+        self.assertEqual(entry.amount, Decimal("750.00"))
+
+        delete_response = self.client.post(f"/cashflow/manual-entries/{entry.id}/delete/")
+        self.assertEqual(delete_response.status_code, 302)
+        self.assertFalse(CashflowManualEntry.objects.exists())
+
+    def test_business_manager_cannot_manage_manual_cashflow_entries(self):
+        self.client.force_login(self.business_manager)
+        response = self.client.get("/cashflow/manual-entries/")
+        self.assertEqual(response.status_code, 403)
 
     def test_sales_manager_can_edit_existing_expected_collection_dates(self):
         contract_collection = ContractCollection.objects.create(

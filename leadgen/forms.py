@@ -8,6 +8,7 @@ from decimal import Decimal
 from .models import (
     CallImportBatch,
     CashflowImportedItem,
+    CashflowManualEntry,
     CashflowProjectedCollection,
     CashflowSnapshot,
     CashflowWorkOrderRequest,
@@ -573,6 +574,31 @@ class CashflowProjectedCollectionForm(StyledFormMixin, forms.ModelForm):
 
     def clean_company_name(self):
         return (self.cleaned_data.get("company_name") or "").strip()
+
+    def clean_description(self):
+        return (self.cleaned_data.get("description") or "").strip()
+
+
+class CashflowManualEntryForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = CashflowManualEntry
+        fields = [
+            "category",
+            "direction",
+            "amount",
+            "transaction_date",
+            "description",
+        ]
+        widgets = {
+            "transaction_date": forms.DateInput(attrs={"type": "date"}),
+            "description": forms.Textarea(attrs={"rows": 3}),
+        }
+
+    def clean_amount(self):
+        amount = self.cleaned_data["amount"]
+        if amount <= Decimal("0.00"):
+            raise ValidationError("Amount must be greater than zero.")
+        return amount
 
     def clean_description(self):
         return (self.cleaned_data.get("description") or "").strip()

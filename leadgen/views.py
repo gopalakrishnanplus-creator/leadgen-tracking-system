@@ -21,6 +21,7 @@ from .forms import (
     CallOutcomeForm,
     CashflowCollectionRevisionForm,
     CashflowImportedItemForm,
+    CashflowManualEntryForm,
     CashflowProjectedCollectionForm,
     CashflowSnapshotUploadForm,
     CashflowWorkOrderRequestForm,
@@ -59,6 +60,7 @@ from .models import (
     CallImportBatch,
     CallLog,
     CashflowImportedItem,
+    CashflowManualEntry,
     CashflowProjectedCollection,
     CashflowSnapshot,
     CashflowWorkOrderRequest,
@@ -1504,6 +1506,78 @@ def cashflow_projected_collection_update(request, collection_id):
             "workspace_eyebrow": _workspace_eyebrow(request),
             "form": form,
             "title": "Edit projected collection",
+        },
+    )
+
+
+@role_required(User.ROLE_FINANCE_MANAGER)
+def cashflow_manual_entry_list(request):
+    entries = CashflowManualEntry.objects.select_related("created_by").all()
+    return render(
+        request,
+        "leadgen/cashflow_manual_entry_list.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "entries": entries,
+        },
+    )
+
+
+@role_required(User.ROLE_FINANCE_MANAGER)
+def cashflow_manual_entry_create(request):
+    form = CashflowManualEntryForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        entry = form.save(commit=False)
+        entry.created_by = _effective_finance_user(request) or request.user
+        entry.save()
+        messages.success(request, "Debt, TDS or GST cashflow entry added.")
+        return redirect("cashflow_manual_entry_list")
+    return render(
+        request,
+        "leadgen/cashflow_manual_entry_form.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "form": form,
+            "title": "Add debt, TDS or GST entry",
+        },
+    )
+
+
+@role_required(User.ROLE_FINANCE_MANAGER)
+def cashflow_manual_entry_update(request, entry_id):
+    entry = get_object_or_404(CashflowManualEntry, pk=entry_id)
+    form = CashflowManualEntryForm(request.POST or None, instance=entry)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Debt, TDS or GST cashflow entry updated.")
+        return redirect("cashflow_manual_entry_list")
+    return render(
+        request,
+        "leadgen/cashflow_manual_entry_form.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "form": form,
+            "title": "Edit debt, TDS or GST entry",
+            "entry": entry,
+        },
+    )
+
+
+@role_required(User.ROLE_FINANCE_MANAGER)
+def cashflow_manual_entry_delete(request, entry_id):
+    entry = get_object_or_404(CashflowManualEntry, pk=entry_id)
+    if request.method == "POST":
+        entry.delete()
+        messages.success(request, "Debt, TDS or GST cashflow entry deleted.")
+        return redirect("cashflow_manual_entry_list")
+    return render(
+        request,
+        "leadgen/confirm_delete.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "title": "Delete debt, TDS or GST entry",
+            "description": f"Delete {entry.get_category_display()} / {entry.get_direction_display()} / Rs {entry.amount} on {entry.transaction_date}. This will remove it from the 12-week cashflow projection.",
+            "cancel_url": reverse("cashflow_manual_entry_list"),
         },
     )
 

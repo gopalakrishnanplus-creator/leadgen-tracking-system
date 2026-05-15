@@ -1226,6 +1226,51 @@ class CashflowProjectedCollection(models.Model):
         return f"{self.company_name} / {self.amount} / {self.effective_collection_date:%Y-%m-%d}"
 
 
+class CashflowManualEntry(models.Model):
+    CATEGORY_DEBT = "debt"
+    CATEGORY_TDS = "tds"
+    CATEGORY_GST = "gst"
+    CATEGORY_CHOICES = [
+        (CATEGORY_DEBT, "Debt"),
+        (CATEGORY_TDS, "TDS"),
+        (CATEGORY_GST, "GST"),
+    ]
+
+    DIRECTION_INCOMING = "incoming"
+    DIRECTION_OUTGOING = "outgoing"
+    DIRECTION_CHOICES = [
+        (DIRECTION_INCOMING, "Incoming"),
+        (DIRECTION_OUTGOING, "Outgoing"),
+    ]
+
+    category = models.CharField(max_length=16, choices=CATEGORY_CHOICES)
+    direction = models.CharField(max_length=16, choices=DIRECTION_CHOICES)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    transaction_date = models.DateField()
+    description = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="cashflow_manual_entries",
+        on_delete=models.PROTECT,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-transaction_date", "-updated_at", "-pk"]
+        indexes = [
+            models.Index(fields=["transaction_date", "direction"]),
+            models.Index(fields=["category", "transaction_date"]),
+        ]
+
+    def clean(self):
+        if self.amount is not None and self.amount <= Decimal("0.00"):
+            raise ValidationError("Manual cashflow entry amount must be greater than zero.")
+
+    def __str__(self):
+        return f"{self.get_category_display()} / {self.get_direction_display()} / {self.amount} / {self.transaction_date:%Y-%m-%d}"
+
+
 class CashflowWorkOrderRequest(models.Model):
     description = models.TextField()
     party_name = models.CharField(max_length=255)
