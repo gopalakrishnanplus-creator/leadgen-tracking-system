@@ -924,6 +924,7 @@ class PharmaManager(models.Model):
     molecule_10 = models.CharField(max_length=255, blank=True)
     linkedin_url = models.URLField(blank=True)
     unsubscribed = models.BooleanField(default=False)
+    is_test_account = models.BooleanField(default=False)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name="created_pharma_managers",
@@ -939,6 +940,7 @@ class PharmaManager(models.Model):
         indexes = [
             models.Index(fields=["name", "company_name"]),
             models.Index(fields=["unsubscribed", "email"]),
+            models.Index(fields=["is_test_account", "unsubscribed"]),
         ]
 
     def save(self, *args, **kwargs):
@@ -982,6 +984,17 @@ class MarketingEmailCampaign(models.Model):
         (TYPE_MOLECULE_TARGETED, "Molecule/formulation targeted database"),
     ]
 
+    STATUS_PENDING = "pending"
+    STATUS_SENDING = "sending"
+    STATUS_COMPLETED = "completed"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [
+        (STATUS_PENDING, "Pending"),
+        (STATUS_SENDING, "Sending"),
+        (STATUS_COMPLETED, "Completed"),
+        (STATUS_FAILED, "Failed"),
+    ]
+
     playbook = models.ForeignKey(
         MarketingPlaybook,
         related_name="email_campaigns",
@@ -996,8 +1009,14 @@ class MarketingEmailCampaign(models.Model):
     target_therapy_areas = models.TextField(blank=True)
     target_molecules = models.TextField(blank=True)
     attachment_filename = models.CharField(max_length=255, blank=True)
+    is_test_campaign = models.BooleanField(default=False)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_COMPLETED)
+    expected_count = models.PositiveIntegerField(default=0)
     recipient_count = models.PositiveIntegerField(default=0)
     failed_count = models.PositiveIntegerField(default=0)
+    error_message = models.TextField(blank=True)
+    started_at = models.DateTimeField(blank=True, null=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
     sent_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

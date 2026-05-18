@@ -109,6 +109,11 @@ urlpatterns = [
     path("marketing/pharma-managers/<int:pharma_manager_id>/", views.pharma_manager_update, name="pharma_manager_update"),
     path("marketing/pharma-managers/<int:pharma_manager_id>/delete/", views.pharma_manager_delete, name="pharma_manager_delete"),
     path("marketing/email-campaigns/send/", views.marketing_email_campaign_create, name="marketing_email_campaign_create"),
+    path(
+        "marketing/email-campaigns/<int:campaign_id>/status/",
+        views.marketing_email_campaign_status,
+        name="marketing_email_campaign_status",
+    ),
     path("marketing/linkedin-activity/add/", views.marketing_linkedin_activity_create, name="marketing_linkedin_activity_create"),
     path("sales/", views.sales_pipeline_dashboard, name="sales_pipeline_dashboard"),
     path("sales/add/", views.sales_conversation_create, name="sales_conversation_create"),

@@ -171,6 +171,7 @@ class LeadgenWorkflowTests(TestCase):
         )
         self.marketing_manager.set_unusable_password()
         self.marketing_manager.save()
+        PharmaManager.objects.all().delete()
         SystemSetting.load()
         self.prospect = Prospect.objects.create(
             company_name="Acme",
@@ -3245,6 +3246,72 @@ class LeadgenWorkflowTests(TestCase):
         self.assertIn("Marketing User", mail.outbox[0].body)
         self.assertNotIn("[Name]", mail.outbox[0].body)
         self.assertNotIn("[Your Name]", mail.outbox[0].body)
+
+    @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
+    def test_direct_marketing_test_campaign_sends_only_to_test_accounts(self):
+        playbook = self._marketing_playbook()
+        test_recipient = PharmaManager.objects.create(
+            name="Test Recipient",
+            company_name="TestCo",
+            email="test.1.tanisha.bhadula@inditech.co.in",
+            is_test_account=True,
+            created_by=self.marketing_manager,
+        )
+        PharmaManager.objects.create(
+            name="Live Recipient",
+            company_name="LiveCo",
+            email="live@example.com",
+            is_test_account=False,
+            created_by=self.marketing_manager,
+        )
+
+        campaign = send_marketing_email_campaign(
+            playbook,
+            MarketingEmailCampaign.TYPE_FULL_DATABASE,
+            self.marketing_manager,
+            test_only=True,
+        )
+
+        self.assertTrue(campaign.is_test_campaign)
+        self.assertEqual(campaign.status, MarketingEmailCampaign.STATUS_COMPLETED)
+        self.assertEqual(campaign.expected_count, 1)
+        self.assertEqual(campaign.recipient_count, 1)
+        self.assertEqual(mail.outbox[0].to, [test_recipient.email])
+
+    def test_marketing_campaign_view_redirects_test_campaign_to_progress_page(self):
+        playbook = self._marketing_playbook()
+        PharmaManager.objects.create(
+            name="Test Recipient",
+            company_name="TestCo",
+            email="test.2.tanisha.bhadula@inditech.co.in",
+            is_test_account=True,
+            created_by=self.marketing_manager,
+        )
+        PharmaManager.objects.create(
+            name="Live Recipient",
+            company_name="LiveCo",
+            email="live@example.com",
+            is_test_account=False,
+            created_by=self.marketing_manager,
+        )
+        self.client.force_login(self.marketing_manager)
+
+        with patch("leadgen.views.start_marketing_email_campaign") as start_campaign:
+            response = self.client.post(
+                "/marketing/email-campaigns/send/?campaign_type=full_database",
+                {
+                    "playbook": str(playbook.pk),
+                    "campaign_type": MarketingEmailCampaign.TYPE_FULL_DATABASE,
+                    "send_mode": "test",
+                },
+            )
+
+        campaign = MarketingEmailCampaign.objects.get()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, f"/marketing/email-campaigns/{campaign.id}/status/")
+        self.assertTrue(campaign.is_test_campaign)
+        self.assertEqual(campaign.expected_count, 1)
+        start_campaign.assert_called_once_with(campaign.pk)
 
     def test_marketing_recipients_filter_by_selected_therapy_or_molecule(self):
         playbook = self._marketing_playbook()

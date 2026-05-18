@@ -91,6 +91,7 @@ from .services import (
     current_cashflow_items,
     current_cashflow_outflow_items,
     current_cashflow_receivable_items,
+    create_marketing_email_campaign,
     finance_upload_complete_for_date,
     import_cashflow_snapshot,
     build_pending_collections,
@@ -107,7 +108,7 @@ from .services import (
     overdue_contract_installments,
     overdue_projected_collections,
     send_cashflow_work_order_email,
-    send_marketing_email_campaign,
+    start_marketing_email_campaign,
     reschedule_meeting,
     send_due_invoice_notifications,
     sync_contract_collection_data,
@@ -907,6 +908,7 @@ def marketing_email_campaign_create(request):
         requested_campaign_type = None
     form = MarketingEmailCampaignForm(request.POST or None, campaign_type=requested_campaign_type)
     preview_count = None
+    test_preview_count = None
     if form.is_valid():
         preview_count = marketing_email_recipients(
             form.cleaned_data["playbook"],
@@ -914,19 +916,29 @@ def marketing_email_campaign_create(request):
             therapy_areas=form.cleaned_data.get("therapy_areas"),
             molecules=form.cleaned_data.get("molecules"),
         ).count()
+        if form.cleaned_data["campaign_type"] == MarketingEmailCampaign.TYPE_FULL_DATABASE:
+            test_preview_count = marketing_email_recipients(
+                form.cleaned_data["playbook"],
+                form.cleaned_data["campaign_type"],
+                test_only=True,
+            ).count()
     if request.method == "POST" and form.is_valid():
-        campaign = send_marketing_email_campaign(
+        send_mode = request.POST.get("send_mode", "live")
+        test_only = send_mode == "test"
+        if test_only and form.cleaned_data["campaign_type"] != MarketingEmailCampaign.TYPE_FULL_DATABASE:
+            messages.error(request, "Test campaigns are available only for the direct mailer.")
+            return redirect("marketing_email_campaign_create")
+        campaign = create_marketing_email_campaign(
             form.cleaned_data["playbook"],
             form.cleaned_data["campaign_type"],
             _effective_marketing_user(request) or request.user,
             therapy_areas=form.cleaned_data.get("therapy_areas"),
             molecules=form.cleaned_data.get("molecules"),
+            test_only=test_only,
         )
-        messages.success(
-            request,
-            f"Marketing email campaign sent to {campaign.recipient_count} recipients. Failed: {campaign.failed_count}.",
-        )
-        return redirect("marketing_dashboard")
+        start_marketing_email_campaign(campaign.pk)
+        messages.success(request, "Marketing email campaign started. Progress will update below.")
+        return redirect("marketing_email_campaign_status", campaign_id=campaign.pk)
     return render(
         request,
         "leadgen/marketing_email_campaign_form.html",
@@ -934,7 +946,39 @@ def marketing_email_campaign_create(request):
             "workspace_eyebrow": _workspace_eyebrow(request),
             "form": form,
             "preview_count": preview_count,
+            "test_preview_count": test_preview_count,
             "campaign_type": form["campaign_type"].value(),
+        },
+    )
+
+
+@role_required(User.ROLE_MARKETING_MANAGER)
+def marketing_email_campaign_status(request, campaign_id):
+    campaign = get_object_or_404(MarketingEmailCampaign.objects.select_related("playbook", "sent_by"), pk=campaign_id)
+    processed_count = campaign.recipient_count + campaign.failed_count
+    if request.GET.get("format") == "json":
+        return JsonResponse(
+            {
+                "status": campaign.status,
+                "status_label": campaign.get_status_display(),
+                "expected_count": campaign.expected_count,
+                "sent_count": campaign.recipient_count,
+                "failed_count": campaign.failed_count,
+                "processed_count": processed_count,
+                "is_complete": campaign.status in {
+                    MarketingEmailCampaign.STATUS_COMPLETED,
+                    MarketingEmailCampaign.STATUS_FAILED,
+                },
+                "error_message": campaign.error_message,
+            }
+        )
+    return render(
+        request,
+        "leadgen/marketing_email_campaign_status.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "campaign": campaign,
+            "processed_count": processed_count,
         },
     )
 

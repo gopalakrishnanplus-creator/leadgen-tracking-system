@@ -25,8 +25,14 @@
         {% if preview_count != None %}
             <p class="note">Current matching subscribed recipients: {{ preview_count }}</p>
         {% endif %}
+        {% if campaign_type == "full_database" and test_preview_count != None %}
+            <p class="note">Test campaign recipients marked as test accounts: {{ test_preview_count }}</p>
+        {% endif %}
         <div class="button-row">
-            <button class="button button-primary" type="submit">Send campaign</button>
+            {% if campaign_type == "full_database" %}
+                <button class="button" type="submit" name="send_mode" value="test">Send test campaign</button>
+            {% endif %}
+            <button class="button button-primary" type="submit" name="send_mode" value="live">Send campaign</button>
         </div>
     </form>
 </section>

@@ -17,7 +17,7 @@
         <article class="panel">
             <h2>Contact details</h2>
             {% for field in form %}
-                {% if field.name in "name company_name designation email whatsapp_number linkedin_url unsubscribed" %}
+                {% if field.name in "name company_name designation email whatsapp_number linkedin_url unsubscribed is_test_account" %}
                     <label for="{{ field.id_for_label }}">{{ field.label }}</label>
                     {{ field }}
                     {% for error in field.errors %}<div class="message error">{{ error }}</div>{% endfor %}

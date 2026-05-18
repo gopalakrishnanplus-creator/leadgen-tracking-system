@@ -3,6 +3,7 @@ import base64
 import mimetypes
 import re
 import socket
+import threading
 from io import BytesIO
 from html import escape
 from calendar import monthrange
@@ -11,7 +12,7 @@ from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.db import connection
+from django.db import close_old_connections, connection
 from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
 from django.db.models import Avg, Count, F, Max, Q, Sum
@@ -726,8 +727,10 @@ def _pharma_manager_multi_value_query(values, prefix, max_slots):
     return query
 
 
-def marketing_email_recipients(playbook, campaign_type, therapy_areas=None, molecules=None):
+def marketing_email_recipients(playbook, campaign_type, therapy_areas=None, molecules=None, test_only=False):
     queryset = PharmaManager.objects.filter(unsubscribed=False).exclude(email="")
+    if test_only:
+        queryset = queryset.filter(is_test_account=True)
     if campaign_type == MarketingEmailCampaign.TYPE_MOLECULE_TARGETED:
         target_query = Q()
         if therapy_areas:
@@ -738,6 +741,10 @@ def marketing_email_recipients(playbook, campaign_type, therapy_areas=None, mole
             target_query = pharma_manager_molecule_query(playbook.molecule_or_formulation)
         queryset = queryset.filter(target_query)
     return queryset.order_by("name", "company_name")
+
+
+def _split_marketing_targets(value):
+    return [item.strip() for item in (value or "").split(",") if item.strip()]
 
 
 def _playbook_pdf_attachment(playbook):
@@ -753,7 +760,41 @@ def _playbook_pdf_attachment(playbook):
     return {"filename": filename, "content": content, "type": content_type}
 
 
-def send_marketing_email_campaign(playbook, campaign_type, sent_by, therapy_areas=None, molecules=None):
+def create_marketing_email_campaign(playbook, campaign_type, sent_by, therapy_areas=None, molecules=None, test_only=False):
+    recipients = marketing_email_recipients(
+        playbook,
+        campaign_type,
+        therapy_areas=therapy_areas,
+        molecules=molecules,
+        test_only=test_only,
+    )
+    campaign = MarketingEmailCampaign.objects.create(
+        playbook=playbook,
+        campaign_type=campaign_type,
+        sent_by=sent_by,
+        target_therapy_areas=", ".join(therapy_areas or []),
+        target_molecules=", ".join(molecules or []),
+        is_test_campaign=test_only,
+        status=MarketingEmailCampaign.STATUS_PENDING,
+        expected_count=recipients.count(),
+    )
+    attachment = _playbook_pdf_attachment(playbook)
+    if attachment:
+        campaign.attachment_filename = attachment["filename"]
+        campaign.save(update_fields=["attachment_filename"])
+    return campaign
+
+
+def process_marketing_email_campaign(campaign_id):
+    close_old_connections()
+    campaign = MarketingEmailCampaign.objects.select_related("playbook", "sent_by").get(pk=campaign_id)
+    campaign.status = MarketingEmailCampaign.STATUS_SENDING
+    campaign.started_at = timezone.now()
+    campaign.error_message = ""
+    campaign.save(update_fields=["status", "started_at", "error_message"])
+
+    playbook = campaign.playbook
+    campaign_type = campaign.campaign_type
     if campaign_type == MarketingEmailCampaign.TYPE_FULL_DATABASE:
         subject_template = playbook.direct_email_subject
         body_template = playbook.direct_email_body
@@ -763,47 +804,81 @@ def send_marketing_email_campaign(playbook, campaign_type, sent_by, therapy_area
     else:
         raise ValueError(f"Unsupported marketing campaign type: {campaign_type}")
 
-    campaign = MarketingEmailCampaign.objects.create(
+    attachment = _playbook_pdf_attachment(playbook)
+    attachments = [attachment] if attachment else []
+    sent_count = 0
+    failed_count = 0
+    try:
+        recipients = marketing_email_recipients(
+            playbook,
+            campaign_type,
+            therapy_areas=_split_marketing_targets(campaign.target_therapy_areas),
+            molecules=_split_marketing_targets(campaign.target_molecules),
+            test_only=campaign.is_test_campaign,
+        )
+        for recipient in recipients:
+            subject = _personalize_marketing_text(subject_template, recipient, playbook, sent_by=campaign.sent_by)
+            text_body = _personalize_marketing_text(body_template, recipient, playbook, sent_by=campaign.sent_by)
+            if playbook.website_download_url and playbook.website_download_url not in text_body:
+                text_body = f"{text_body.rstrip()}\n\nPlaybook link: {playbook.website_download_url}"
+            html_body = _marketing_html_from_text(text_body)
+            try:
+                send_email(
+                    subject=subject,
+                    html_body=html_body,
+                    text_body=text_body,
+                    to_emails=[recipient.email],
+                    attachments=attachments,
+                )
+            except Exception:
+                failed_count += 1
+                logger.exception(
+                    "Failed to send marketing campaign email campaign_id=%s recipient_id=%s",
+                    campaign.pk,
+                    recipient.pk,
+                )
+            else:
+                sent_count += 1
+            MarketingEmailCampaign.objects.filter(pk=campaign.pk).update(
+                recipient_count=sent_count,
+                failed_count=failed_count,
+            )
+    except Exception as exc:
+        logger.exception("Marketing campaign processing failed campaign_id=%s", campaign.pk)
+        campaign.status = MarketingEmailCampaign.STATUS_FAILED
+        campaign.error_message = str(exc)
+        campaign.completed_at = timezone.now()
+        campaign.recipient_count = sent_count
+        campaign.failed_count = failed_count
+        campaign.save(update_fields=["status", "error_message", "completed_at", "recipient_count", "failed_count"])
+        close_old_connections()
+        return campaign
+
+    campaign.status = MarketingEmailCampaign.STATUS_COMPLETED
+    campaign.completed_at = timezone.now()
+    campaign.recipient_count = sent_count
+    campaign.failed_count = failed_count
+    campaign.save(update_fields=["status", "completed_at", "recipient_count", "failed_count"])
+    close_old_connections()
+    return campaign
+
+
+def start_marketing_email_campaign(campaign_id):
+    thread = threading.Thread(target=process_marketing_email_campaign, args=(campaign_id,), daemon=True)
+    thread.start()
+    return thread
+
+
+def send_marketing_email_campaign(playbook, campaign_type, sent_by, therapy_areas=None, molecules=None, test_only=False):
+    campaign = create_marketing_email_campaign(
         playbook=playbook,
         campaign_type=campaign_type,
         sent_by=sent_by,
-        target_therapy_areas=", ".join(therapy_areas or []),
-        target_molecules=", ".join(molecules or []),
+        therapy_areas=therapy_areas,
+        molecules=molecules,
+        test_only=test_only,
     )
-    attachment = _playbook_pdf_attachment(playbook)
-    attachments = [attachment] if attachment else []
-    if attachment:
-        campaign.attachment_filename = attachment["filename"]
-        campaign.save(update_fields=["attachment_filename"])
-    sent_count = 0
-    failed_count = 0
-    for recipient in marketing_email_recipients(playbook, campaign_type, therapy_areas=therapy_areas, molecules=molecules):
-        subject = _personalize_marketing_text(subject_template, recipient, playbook, sent_by=sent_by)
-        text_body = _personalize_marketing_text(body_template, recipient, playbook, sent_by=sent_by)
-        if playbook.website_download_url and playbook.website_download_url not in text_body:
-            text_body = f"{text_body.rstrip()}\n\nPlaybook link: {playbook.website_download_url}"
-        html_body = _marketing_html_from_text(text_body)
-        try:
-            send_email(
-                subject=subject,
-                html_body=html_body,
-                text_body=text_body,
-                to_emails=[recipient.email],
-                attachments=attachments,
-            )
-        except Exception:
-            failed_count += 1
-            logger.exception(
-                "Failed to send marketing campaign email campaign_id=%s recipient_id=%s",
-                campaign.pk,
-                recipient.pk,
-            )
-            continue
-        sent_count += 1
-    campaign.recipient_count = sent_count
-    campaign.failed_count = failed_count
-    campaign.save(update_fields=["recipient_count", "failed_count"])
-    return campaign
+    return process_marketing_email_campaign(campaign.pk)
 
 
 def send_test_email_diagnostic(recipient_email):

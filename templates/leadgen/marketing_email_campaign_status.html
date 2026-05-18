@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Marketing Campaign Progress{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>Marketing email campaign progress</h1>
+        <p class="note">{{ campaign.playbook.title }}{% if campaign.is_test_campaign %} / Test campaign{% endif %}</p>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'marketing_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+<section class="panel">
+    <h2 id="campaign-status">{{ campaign.get_status_display }}</h2>
+    <p class="note">
+        Processed <span id="processed-count">{{ processed_count }}</span>
+        of <span id="expected-count">{{ campaign.expected_count }}</span> recipients.
+    </p>
+    <div class="stats-grid">
+        <article class="stat-card"><span id="sent-count">{{ campaign.recipient_count }}</span><p>Sent</p></article>
+        <article class="stat-card"><span id="failed-count">{{ campaign.failed_count }}</span><p>Failed</p></article>
+        <article class="stat-card"><span>{{ campaign.expected_count }}</span><p>Expected recipients</p></article>
+    </div>
+    <p id="campaign-error" class="message error" {% if not campaign.error_message %}style="display:none"{% endif %}>{{ campaign.error_message }}</p>
+</section>
+<script>
+(function () {
+    const statusUrl = "{% url 'marketing_email_campaign_status' campaign.id %}?format=json";
+    function updateProgress() {
+        fetch(statusUrl, {headers: {"X-Requested-With": "XMLHttpRequest"}})
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById("campaign-status").textContent = data.status_label;
+                document.getElementById("processed-count").textContent = data.processed_count;
+                document.getElementById("expected-count").textContent = data.expected_count;
+                document.getElementById("sent-count").textContent = data.sent_count;
+                document.getElementById("failed-count").textContent = data.failed_count;
+                const errorNode = document.getElementById("campaign-error");
+                if (data.error_message) {
+                    errorNode.textContent = data.error_message;
+                    errorNode.style.display = "";
+                }
+                if (!data.is_complete) {
+                    window.setTimeout(updateProgress, 2000);
+                }
+            })
+            .catch(() => window.setTimeout(updateProgress, 5000));
+    }
+    window.setTimeout(updateProgress, 1000);
+}());
+</script>
+{% endblock %}

@@ -36,6 +36,7 @@
                 <th>Email</th>
                 <th>Therapy areas</th>
                 <th>Molecules/formulations</th>
+                <th>Test account</th>
                 <th>Unsubscribed</th>
                 <th></th>
             </tr>
@@ -48,6 +49,7 @@
                 <td>{{ pharma_manager.email }}</td>
                 <td>{{ pharma_manager.therapy_areas|join:", " }}</td>
                 <td>{{ pharma_manager.molecules|join:", " }}</td>
+                <td>{% if pharma_manager.is_test_account %}Yes{% else %}No{% endif %}</td>
                 <td>{% if pharma_manager.unsubscribed %}Yes{% else %}No{% endif %}</td>
                 <td class="actions">
                     <a href="{% url 'pharma_manager_update' pharma_manager.id %}">Edit</a>
@@ -55,7 +57,7 @@
                 </td>
             </tr>
         {% empty %}
-            <tr><td colspan="7">No pharma managers found.</td></tr>
+            <tr><td colspan="8">No pharma managers found.</td></tr>
         {% endfor %}
         </tbody>
     </table>

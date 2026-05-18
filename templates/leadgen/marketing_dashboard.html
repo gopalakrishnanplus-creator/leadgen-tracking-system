@@ -49,7 +49,8 @@
                 <td>{{ playbook.start_date }} to {{ playbook.end_date }}</td>
                 <td>
                     {% for campaign in playbook.email_campaigns.all %}
-                        {{ campaign.get_campaign_type_display }}: {{ campaign.recipient_count }} sent, {{ campaign.failed_count }} failed on {{ campaign.sent_at|date:"M j, Y" }}
+                        {{ campaign.get_campaign_type_display }}{% if campaign.is_test_campaign %} test{% endif %}: {{ campaign.recipient_count }} sent, {{ campaign.failed_count }} failed, status {{ campaign.get_status_display }} on {{ campaign.sent_at|date:"M j, Y" }}
+                        <a href="{% url 'marketing_email_campaign_status' campaign.id %}">Progress</a>
                         {% if campaign.target_therapy_areas or campaign.target_molecules %}
                             ({{ campaign.target_therapy_areas }}{% if campaign.target_therapy_areas and campaign.target_molecules %}; {% endif %}{{ campaign.target_molecules }})
                         {% endif %}

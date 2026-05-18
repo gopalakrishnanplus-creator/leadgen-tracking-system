@@ -855,6 +855,7 @@ class PharmaManagerForm(StyledFormMixin, forms.ModelForm):
             "molecule_10",
             "linkedin_url",
             "unsubscribed",
+            "is_test_account",
         ]
 
     def clean_email(self):
