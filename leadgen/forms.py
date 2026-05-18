@@ -897,13 +897,15 @@ class MarketingEmailCampaignForm(StyledFormMixin, forms.Form):
         required=False,
         choices=(),
         label="Therapy areas",
-        help_text="Targeted campaigns can use up to 3 therapy areas.",
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Select up to 3 therapy areas. The targeted mailer goes to records matching any selected therapy area or molecule/formulation.",
     )
     molecules = forms.MultipleChoiceField(
         required=False,
         choices=(),
         label="Molecules/formulations",
-        help_text="Targeted campaigns can use up to 2 molecules/formulations.",
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Select up to 2 molecules/formulations. The targeted mailer goes to records matching any selected therapy area or molecule/formulation.",
     )
 
     def __init__(self, *args, **kwargs):
@@ -912,8 +914,6 @@ class MarketingEmailCampaignForm(StyledFormMixin, forms.Form):
         self.fields["playbook"].queryset = MarketingPlaybook.objects.order_by("-start_date", "title")
         self.fields["therapy_areas"].choices = _distinct_pharma_manager_values("therapy_area", 5)
         self.fields["molecules"].choices = _distinct_pharma_manager_values("molecule", 10)
-        self.fields["therapy_areas"].widget.attrs["size"] = "8"
-        self.fields["molecules"].widget.attrs["size"] = "8"
         if campaign_type:
             self.initial["campaign_type"] = campaign_type
             self.fields["campaign_type"].widget = forms.HiddenInput()

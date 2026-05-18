@@ -3262,6 +3262,20 @@ class LeadgenWorkflowTests(TestCase):
             molecule_1="Cefixime",
             created_by=self.marketing_manager,
         )
+        second_therapy_match = PharmaManager.objects.create(
+            name="Second Therapy Match",
+            company_name="SecondTherapyCo",
+            email="second-therapy@example.com",
+            therapy_area_2="Cardiology",
+            created_by=self.marketing_manager,
+        )
+        second_molecule_match = PharmaManager.objects.create(
+            name="Second Molecule Match",
+            company_name="SecondMoleculeCo",
+            email="second-molecule@example.com",
+            molecule_3="Pantoprazole",
+            created_by=self.marketing_manager,
+        )
         PharmaManager.objects.create(
             name="Other Brand",
             company_name="OtherCo",
@@ -3274,11 +3288,19 @@ class LeadgenWorkflowTests(TestCase):
             marketing_email_recipients(
                 playbook,
                 MarketingEmailCampaign.TYPE_MOLECULE_TARGETED,
-                therapy_areas=["Vaccines"],
-                molecules=["Cefixime"],
+                therapy_areas=["Vaccines", "Cardiology"],
+                molecules=["Cefixime", "Pantoprazole"],
             )
         )
-        self.assertEqual(recipients, [molecule_match, therapy_match])
+        self.assertEqual(
+            {recipient.email for recipient in recipients},
+            {
+                therapy_match.email,
+                molecule_match.email,
+                second_therapy_match.email,
+                second_molecule_match.email,
+            },
+        )
 
     def test_marketing_email_campaign_form_caps_target_filters(self):
         for index in range(1, 5):
