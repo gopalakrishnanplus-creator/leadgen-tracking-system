@@ -1092,6 +1092,7 @@ class PharmaManagerUploadBatch(models.Model):
 
 class CashflowSnapshot(models.Model):
     as_of_date = models.DateField()
+    opening_bank_balance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     payables_file = models.FileField(upload_to="cashflow-imports/")
     provisions_file = models.FileField(upload_to="cashflow-imports/")
     receivables_file = models.FileField(upload_to="cashflow-imports/")

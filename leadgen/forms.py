@@ -467,6 +467,7 @@ class CashflowSnapshotUploadForm(StyledFormMixin, forms.ModelForm):
     class Meta:
         model = CashflowSnapshot
         fields = [
+            "opening_bank_balance",
             "payables_file",
             "provisions_file",
             "receivables_file",
@@ -475,6 +476,11 @@ class CashflowSnapshotUploadForm(StyledFormMixin, forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["opening_bank_balance"].label = "Today's opening bank balance"
+        self.fields["opening_bank_balance"].help_text = "Enter the actual bank balance as of the start of today. This is used as the baseline for the 12-week cashflow projection."
+        self.fields["payables_file"].required = True
+        self.fields["provisions_file"].required = True
+        self.fields["receivables_file"].required = True
         self.fields["receivables_file"].label = "Receivables file (invoices raised)"
         self.fields["proforma_receivables_file"].label = "Receivables file (PI/pro forma raised)"
         self.fields["proforma_receivables_file"].required = True
@@ -736,7 +742,6 @@ class SystemSettingForm(StyledFormMixin, forms.ModelForm):
             "supervisor_name",
             "supervisor_sender_email",
             "default_timezone",
-            "cashflow_opening_balance",
             "sales_email_1",
             "sales_email_2",
             "sales_email_3",

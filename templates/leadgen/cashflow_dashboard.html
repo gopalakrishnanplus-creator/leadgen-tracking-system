@@ -40,6 +40,7 @@
     <h2>Latest finance upload</h2>
     {% if latest_snapshot %}
         <p><strong>As of date:</strong> {{ latest_snapshot.as_of_date }}</p>
+        <p><strong>Opening bank balance:</strong> Rs {{ latest_snapshot.opening_bank_balance }}</p>
         <p><strong>Uploaded by:</strong> {{ latest_snapshot.uploaded_by.name }}</p>
         <p><strong>Uploaded at:</strong> {{ latest_snapshot.created_at }}</p>
     {% else %}

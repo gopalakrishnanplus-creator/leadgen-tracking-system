@@ -1358,6 +1358,13 @@ def latest_cashflow_snapshot():
     return CashflowSnapshot.objects.order_by("-created_at", "-as_of_date").first()
 
 
+def cashflow_projection_opening_balance():
+    latest_snapshot = latest_cashflow_snapshot()
+    if latest_snapshot:
+        return latest_snapshot.opening_bank_balance or Decimal("0.00"), latest_snapshot
+    return SystemSetting.load().cashflow_opening_balance or Decimal("0.00"), None
+
+
 def finance_upload_complete_for_date(target_date=None):
     target_date = target_date or business_localdate()
     tz = ZoneInfo(SystemSetting.load().default_timezone)
@@ -2086,9 +2093,13 @@ def _future_month_dates(start_date, end_date):
     return dates
 
 
-def build_cashflow_projection(start_date=None, weeks=12):
+def build_cashflow_projection(start_date=None, weeks=12, opening_balance=None):
     start_date = start_date or business_localdate()
-    opening_balance = SystemSetting.load().cashflow_opening_balance or Decimal("0.00")
+    opening_balance_source = None
+    if opening_balance is None:
+        opening_balance, opening_balance_source = cashflow_projection_opening_balance()
+    else:
+        opening_balance = Decimal(opening_balance)
     windows = build_twelve_week_windows(start_date=start_date, weeks=weeks)
     end_date = windows[-1]["end_date"]
     outflow_rows = []
@@ -2225,6 +2236,7 @@ def build_cashflow_projection(start_date=None, weeks=12):
     return {
         "start_date": start_date,
         "opening_balance": opening_balance,
+        "opening_balance_source": opening_balance_source,
         "weeks": projection_rows,
     }
 

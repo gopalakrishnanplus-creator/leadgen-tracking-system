@@ -6,7 +6,14 @@
         <p class="eyebrow">{{ workspace_eyebrow }}</p>
         <h1>12-week cash flow projection</h1>
         <p class="note">Rolling seven-day windows starting from {{ projection.start_date }}.</p>
-        <p class="note">Opening cash balance used for this projection: Rs {{ projection.opening_balance }}.</p>
+        <p class="note">
+            Opening cash balance used for this projection: Rs {{ projection.opening_balance }}.
+            {% if projection.opening_balance_source %}
+                Entered with the Tally upload dated {{ projection.opening_balance_source.as_of_date }}.
+            {% else %}
+                No daily bank balance upload exists yet; using the legacy system setting.
+            {% endif %}
+        </p>
     </div>
     <div class="button-row">
         <a class="button" href="{% url 'cashflow_dashboard' %}">Back to dashboard</a>

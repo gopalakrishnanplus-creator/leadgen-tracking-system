@@ -20,6 +20,7 @@ from openpyxl import Workbook
 from .adapters import LeadgenSocialAccountAdapter, SHARED_SUPERVISOR_USER_EMAIL
 from .forms import (
     BusinessManagerCreateForm,
+    CashflowSnapshotUploadForm,
     CashflowImportedItemForm,
     ContractCollectionForm,
     FinanceManagerCreateForm,
@@ -3642,6 +3643,7 @@ class LeadgenWorkflowTests(TestCase):
         yesterday = business_localdate() - timedelta(days=1)
         CashflowSnapshot.objects.create(
             as_of_date=yesterday,
+            opening_bank_balance="1100000.00",
             payables_file=self._cashflow_workbook_upload(
                 "payables.xlsx",
                 ["Party Name", "Pending Amount"],
@@ -3670,6 +3672,59 @@ class LeadgenWorkflowTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "12-week cash flow dashboard")
+
+    def test_cashflow_upload_requires_balance_and_all_four_reports(self):
+        form = CashflowSnapshotUploadForm(data={}, files=MultiValueDict())
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("opening_bank_balance", form.errors)
+        self.assertIn("payables_file", form.errors)
+        self.assertIn("provisions_file", form.errors)
+        self.assertIn("receivables_file", form.errors)
+        self.assertIn("proforma_receivables_file", form.errors)
+
+    def test_cashflow_projection_uses_latest_uploaded_bank_balance(self):
+        today = business_localdate()
+        CashflowSnapshot.objects.create(
+            as_of_date=today,
+            opening_bank_balance="1100000.00",
+            payables_file=self._cashflow_workbook_upload(
+                "payables.xlsx",
+                ["Party Name", "Pending Amount"],
+                [["Vendor A", 1000]],
+            ),
+            provisions_file=self._cashflow_workbook_upload(
+                "provisions.xlsx",
+                ["Party Name", "Amount"],
+                [["Provision A", 500]],
+            ),
+            receivables_file=self._cashflow_workbook_upload(
+                "receivables.xlsx",
+                ["Customer Name", "Outstanding Amount"],
+                [["Customer A", 1500]],
+            ),
+            proforma_receivables_file=self._cashflow_workbook_upload(
+                "receivables-pi.xlsx",
+                ["Date", "Particulars", "Debit Amount"],
+                [[today, "Customer PI", 700]],
+            ),
+            uploaded_by=self.finance_manager,
+        )
+        ContractCollectionInstallment.objects.create(
+            contract_collection=ContractCollection.objects.create(
+                company_name="Balance Client",
+                sales_manager=self.sales_manager,
+                created_by=self.supervisor,
+            ),
+            position=1,
+            installment_amount="600000.00",
+            expected_collection_date=today + timedelta(days=1),
+        )
+
+        projection = build_cashflow_projection(start_date=today)
+
+        self.assertEqual(projection["opening_balance"], Decimal("1100000.00"))
+        self.assertEqual(projection["weeks"][0]["closing_position"], Decimal("1700000.00"))
 
     def test_sales_manager_cannot_access_cashflow_or_creditor_payment_plan(self):
         item = CashflowImportedItem.objects.create(

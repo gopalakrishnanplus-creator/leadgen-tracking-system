@@ -8,6 +8,7 @@
         <p class="note">{{ week.start_date }} to {{ week.end_date }}</p>
         <p class="note">
             Opening position: Rs {{ week.opening_position }}.
+            Projection baseline: Rs {{ projection.opening_balance }}{% if projection.opening_balance_source %}, entered with the Tally upload dated {{ projection.opening_balance_source.as_of_date }}{% endif %}.
             Weekly net: Rs {{ week.net_total }}.
             Closing position: Rs {{ week.closing_position }}.
         </p>

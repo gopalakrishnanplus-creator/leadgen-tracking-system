@@ -5,7 +5,7 @@
     <div>
         <p class="eyebrow">{{ workspace_eyebrow }}</p>
         <h1>Upload daily Tally data</h1>
-        <p class="note">Finance managers must upload payables, provisions, invoice receivables, and PI/pro forma receivables. The report date is detected automatically from the Tally export files.</p>
+        <p class="note">Finance managers must enter today's actual opening bank balance and upload all four reports: payables, provisions, invoice receivables, and PI/pro forma receivables. The report date is detected automatically from the Tally export files.</p>
     </div>
     <div class="button-row">
         <a class="button" href="{% url 'cashflow_dashboard' %}">Back to dashboard</a>
@@ -24,6 +24,7 @@
         <thead>
             <tr>
                 <th>As of date</th>
+                <th>Opening bank balance</th>
                 <th>Uploaded by</th>
                 <th>Created</th>
             </tr>
@@ -32,11 +33,12 @@
         {% for snapshot in snapshots %}
             <tr>
                 <td>{{ snapshot.as_of_date }}</td>
+                <td>Rs {{ snapshot.opening_bank_balance }}</td>
                 <td>{{ snapshot.uploaded_by.name }}</td>
                 <td>{{ snapshot.created_at }}</td>
             </tr>
         {% empty %}
-            <tr><td colspan="3">No Tally uploads yet.</td></tr>
+            <tr><td colspan="4">No Tally uploads yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>
