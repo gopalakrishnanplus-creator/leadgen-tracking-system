@@ -1118,7 +1118,7 @@ class ContractCollectionForm(StyledFormMixin, forms.ModelForm):
 
     class Meta:
         model = ContractCollection
-        fields = ["company_name", "sales_manager", "contract_value"]
+        fields = ["company_name", "sales_manager", "contract_status", "contract_value"]
 
     contact_1_name = forms.CharField(required=False, label="Contact person 1")
     contact_1_email = forms.EmailField(required=False, label="Contact person 1 email")
@@ -1181,6 +1181,8 @@ class ContractCollectionForm(StyledFormMixin, forms.ModelForm):
             role=User.ROLE_SALES_MANAGER,
             is_active=True,
         ).order_by("name", "email")
+        self.fields["contract_status"].required = False
+        self.fields["contract_status"].initial = ContractCollection.CONTRACT_STATUS_SIGNED
         if self.instance.pk:
             self.fields["company_name"].disabled = True
             self.fields["company_name"].help_text = "Company name is fixed after the contract is created."
@@ -1218,6 +1220,9 @@ class ContractCollectionForm(StyledFormMixin, forms.ModelForm):
         if self.instance.pk:
             return self.instance.company_name
         return (self.cleaned_data.get("company_name") or "").strip()
+
+    def clean_contract_status(self):
+        return self.cleaned_data.get("contract_status") or ContractCollection.CONTRACT_STATUS_SIGNED
 
     def clean(self):
         cleaned_data = super().clean()

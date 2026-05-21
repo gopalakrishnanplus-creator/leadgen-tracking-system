@@ -5,7 +5,7 @@
     <div>
         <p class="eyebrow">{{ workspace_eyebrow }}</p>
         <h1>Contracts and collections</h1>
-        <p class="note">Signed deals move here from sales pipeline and stay tracked through invoicing and collections.</p>
+        <p class="note">Signed and projected deals are tracked here through expected invoicing and collections.</p>
     </div>
     <div class="button-row">
         {% if can_add_contract %}
@@ -28,6 +28,7 @@
                 <th>ID</th>
                 <th>Company</th>
                 <th>Contacts</th>
+                <th>Status</th>
                 <th>Sales manager</th>
                 <th>Contract value</th>
                 <th>Updated</th>
@@ -44,6 +45,7 @@
                         <div>{{ contact.name }}{% if contact.email %} / {{ contact.email }}{% endif %}</div>
                     {% endfor %}
                 </td>
+                <td>{{ contract.get_contract_status_display }}</td>
                 <td>{% if contract.sales_manager %}{{ contract.sales_manager.name }}{% else %}Unassigned{% endif %}</td>
                 <td>{% if contract.contract_value %}Rs {{ contract.contract_value }}{% else %}-{% endif %}</td>
                 <td>{{ contract.updated_at }}</td>
@@ -55,7 +57,7 @@
                 </td>
             </tr>
         {% empty %}
-            <tr><td colspan="7">No contracts have entered collections yet.</td></tr>
+            <tr><td colspan="8">No contracts have entered collections yet.</td></tr>
         {% endfor %}
         </tbody>
     </table>

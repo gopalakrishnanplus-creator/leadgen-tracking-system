@@ -3726,6 +3726,88 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(projection["opening_balance"], Decimal("1100000.00"))
         self.assertEqual(projection["weeks"][0]["closing_position"], Decimal("1700000.00"))
 
+    def test_cashflow_projection_splits_signed_and_projected_contract_income(self):
+        start_date = business_localdate()
+        signed_contract = ContractCollection.objects.create(
+            company_name="Signed Client",
+            contract_status=ContractCollection.CONTRACT_STATUS_SIGNED,
+            sales_manager=self.sales_manager,
+            created_by=self.supervisor,
+        )
+        ContractCollectionInstallment.objects.create(
+            contract_collection=signed_contract,
+            position=1,
+            installment_amount="1000.00",
+            expected_collection_date=start_date + timedelta(days=1),
+        )
+        projected_contract = ContractCollection.objects.create(
+            company_name="Projected Client",
+            contract_status=ContractCollection.CONTRACT_STATUS_PROJECTED,
+            sales_manager=self.sales_manager,
+            created_by=self.supervisor,
+        )
+        ContractCollectionInstallment.objects.create(
+            contract_collection=projected_contract,
+            position=1,
+            installment_amount="2500.00",
+            expected_collection_date=start_date + timedelta(days=2),
+        )
+        CashflowProjectedCollection.objects.create(
+            company_name="Standalone Projection",
+            description="Expected future contract",
+            amount="300.00",
+            expected_collection_date=start_date + timedelta(days=3),
+            created_by=self.business_manager,
+        )
+        CashflowManualEntry.objects.create(
+            category=CashflowManualEntry.CATEGORY_DEBT,
+            direction=CashflowManualEntry.DIRECTION_INCOMING,
+            amount="200.00",
+            transaction_date=start_date + timedelta(days=4),
+            description="Other incoming",
+            created_by=self.finance_manager,
+        )
+
+        projection = build_cashflow_projection(start_date=start_date, opening_balance="0.00")
+        week = projection["weeks"][0]
+
+        self.assertEqual(week["contracted_inflow_total"], Decimal("1000.00"))
+        self.assertEqual(week["projected_inflow_total"], Decimal("2800.00"))
+        self.assertEqual(week["inflow_total"], Decimal("4000.00"))
+
+    def test_pending_collections_excludes_projected_contracts(self):
+        today = business_localdate()
+        signed_contract = ContractCollection.objects.create(
+            company_name="Signed Pending Client",
+            contract_status=ContractCollection.CONTRACT_STATUS_SIGNED,
+            sales_manager=self.sales_manager,
+            created_by=self.supervisor,
+        )
+        ContractCollectionInstallment.objects.create(
+            contract_collection=signed_contract,
+            position=1,
+            installment_amount="1000.00",
+            invoice_date=today - timedelta(days=1),
+            expected_collection_date=today - timedelta(days=1),
+        )
+        projected_contract = ContractCollection.objects.create(
+            company_name="Projected Pending Client",
+            contract_status=ContractCollection.CONTRACT_STATUS_PROJECTED,
+            sales_manager=self.sales_manager,
+            created_by=self.supervisor,
+        )
+        ContractCollectionInstallment.objects.create(
+            contract_collection=projected_contract,
+            position=1,
+            installment_amount="2000.00",
+            invoice_date=today - timedelta(days=1),
+            expected_collection_date=today - timedelta(days=1),
+        )
+
+        summary = build_pending_collections(ContractCollection.objects.all(), today=today)
+
+        self.assertEqual(list(summary["invoiced_pending"]), [signed_contract.installments.get()])
+
     def test_sales_manager_cannot_access_cashflow_or_creditor_payment_plan(self):
         item = CashflowImportedItem.objects.create(
             category=CashflowImportedItem.CATEGORY_PAYABLE,

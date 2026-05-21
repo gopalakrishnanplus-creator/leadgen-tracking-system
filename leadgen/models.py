@@ -638,6 +638,13 @@ class SalesConversationFile(models.Model):
 
 
 class ContractCollection(models.Model):
+    CONTRACT_STATUS_SIGNED = "signed"
+    CONTRACT_STATUS_PROJECTED = "projected"
+    CONTRACT_STATUS_CHOICES = [
+        (CONTRACT_STATUS_SIGNED, "Signed"),
+        (CONTRACT_STATUS_PROJECTED, "Projected"),
+    ]
+
     contract_collection_id = models.CharField(
         max_length=32,
         unique=True,
@@ -652,6 +659,11 @@ class ContractCollection(models.Model):
         null=True,
     )
     company_name = models.CharField(max_length=255)
+    contract_status = models.CharField(
+        max_length=16,
+        choices=CONTRACT_STATUS_CHOICES,
+        default=CONTRACT_STATUS_SIGNED,
+    )
     sales_manager = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name="contract_collections",

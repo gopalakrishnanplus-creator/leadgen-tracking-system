@@ -2171,6 +2171,7 @@ def build_cashflow_projection(start_date=None, weeks=12, opening_balance=None):
             inflow_rows.append(
                 {
                     "source_type": "contract_installment",
+                    "income_classification": installment.contract_collection.contract_status,
                     "label": installment.contract_collection.company_name,
                     "description": f"Installment {installment.position}",
                     "transaction_amount": installment.installment_amount,
@@ -2185,6 +2186,7 @@ def build_cashflow_projection(start_date=None, weeks=12, opening_balance=None):
             inflow_rows.append(
                 {
                     "source_type": "projected_collection",
+                    "income_classification": ContractCollection.CONTRACT_STATUS_PROJECTED,
                     "label": projected.company_name,
                     "description": projected.description,
                     "transaction_amount": projected.amount,
@@ -2200,6 +2202,7 @@ def build_cashflow_projection(start_date=None, weeks=12, opening_balance=None):
     ):
         row = {
             "source_type": "manual_cashflow_entry",
+            "income_classification": "other",
             "label": entry.get_category_display(),
             "description": entry.description,
             "transaction_amount": entry.amount,
@@ -2216,6 +2219,22 @@ def build_cashflow_projection(start_date=None, weeks=12, opening_balance=None):
     for window in windows:
         week_inflows = [row for row in inflow_rows if window["start_date"] <= row["transaction_date"] <= window["end_date"]]
         week_outflows = [row for row in outflow_rows if window["start_date"] <= row["transaction_date"] <= window["end_date"]]
+        contracted_inflow_total = sum(
+            (
+                row["transaction_amount"]
+                for row in week_inflows
+                if row.get("income_classification") == ContractCollection.CONTRACT_STATUS_SIGNED
+            ),
+            Decimal("0.00"),
+        )
+        projected_inflow_total = sum(
+            (
+                row["transaction_amount"]
+                for row in week_inflows
+                if row.get("income_classification") == ContractCollection.CONTRACT_STATUS_PROJECTED
+            ),
+            Decimal("0.00"),
+        )
         inflow_total = sum((row["transaction_amount"] for row in week_inflows), Decimal("0.00"))
         outflow_total = sum((row["transaction_amount"] for row in week_outflows), Decimal("0.00"))
         net_total = inflow_total - outflow_total
@@ -2224,6 +2243,8 @@ def build_cashflow_projection(start_date=None, weeks=12, opening_balance=None):
         projection_rows.append(
             {
                 **window,
+                "contracted_inflow_total": contracted_inflow_total,
+                "projected_inflow_total": projected_inflow_total,
                 "inflow_total": inflow_total,
                 "outflow_total": outflow_total,
                 "net_total": net_total,
@@ -2471,6 +2492,7 @@ def build_pending_collections(contract_query_set, today=None):
         "contract_collection__sales_manager",
     ).prefetch_related("contract_collection__contacts")
     installments = installments.filter(contract_collection__in=contract_query_set)
+    installments = installments.filter(contract_collection__contract_status=ContractCollection.CONTRACT_STATUS_SIGNED)
 
     invoiced = installments.filter(invoice_date__lt=today).filter(
         Q(collection_date__isnull=True)

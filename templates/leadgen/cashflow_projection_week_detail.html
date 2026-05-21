@@ -39,6 +39,7 @@
             <thead>
                 <tr>
                     <th>Source</th>
+                    <th>Income type</th>
                     <th>Description</th>
                     <th>Date</th>
                     <th>Amount</th>
@@ -48,12 +49,21 @@
             {% for row in week.inflows %}
                 <tr>
                     <td>{{ row.label }}</td>
+                    <td>
+                        {% if row.income_classification == "signed" %}
+                            Contracted
+                        {% elif row.income_classification == "projected" %}
+                            Projected
+                        {% else %}
+                            Other
+                        {% endif %}
+                    </td>
                     <td>{{ row.description|default:"-" }}</td>
                     <td>{{ row.transaction_date }}</td>
                     <td>Rs {{ row.transaction_amount }}</td>
                 </tr>
             {% empty %}
-                <tr><td colspan="4">No incoming transactions in this week.</td></tr>
+                <tr><td colspan="5">No incoming transactions in this week.</td></tr>
             {% endfor %}
             </tbody>
         </table>

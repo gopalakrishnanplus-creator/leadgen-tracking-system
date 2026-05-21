@@ -40,7 +40,9 @@
             <tr>
                 <th>Week</th>
                 <th>Window</th>
-                <th>Incoming</th>
+                <th>Contracted incoming</th>
+                <th>Projected incoming</th>
+                <th>Total incoming</th>
                 <th>Outgoing</th>
                 <th>Weekly net</th>
                 <th>Cumulative cash position</th>
@@ -51,6 +53,8 @@
             <tr>
                 <td>{{ week.index }}</td>
                 <td>{{ week.start_date }} to {{ week.end_date }}</td>
+                <td><a href="{% url 'cashflow_projection_week_detail' week.index %}">Rs {{ week.contracted_inflow_total }}</a></td>
+                <td><a href="{% url 'cashflow_projection_week_detail' week.index %}">Rs {{ week.projected_inflow_total }}</a></td>
                 <td><a href="{% url 'cashflow_projection_week_detail' week.index %}">Rs {{ week.inflow_total }}</a></td>
                 <td><a href="{% url 'cashflow_projection_week_detail' week.index %}">Rs {{ week.outflow_total }}</a></td>
                 <td>Rs {{ week.net_total }}</td>
