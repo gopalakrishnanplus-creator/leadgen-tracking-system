@@ -1564,6 +1564,50 @@ class LeadgenWorkflowTests(TestCase):
         self.assertContains(response, 'method="post"')
         self.assertContains(response, "Continue with Google")
 
+    @override_settings(QA_AUTH_BYPASS_ENABLED=False, QA_AUTH_BYPASS_TOKEN="", IS_PRODUCTION=False)
+    def test_qa_auth_bypass_is_disabled_by_default(self):
+        response = self.client.get("/qa/auth-bypass/?token=secret&email=staff@example.com")
+        self.assertEqual(response.status_code, 404)
+
+    @override_settings(QA_AUTH_BYPASS_ENABLED=True, QA_AUTH_BYPASS_TOKEN="secret", IS_PRODUCTION=True)
+    def test_qa_auth_bypass_is_hard_disabled_in_production(self):
+        response = self.client.get("/qa/auth-bypass/?token=secret&email=staff@example.com")
+        self.assertEqual(response.status_code, 404)
+
+    @override_settings(QA_AUTH_BYPASS_ENABLED=True, QA_AUTH_BYPASS_TOKEN="secret", IS_PRODUCTION=False)
+    def test_qa_auth_bypass_requires_matching_token(self):
+        response = self.client.get("/qa/auth-bypass/?email=staff@example.com")
+        self.assertEqual(response.status_code, 403)
+
+    @override_settings(QA_AUTH_BYPASS_ENABLED=True, QA_AUTH_BYPASS_TOKEN="secret", IS_PRODUCTION=False)
+    def test_qa_auth_bypass_logs_in_workspace_user(self):
+        response = self.client.get(
+            "/qa/auth-bypass/?token=secret&email=amit@inditech.co.in&workspace=sales&next=/sales/"
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/sales/")
+        session = self.client.session
+        self.assertEqual(int(session["_auth_user_id"]), self.sales_manager.pk)
+        self.assertEqual(session["workspace_mode"], "sales")
+        self.assertNotIn("supervisor_access_email", session)
+        self.assertEqual(self.client.get("/sales/").status_code, 200)
+
+    @override_settings(QA_AUTH_BYPASS_ENABLED=True, QA_AUTH_BYPASS_TOKEN="secret", IS_PRODUCTION=False)
+    def test_qa_auth_bypass_sets_supervisor_access_session(self):
+        response = self.client.get(
+            "/qa/auth-bypass/?token=secret&email=gopala.krishnan@inditech.co.in&workspace=supervisor&next=/supervisor/"
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], "/supervisor/")
+        session = self.client.session
+        self.assertEqual(int(session["_auth_user_id"]), self.supervisor.pk)
+        self.assertEqual(session["supervisor_access_email"], "gopala.krishnan@inditech.co.in")
+        self.assertEqual(session["supervisor_access_level"], SupervisorAccessEmail.ACCESS_SYSTEM_ADMIN)
+        self.assertEqual(session["workspace_mode"], "supervisor")
+        self.assertEqual(self.client.get("/supervisor/").status_code, 200)
+
     def test_home_redirects_sales_manager_to_sales_pipeline(self):
         self.client.force_login(self.sales_manager)
         response = self.client.get("/")

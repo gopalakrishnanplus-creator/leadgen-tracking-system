@@ -140,6 +140,12 @@ AUTHENTICATION_BACKENDS = [
     "django.contrib.auth.backends.ModelBackend",
     "allauth.account.auth_backends.AuthenticationBackend",
 ]
+QA_AUTH_BYPASS_TOKEN = os.environ.get("QA_AUTH_BYPASS_TOKEN", "").strip()
+QA_AUTH_BYPASS_ENABLED = (
+    not IS_PRODUCTION
+    and os.environ.get("QA_AUTH_BYPASS_ENABLED", "False").lower() == "true"
+    and bool(QA_AUTH_BYPASS_TOKEN)
+)
 
 ACCOUNT_EMAIL_VERIFICATION = "none"
 ACCOUNT_ADAPTER = "leadgen.account_adapter.LeadgenAccountAdapter"

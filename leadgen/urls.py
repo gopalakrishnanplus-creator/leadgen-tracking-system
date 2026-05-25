@@ -9,6 +9,7 @@ urlpatterns = [
     path("workspace/", views.workspace_choice, name="workspace_choice"),
     path("workspace/<str:workspace>/", views.select_workspace, name="select_workspace"),
     path("health/", views.healthcheck, name="healthcheck"),
+    path("qa/auth-bypass/", views.qa_auth_bypass_login, name="qa_auth_bypass_login"),
     path("login/", views.login_page, name="login"),
     path("logout/", views.logout_view, name="logout"),
     path("supervisor/", views.supervisor_dashboard, name="supervisor_dashboard"),

@@ -1,9 +1,11 @@
 from datetime import datetime, timedelta
+import secrets
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth import logout
+from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db import transaction
@@ -14,6 +16,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 
+from .adapters import LeadgenSocialAccountAdapter
 from .decorators import role_required, roles_required, supervisor_access_required
 from .forms import (
     BusinessManagerCreateForm,
@@ -118,6 +121,78 @@ from .services import (
     sync_sales_conversation_data,
     update_meeting_outcome,
 )
+
+
+WORKSPACE_ROLE_MAP = {
+    "staff": User.ROLE_STAFF,
+    "sales": User.ROLE_SALES_MANAGER,
+    "finance": User.ROLE_FINANCE_MANAGER,
+    "business": User.ROLE_BUSINESS_MANAGER,
+    "marketing": User.ROLE_MARKETING_MANAGER,
+}
+
+
+def _qa_auth_bypass_is_enabled():
+    return (
+        getattr(settings, "QA_AUTH_BYPASS_ENABLED", False)
+        and not getattr(settings, "IS_PRODUCTION", False)
+        and bool(getattr(settings, "QA_AUTH_BYPASS_TOKEN", ""))
+    )
+
+
+def _qa_auth_available_workspaces(email, adapter):
+    available_workspaces = set()
+    normalized_email = (email or "").strip().lower()
+    if normalized_email in adapter._supervisor_allowed_emails():
+        available_workspaces.add("supervisor")
+    role_workspaces = {
+        role: workspace for workspace, role in WORKSPACE_ROLE_MAP.items()
+    }
+    users = User.objects.filter(email__iexact=normalized_email, is_active=True)
+    for role in users.values_list("role", flat=True):
+        workspace = role_workspaces.get(role)
+        if workspace:
+            available_workspaces.add(workspace)
+    return available_workspaces
+
+
+def _safe_redirect_url(request):
+    next_url = request.GET.get("next") or ""
+    if url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return next_url
+    return reverse("home")
+
+
+def qa_auth_bypass_login(request):
+    if not _qa_auth_bypass_is_enabled():
+        raise Http404("Not found.")
+    expected_token = getattr(settings, "QA_AUTH_BYPASS_TOKEN", "")
+    supplied_token = request.GET.get("token", "")
+    if not secrets.compare_digest(supplied_token, expected_token):
+        return HttpResponseForbidden("QA auth bypass token is invalid.")
+    email = (request.GET.get("email") or "").strip().lower()
+    if not email:
+        return HttpResponseForbidden("QA auth bypass email is required.")
+    workspace = (request.GET.get("workspace") or "").strip().lower()
+    if workspace and workspace not in {"supervisor", *WORKSPACE_ROLE_MAP.keys()}:
+        return HttpResponseForbidden("QA auth bypass workspace is invalid.")
+
+    adapter = LeadgenSocialAccountAdapter()
+    available_workspaces = _qa_auth_available_workspaces(email, adapter)
+    if workspace and workspace not in available_workspaces:
+        return HttpResponseForbidden("QA auth bypass workspace is not available for this email.")
+    user = adapter._authorized_user_for_email(email)
+    if user is None or not user.is_active:
+        return HttpResponseForbidden("QA auth bypass email is not authorized.")
+
+    login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+    request.session.pop("supervisor_access_email", None)
+    request.session.pop("supervisor_access_level", None)
+    request.session.pop("workspace_mode", None)
+    adapter._remember_supervisor_access(request, email)
+    if workspace:
+        request.session["workspace_mode"] = workspace
+    return redirect(_safe_redirect_url(request))
 
 
 def login_page(request):
