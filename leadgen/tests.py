@@ -1834,6 +1834,13 @@ class LeadgenWorkflowTests(TestCase):
             proposal_status=SalesConversation.PROPOSAL_PROPOSAL_NEEDED,
             created_by=self.supervisor,
         )
+        conversation_three = SalesConversation.objects.create(
+            company_name="Inbound Inquiry Proposal Needed",
+            assigned_sales_manager=self.sales_manager,
+            conversation_status=SalesConversation.STATUS_INBOUND_INQUIRIES,
+            proposal_status=SalesConversation.PROPOSAL_PROPOSAL_NEEDED,
+            created_by=self.supervisor,
+        )
         SalesConversation.objects.create(
             company_name="Negotiation Solution Needed",
             assigned_sales_manager=self.sales_manager,
@@ -1843,11 +1850,13 @@ class LeadgenWorkflowTests(TestCase):
         )
         self.client.force_login(self.supervisor)
         response = self.client.get(
-            "/sales/?conversation_status=engaged&conversation_status=deeply_engaged&proposal_status=proposal_given&proposal_status=proposal_needed"
+            "/sales/?conversation_status=engaged&conversation_status=deeply_engaged&conversation_status=inbound_inquiries&proposal_status=proposal_given&proposal_status=proposal_needed"
         )
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Inbound inquiries")
         self.assertContains(response, conversation_one.company_name)
         self.assertContains(response, conversation_two.company_name)
+        self.assertContains(response, conversation_three.company_name)
         self.assertNotContains(response, "Negotiation Solution Needed")
 
     def test_sales_pipeline_supports_next_action_date_filter(self):

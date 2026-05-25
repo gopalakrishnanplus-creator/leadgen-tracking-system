@@ -485,6 +485,7 @@ def generate_contract_collection_id():
 class SalesConversation(models.Model):
     STATUS_ENGAGED = "engaged"
     STATUS_NOT_ENGAGED = "not_engaged"
+    STATUS_INBOUND_INQUIRIES = "inbound_inquiries"
     STATUS_TO_BE_REVIVED = "to_be_revived"
     STATUS_DEEPLY_ENGAGED = "deeply_engaged"
     STATUS_IN_NEGOTIATIONS = "in_negotiations"
@@ -492,6 +493,7 @@ class SalesConversation(models.Model):
     STATUS_CHOICES = [
         (STATUS_ENGAGED, "Engaged"),
         (STATUS_NOT_ENGAGED, "Not engaged"),
+        (STATUS_INBOUND_INQUIRIES, "Inbound inquiries"),
         (STATUS_TO_BE_REVIVED, "To be revived"),
         (STATUS_DEEPLY_ENGAGED, "Deeply engaged"),
         (STATUS_IN_NEGOTIATIONS, "In negotiations"),
