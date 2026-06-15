@@ -3188,6 +3188,38 @@ class LeadgenWorkflowTests(TestCase):
             created_by=self.marketing_manager,
         )
 
+    def test_marketing_playbook_can_be_created_without_pdf_file(self):
+        self.client.force_login(self.marketing_manager)
+        response = self.client.get("/marketing/playbooks/add/")
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["form"].fields["pdf_file"].required)
+
+        response = self.client.post(
+            "/marketing/playbooks/add/",
+            {
+                "title": "Calcium",
+                "therapy_area": "Bone health",
+                "molecule_or_formulation": "Calcium",
+                "website_download_url": "https://inditech.co.in/",
+                "notion_page_url": "https://docs.google.com/document/d/example",
+                "start_date": "2026-06-08",
+                "end_date": "2026-06-15",
+                "linkedin_invitation_message": "Calcium campaign ideas.",
+                "direct_email_subject": "Calcium playbook for [Company Name]",
+                "direct_email_body": "Hi [Name], download [Playbook Link].",
+                "linkedin_connected_message": "Sharing this week's calcium playbook.",
+                "targeted_email_subject": "Calcium playbook for [Name]",
+                "targeted_email_body": "Hi [Name], this is for [Molecule/Formulation].",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        playbook = MarketingPlaybook.objects.get(title="Calcium")
+        self.assertEqual(playbook.pdf_file.name, "")
+        self.assertContains(response, "Calcium")
+        self.assertNotContains(response, "PDF</a>")
+
     @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", SENDGRID_API_KEY="")
     def test_marketing_email_campaign_personalizes_and_excludes_unsubscribed(self):
         playbook = self._marketing_playbook()

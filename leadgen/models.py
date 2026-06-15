@@ -882,7 +882,7 @@ class MarketingPlaybook(models.Model):
     therapy_area = models.CharField(max_length=255)
     molecule_or_formulation = models.CharField(max_length=255)
     website_download_url = models.URLField()
-    pdf_file = models.FileField(upload_to="marketing-playbooks/")
+    pdf_file = models.FileField(upload_to="marketing-playbooks/", blank=True)
     notion_page_url = models.URLField()
     start_date = models.DateField()
     end_date = models.DateField()
