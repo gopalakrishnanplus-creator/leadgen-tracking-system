@@ -52,7 +52,7 @@
             <tr>
                 <td>{% if row.prospect %}{{ row.prospect.company_name }}{% else %}Unmatched{% endif %}</td>
                 <td>{% if row.prospect %}{{ row.prospect.contact_name }}{% else %}<span class="note">No matched prospect</span>{% endif %}</td>
-                <td>{% if row.prospect %}{{ row.prospect.phone_number }}{% elif row.latest_call_log %}{{ row.latest_call_log.to_number }}{% endif %}</td>
+                <td>{% if row.prospect %}{{ row.prospect.phone_number|default:"-" }}{% elif row.latest_call_log %}{{ row.latest_call_log.to_number|default:"-" }}{% else %}-{% endif %}</td>
                 <td>{% if row.prospect %}{{ row.prospect.get_approval_status_display }}{% else %}-{% endif %}</td>
                 <td>{% if row.prospect %}{{ row.prospect.get_workflow_status_display }}{% else %}-{% endif %}</td>
                 <td>

@@ -11,7 +11,7 @@
             <a class="button" href="{% url 'supervisor_action_prospect_list' %}">Back to supervisor action list</a>
         </div>
     </div>
-    <p><strong>Phone:</strong> {{ prospect.phone_number }}</p>
+    <p><strong>Phone:</strong> {{ prospect.phone_number|default:"-" }}</p>
     <p><strong>LinkedIn:</strong> <a href="{{ prospect.linkedin_url }}" target="_blank" rel="noreferrer">{{ prospect.linkedin_url }}</a></p>
     <p><strong>Current assigned staff:</strong> {{ prospect.assigned_to.name }}</p>
     <p><strong>Comment:</strong> {{ prospect.system_action_note }}</p>

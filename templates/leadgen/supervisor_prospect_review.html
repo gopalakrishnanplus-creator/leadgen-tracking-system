@@ -27,7 +27,7 @@
             <tr>
                 <td>{{ prospect.company_name }}</td>
                 <td>{{ prospect.contact_name }}</td>
-                <td>{{ prospect.phone_number }}</td>
+                <td>{{ prospect.phone_number|default:"-" }}</td>
                 <td><a href="{{ prospect.linkedin_url }}" target="_blank" rel="noreferrer">Open</a></td>
                 <td>{{ prospect.assigned_to.name }}</td>
                 <td><a href="{% url 'review_prospect' prospect.id %}">Review</a></td>

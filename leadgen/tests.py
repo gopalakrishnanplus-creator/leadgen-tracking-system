@@ -1636,6 +1636,19 @@ class LeadgenWorkflowTests(TestCase):
             "https://www.linkedin.com/in/bhavesh-kataria-456b27148",
         )
 
+    def test_prospect_form_accepts_missing_phone_number(self):
+        form = ProspectCreateForm(
+            data={
+                "company_name": "No Phone Co",
+                "contact_name": "No Phone Contact",
+                "linkedin_url": "www.linkedin.com/in/no-phone-contact",
+                "phone_number": "",
+            },
+            instance=Prospect(assigned_to=self.staff, created_by=self.staff),
+        )
+
+        self.assertTrue(form.is_valid(), form.errors.as_json())
+
     @override_settings(ALLOWED_HOSTS=["testserver", "localhost", "127.0.0.1"])
     def test_staff_can_submit_prospect_without_server_error(self):
         self.client.force_login(self.staff)
@@ -1655,6 +1668,48 @@ class LeadgenWorkflowTests(TestCase):
             created.linkedin_url,
             "https://www.linkedin.com/in/bhavesh-kataria-456b27148",
         )
+
+    @override_settings(ALLOWED_HOSTS=["testserver", "localhost", "127.0.0.1"])
+    def test_staff_can_submit_prospect_without_phone_number(self):
+        self.client.force_login(self.staff)
+        response = self.client.post(
+            "/staff/prospects/add/",
+            {
+                "company_name": "No Phone Co",
+                "contact_name": "No Phone Contact",
+                "linkedin_url": "www.linkedin.com/in/no-phone-contact",
+                "phone_number": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        created = Prospect.objects.get(company_name="No Phone Co")
+        self.assertIsNone(created.phone_number)
+        self.assertEqual(created.assigned_to, self.staff)
+        self.assertEqual(created.approval_status, Prospect.APPROVAL_PENDING)
+
+    def test_multiple_prospects_can_have_no_phone_number(self):
+        first = Prospect.objects.create(
+            company_name="No Phone One",
+            contact_name="First Contact",
+            linkedin_url="https://linkedin.com/in/no-phone-one",
+            phone_number="",
+            assigned_to=self.staff,
+            created_by=self.staff,
+        )
+        second = Prospect.objects.create(
+            company_name="No Phone Two",
+            contact_name="Second Contact",
+            linkedin_url="https://linkedin.com/in/no-phone-two",
+            phone_number=None,
+            assigned_to=self.other_staff,
+            created_by=self.other_staff,
+        )
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertIsNone(first.phone_number)
+        self.assertIsNone(second.phone_number)
 
     def test_supervisor_can_reassign_pending_prospect_to_another_staff_member(self):
         pending = Prospect.objects.create(

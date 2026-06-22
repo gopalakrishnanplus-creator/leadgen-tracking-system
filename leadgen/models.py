@@ -202,7 +202,7 @@ class Prospect(models.Model):
     company_name = models.CharField(max_length=255)
     contact_name = models.CharField(max_length=255)
     linkedin_url = models.URLField()
-    phone_number = models.CharField(max_length=20, unique=True)
+    phone_number = models.CharField(max_length=20, unique=True, blank=True, null=True)
     assigned_to = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name="assigned_prospects",
@@ -240,6 +240,11 @@ class Prospect(models.Model):
             return
         if not self.assigned_to.is_staff_user:
             raise ValidationError("Prospects must be assigned to a lead gen staff user.")
+
+    def save(self, *args, **kwargs):
+        if self.phone_number == "":
+            self.phone_number = None
+        super().save(*args, **kwargs)
 
     @property
     def display_status(self):

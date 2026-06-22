@@ -26,7 +26,7 @@
             <tr>
                 <td>{{ prospect.company_name }}</td>
                 <td>{{ prospect.contact_name }}</td>
-                <td>{{ prospect.phone_number }}</td>
+                <td>{{ prospect.phone_number|default:"-" }}</td>
                 <td>{{ prospect.assigned_to.name }}</td>
                 <td>{{ prospect.system_action_note|default:"Invalid number" }}</td>
             </tr>
