@@ -3708,10 +3708,50 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(pi_receivable.reference_number, "PI/01/2026-2027")
         self.assertEqual(str(pi_receivable.due_date), "2026-04-20")
 
-    def test_cashflow_projection_warns_when_uploaded_report_date_is_outdated(self):
+    def test_cashflow_projection_warns_when_latest_upload_is_outdated(self):
+        today = business_localdate()
         yesterday = business_localdate() - timedelta(days=1)
+        snapshot = CashflowSnapshot.objects.create(
+            as_of_date=today,
+            payables_file=self._cashflow_workbook_upload(
+                "payables.xlsx",
+                ["Party Name", "Pending Amount"],
+                [["Vendor A", 1000]],
+            ),
+            provisions_file=self._cashflow_workbook_upload(
+                "provisions.xlsx",
+                ["Party Name", "Amount"],
+                [["Provision A", 500]],
+            ),
+            receivables_file=self._cashflow_workbook_upload(
+                "receivables.xlsx",
+                ["Customer Name", "Outstanding Amount"],
+                [["Customer A", 1500]],
+            ),
+            proforma_receivables_file=self._cashflow_workbook_upload(
+                "receivables-pi.xlsx",
+                ["Date", "Particulars", "Debit Amount"],
+                [[yesterday, "Customer PI", 700]],
+            ),
+            uploaded_by=self.finance_manager,
+        )
+        CashflowSnapshot.objects.filter(pk=snapshot.pk).update(
+            created_at=timezone.make_aware(datetime(yesterday.year, yesterday.month, yesterday.day, 12, 0))
+        )
+        self.client.force_login(self.finance_manager)
+
+        response = self.client.get("/cashflow/projection/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "latest Tally upload was made")
+        self.assertContains(response, f"{yesterday.strftime('%B')} {yesterday.day}, {yesterday.year}")
+
+    def test_cashflow_projection_does_not_warn_when_current_upload_has_older_report_date(self):
+        today = business_localdate()
+        yesterday = today - timedelta(days=1)
         CashflowSnapshot.objects.create(
             as_of_date=yesterday,
+            opening_bank_balance="1100000.00",
             payables_file=self._cashflow_workbook_upload(
                 "payables.xlsx",
                 ["Party Name", "Pending Amount"],
@@ -3739,8 +3779,9 @@ class LeadgenWorkflowTests(TestCase):
         response = self.client.get("/cashflow/projection/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "latest uploaded Tally input data is dated")
-        self.assertContains(response, f"{yesterday.strftime('%B')} {yesterday.day}, {yesterday.year}")
+        self.assertNotContains(response, "latest Tally upload was made")
+        self.assertContains(response, f"Entered with the Tally upload on {today.strftime('%B')} {today.day}, {today.year}")
+        self.assertContains(response, f"Detected report date: {yesterday.strftime('%B')} {yesterday.day}, {yesterday.year}")
 
     def test_cashflow_projection_warns_about_outdated_collections_and_payables(self):
         today = business_localdate()

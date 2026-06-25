@@ -90,6 +90,7 @@ from .services import (
     build_cashflow_projection,
     build_daily_target_report,
     cashflow_business_blockers,
+    cashflow_snapshot_upload_date,
     create_cashflow_work_order,
     current_cashflow_items,
     current_cashflow_outflow_items,
@@ -1739,6 +1740,8 @@ def cashflow_projection_view(request):
     projection = build_cashflow_projection()
     latest_snapshot = latest_cashflow_snapshot()
     today = business_localdate()
+    latest_snapshot_upload_date = cashflow_snapshot_upload_date(latest_snapshot)
+    opening_balance_source_upload_date = cashflow_snapshot_upload_date(projection["opening_balance_source"])
     blockers = cashflow_business_blockers(today=projection["start_date"])
     return render(
         request,
@@ -1747,9 +1750,11 @@ def cashflow_projection_view(request):
             "workspace_eyebrow": _workspace_eyebrow(request),
             "projection": projection,
             "latest_snapshot": latest_snapshot,
+            "latest_snapshot_upload_date": latest_snapshot_upload_date,
+            "opening_balance_source_upload_date": opening_balance_source_upload_date,
             "today": today,
             "input_data_missing": latest_snapshot is None,
-            "input_data_outdated": latest_snapshot is not None and latest_snapshot.as_of_date < today,
+            "input_data_outdated": latest_snapshot_upload_date is not None and latest_snapshot_upload_date < today,
             "cashflow_blockers": blockers,
             "outdated_item_count": blockers["outdated_item_count"],
         },
@@ -1761,6 +1766,8 @@ def cashflow_projection_week_detail(request, week_index):
     projection = build_cashflow_projection()
     latest_snapshot = latest_cashflow_snapshot()
     today = business_localdate()
+    latest_snapshot_upload_date = cashflow_snapshot_upload_date(latest_snapshot)
+    opening_balance_source_upload_date = cashflow_snapshot_upload_date(projection["opening_balance_source"])
     blockers = cashflow_business_blockers(today=projection["start_date"])
     week = next((item for item in projection["weeks"] if item["index"] == week_index), None)
     if week is None:
@@ -1773,9 +1780,11 @@ def cashflow_projection_week_detail(request, week_index):
             "week": week,
             "projection": projection,
             "latest_snapshot": latest_snapshot,
+            "latest_snapshot_upload_date": latest_snapshot_upload_date,
+            "opening_balance_source_upload_date": opening_balance_source_upload_date,
             "today": today,
             "input_data_missing": latest_snapshot is None,
-            "input_data_outdated": latest_snapshot is not None and latest_snapshot.as_of_date < today,
+            "input_data_outdated": latest_snapshot_upload_date is not None and latest_snapshot_upload_date < today,
             "cashflow_blockers": blockers,
             "outdated_item_count": blockers["outdated_item_count"],
         },

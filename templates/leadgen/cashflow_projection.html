@@ -9,7 +9,10 @@
         <p class="note">
             Opening cash balance used for this projection: Rs {{ projection.opening_balance }}.
             {% if projection.opening_balance_source %}
-                Entered with the Tally upload dated {{ projection.opening_balance_source.as_of_date }}.
+                Entered with the Tally upload on {{ opening_balance_source_upload_date }}.
+                {% if projection.opening_balance_source.as_of_date != opening_balance_source_upload_date %}
+                    Detected report date: {{ projection.opening_balance_source.as_of_date }}.
+                {% endif %}
             {% else %}
                 No daily bank balance upload exists yet; using the legacy system setting.
             {% endif %}
@@ -21,7 +24,7 @@
 </section>
 {% if input_data_outdated %}
 <section class="message warning">
-    <strong>Warning:</strong> the latest uploaded Tally input data is dated {{ latest_snapshot.as_of_date }}, but this projection is being viewed on {{ today }}. Upload the latest Tally exports before relying on this cash-flow projection.
+    <strong>Warning:</strong> the latest Tally upload was made on {{ latest_snapshot_upload_date }}, but this projection is being viewed on {{ today }}. Upload the latest Tally exports before relying on this cash-flow projection.
 </section>
 {% elif input_data_missing %}
 <section class="message warning">

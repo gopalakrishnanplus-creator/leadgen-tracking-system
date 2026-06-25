@@ -1358,6 +1358,12 @@ def latest_cashflow_snapshot():
     return CashflowSnapshot.objects.order_by("-created_at", "-as_of_date").first()
 
 
+def cashflow_snapshot_upload_date(snapshot):
+    if snapshot is None:
+        return None
+    return business_localdate(now=snapshot.created_at)
+
+
 def cashflow_projection_opening_balance():
     latest_snapshot = latest_cashflow_snapshot()
     if latest_snapshot:

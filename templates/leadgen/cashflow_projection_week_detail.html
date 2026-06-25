@@ -8,7 +8,7 @@
         <p class="note">{{ week.start_date }} to {{ week.end_date }}</p>
         <p class="note">
             Opening position: Rs {{ week.opening_position }}.
-            Projection baseline: Rs {{ projection.opening_balance }}{% if projection.opening_balance_source %}, entered with the Tally upload dated {{ projection.opening_balance_source.as_of_date }}{% endif %}.
+            Projection baseline: Rs {{ projection.opening_balance }}{% if projection.opening_balance_source %}, entered with the Tally upload on {{ opening_balance_source_upload_date }}{% if projection.opening_balance_source.as_of_date != opening_balance_source_upload_date %}, detected report date {{ projection.opening_balance_source.as_of_date }}{% endif %}{% endif %}.
             Weekly net: Rs {{ week.net_total }}.
             Closing position: Rs {{ week.closing_position }}.
         </p>
@@ -19,7 +19,7 @@
 </section>
 {% if input_data_outdated %}
 <section class="message warning">
-    <strong>Warning:</strong> the latest uploaded Tally input data is dated {{ latest_snapshot.as_of_date }}, but this projection is being viewed on {{ today }}. Upload the latest Tally exports before relying on this cash-flow projection.
+    <strong>Warning:</strong> the latest Tally upload was made on {{ latest_snapshot_upload_date }}, but this projection is being viewed on {{ today }}. Upload the latest Tally exports before relying on this cash-flow projection.
 </section>
 {% elif input_data_missing %}
 <section class="message warning">
