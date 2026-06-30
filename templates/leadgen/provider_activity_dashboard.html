@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Lead Gen Provider Activity{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>LinkedIn provider activity tracker</h1>
+        <p class="note">Weekly targets, yesterday's activity, week-to-date totals, and cumulative totals for LinkedIn-based lead gen service providers.</p>
+    </div>
+    <div class="button-row">
+        <a class="button button-primary" href="{% url 'leadgen_provider_activity_entry' %}">Enter tracker data</a>
+        <a class="button" href="{% url 'supervisor_dashboard' %}">Back to dashboard</a>
+    </div>
+</section>
+<section class="panel">
+    <form method="get" class="filter-grid">
+        <p>
+            <label for="week">Week starting:</label>
+            <input class="form-control" type="date" id="week" name="week" value="{{ week_start|date:'Y-m-d' }}">
+        </p>
+        <div class="filter-actions">
+            <button class="button button-primary" type="submit">View week</button>
+        </div>
+    </form>
+    <p class="note">Week window: {{ week_start }} to {{ week_end }}. Cumulative totals are calculated through {{ today }} using the latest starting cumulative entry plus daily entries after that date.</p>
+</section>
+<section class="panel">
+    <table>
+        <thead>
+            <tr>
+                <th>Provider</th>
+                <th>Daily reach-out target</th>
+                <th>Weekly reach-out target</th>
+                <th>Weekly accepted target</th>
+                <th>Weekly meeting target</th>
+                <th>Yesterday reach-outs</th>
+                <th>Yesterday accepted</th>
+                <th>Yesterday meetings scheduled</th>
+                <th>Yesterday meetings done</th>
+                <th>Week-to-date reach-outs</th>
+                <th>Week-to-date accepted</th>
+                <th>Week-to-date meetings scheduled</th>
+                <th>Week-to-date meetings done</th>
+                <th>Cumulative reach-outs</th>
+                <th>Cumulative accepted</th>
+                <th>Cumulative meetings scheduled</th>
+                <th>Cumulative meetings done</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in rows %}
+            <tr>
+                <td>
+                    {{ row.provider.name }}
+                    {% if row.baseline %}<div class="note">Baseline: {{ row.baseline.baseline_date }}</div>{% endif %}
+                </td>
+                <td>{{ row.target.daily_reachout_target|default:"0" }}</td>
+                <td>{{ row.target.weekly_reachout_target|default:"0" }}</td>
+                <td>{{ row.target.weekly_connection_acceptance_target|default:"0" }}</td>
+                <td>{{ row.target.weekly_meeting_target|default:"0" }}</td>
+                <td>{{ row.yesterday_activity.prospects_reached_out|default:"0" }}</td>
+                <td>{{ row.yesterday_activity.connections_accepted|default:"0" }}</td>
+                <td>{{ row.yesterday_activity.meetings_scheduled|default:"0" }}</td>
+                <td>{{ row.yesterday_activity.meetings_done|default:"0" }}</td>
+                <td>{{ row.week_totals.prospects_reached_out }}</td>
+                <td>{{ row.week_totals.connections_accepted }}</td>
+                <td>{{ row.week_totals.meetings_scheduled }}</td>
+                <td>{{ row.week_totals.meetings_done }}</td>
+                <td>{{ row.cumulative_totals.prospects_reached_out }}</td>
+                <td>{{ row.cumulative_totals.connections_accepted }}</td>
+                <td>{{ row.cumulative_totals.meetings_scheduled }}</td>
+                <td>{{ row.cumulative_totals.meetings_done }}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="17">No active service providers have been configured.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+<section class="panel">
+    <h2>Recent daily entries</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Provider</th>
+                <th>Reach-outs</th>
+                <th>Accepted</th>
+                <th>Meetings scheduled</th>
+                <th>Meetings done</th>
+                <th>Notes</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for activity in recent_activities %}
+            <tr>
+                <td>{{ activity.activity_date }}</td>
+                <td>{{ activity.provider.name }}</td>
+                <td>{{ activity.prospects_reached_out }}</td>
+                <td>{{ activity.connections_accepted }}</td>
+                <td>{{ activity.meetings_scheduled }}</td>
+                <td>{{ activity.meetings_done }}</td>
+                <td>{{ activity.notes|default:"-" }}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="7">No daily activity has been entered yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

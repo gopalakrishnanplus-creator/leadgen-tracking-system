@@ -9,7 +9,7 @@ from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import F, Prefetch, Q
+from django.db.models import F, Prefetch, Q, Sum
 from django.http import FileResponse, Http404, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -34,6 +34,7 @@ from .forms import (
     FinanceManagerCreateForm,
     FinanceManagerUpdateForm,
     ImportBatchForm,
+    LeadgenProviderActivityEntryForm,
     MeetingDateFilterForm,
     MeetingStatusUpdateForm,
     MeetingReminderLogForm,
@@ -69,6 +70,10 @@ from .models import (
     CashflowWorkOrderRequest,
     ContractCollection,
     DirectMarketingActivity,
+    LeadgenProviderActivityBaseline,
+    LeadgenProviderDailyActivity,
+    LeadgenProviderWeeklyTarget,
+    LeadgenServiceProvider,
     MarketingEmailCampaign,
     MarketingLinkedInActivity,
     MarketingPlaybook,
@@ -1389,6 +1394,210 @@ def supervisor_daily_targets(request):
     target_date = timezone.localtime(timezone.now(), ZoneInfo(settings_obj.default_timezone)).date() - timedelta(days=1)
     report = build_daily_target_report(target_date=target_date, tz_name=settings_obj.default_timezone)
     return render(request, "leadgen/supervisor_daily_targets.html", {"report": report})
+
+
+PROVIDER_ACTIVITY_METRICS = [
+    ("prospects_reached_out", "Reach-outs"),
+    ("connections_accepted", "Accepted connections"),
+    ("meetings_scheduled", "Meetings scheduled"),
+    ("meetings_done", "Meetings done"),
+]
+
+
+def _week_start_for_date(value):
+    return value - timedelta(days=value.weekday())
+
+
+def _parse_provider_activity_date(value, fallback):
+    if not value:
+        return fallback
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return fallback
+
+
+def _activity_totals(queryset):
+    totals = queryset.aggregate(
+        prospects_reached_out=Sum("prospects_reached_out"),
+        connections_accepted=Sum("connections_accepted"),
+        meetings_scheduled=Sum("meetings_scheduled"),
+        meetings_done=Sum("meetings_done"),
+    )
+    return {key: totals.get(key) or 0 for key, _label in PROVIDER_ACTIVITY_METRICS}
+
+
+def _provider_cumulative_totals(provider, as_of_date):
+    baseline = (
+        LeadgenProviderActivityBaseline.objects.filter(provider=provider, baseline_date__lte=as_of_date)
+        .order_by("-baseline_date", "-updated_at")
+        .first()
+    )
+    activities = LeadgenProviderDailyActivity.objects.filter(provider=provider, activity_date__lte=as_of_date)
+    totals = {
+        "prospects_reached_out": 0,
+        "connections_accepted": 0,
+        "meetings_scheduled": 0,
+        "meetings_done": 0,
+    }
+    if baseline:
+        totals = {
+            "prospects_reached_out": baseline.cumulative_reachouts,
+            "connections_accepted": baseline.cumulative_connections_accepted,
+            "meetings_scheduled": baseline.cumulative_meetings_scheduled,
+            "meetings_done": baseline.cumulative_meetings_done,
+        }
+        activities = activities.filter(activity_date__gt=baseline.baseline_date)
+    activity_totals = _activity_totals(activities)
+    return {key: totals[key] + activity_totals[key] for key in totals}, baseline
+
+
+def _provider_activity_entry_sections(form):
+    sections = []
+    for provider in form.providers:
+        sections.append(
+            {
+                "provider": provider,
+                "target_fields": [
+                    form[form.provider_field_name(provider, "target", field_name)]
+                    for field_name, _label in LeadgenProviderActivityEntryForm.TARGET_FIELDS
+                ],
+                "daily_fields": [
+                    form[form.provider_field_name(provider, "daily", field_name)]
+                    for field_name, _label in LeadgenProviderActivityEntryForm.DAILY_FIELDS
+                ],
+                "daily_notes": form[form.provider_field_name(provider, "daily", "notes")],
+                "baseline_fields": [
+                    form[form.provider_field_name(provider, "baseline", field_name)]
+                    for field_name, _label in LeadgenProviderActivityEntryForm.BASELINE_FIELDS
+                ],
+                "baseline_notes": form[form.provider_field_name(provider, "baseline", "notes")],
+            }
+        )
+    return sections
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def leadgen_provider_activity_dashboard(request):
+    today = business_localdate()
+    week_start = _week_start_for_date(_parse_provider_activity_date(request.GET.get("week"), today))
+    week_end = week_start + timedelta(days=6)
+    yesterday = today - timedelta(days=1)
+    providers = LeadgenServiceProvider.objects.filter(is_active=True).order_by("display_order", "name")
+    rows = []
+    for provider in providers:
+        target = LeadgenProviderWeeklyTarget.objects.filter(provider=provider, week_start_date=week_start).first()
+        yesterday_activity = LeadgenProviderDailyActivity.objects.filter(
+            provider=provider,
+            activity_date=yesterday,
+        ).first()
+        week_totals = _activity_totals(
+            LeadgenProviderDailyActivity.objects.filter(
+                provider=provider,
+                activity_date__gte=week_start,
+                activity_date__lte=min(today, week_end),
+            )
+        )
+        cumulative_totals, baseline = _provider_cumulative_totals(provider, today)
+        rows.append(
+            {
+                "provider": provider,
+                "target": target,
+                "yesterday_activity": yesterday_activity,
+                "week_totals": week_totals,
+                "cumulative_totals": cumulative_totals,
+                "baseline": baseline,
+            }
+        )
+    recent_activities = LeadgenProviderDailyActivity.objects.select_related("provider").all()[:10]
+    return render(
+        request,
+        "leadgen/provider_activity_dashboard.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "rows": rows,
+            "metrics": PROVIDER_ACTIVITY_METRICS,
+            "week_start": week_start,
+            "week_end": week_end,
+            "today": today,
+            "yesterday": yesterday,
+            "recent_activities": recent_activities,
+        },
+    )
+
+
+@role_required(User.ROLE_SUPERVISOR)
+def leadgen_provider_activity_entry(request):
+    providers = list(LeadgenServiceProvider.objects.filter(is_active=True).order_by("display_order", "name"))
+    today = business_localdate()
+    default_activity_date = today - timedelta(days=1)
+    week_start = _week_start_for_date(_parse_provider_activity_date(request.GET.get("week"), today))
+    activity_date = _parse_provider_activity_date(request.GET.get("activity_date"), default_activity_date)
+    initial = {
+        "week_start_date": week_start,
+        "activity_date": activity_date,
+    }
+    for provider in providers:
+        target = LeadgenProviderWeeklyTarget.objects.filter(provider=provider, week_start_date=week_start).first()
+        if target:
+            for field_name, _label in LeadgenProviderActivityEntryForm.TARGET_FIELDS:
+                initial[LeadgenProviderActivityEntryForm.provider_field(provider, "target", field_name)] = getattr(target, field_name)
+        activity = LeadgenProviderDailyActivity.objects.filter(provider=provider, activity_date=activity_date).first()
+        if activity:
+            for field_name, _label in LeadgenProviderActivityEntryForm.DAILY_FIELDS:
+                initial[LeadgenProviderActivityEntryForm.provider_field(provider, "daily", field_name)] = getattr(activity, field_name)
+            initial[LeadgenProviderActivityEntryForm.provider_field(provider, "daily", "notes")] = activity.notes
+
+    form = LeadgenProviderActivityEntryForm(request.POST or None, providers=providers, initial=initial)
+    if request.method == "POST" and form.is_valid():
+        week_start = form.cleaned_data["week_start_date"]
+        activity_date = form.cleaned_data["activity_date"]
+        baseline_date = form.cleaned_data.get("baseline_date")
+        for provider in providers:
+            target_defaults = {
+                field_name: form.cleaned_data.get(form.provider_field_name(provider, "target", field_name)) or 0
+                for field_name, _label in LeadgenProviderActivityEntryForm.TARGET_FIELDS
+            }
+            target_defaults["created_by"] = request.user
+            LeadgenProviderWeeklyTarget.objects.update_or_create(
+                provider=provider,
+                week_start_date=week_start,
+                defaults=target_defaults,
+            )
+            daily_defaults = {
+                field_name: form.cleaned_data.get(form.provider_field_name(provider, "daily", field_name)) or 0
+                for field_name, _label in LeadgenProviderActivityEntryForm.DAILY_FIELDS
+            }
+            daily_defaults["notes"] = form.cleaned_data.get(form.provider_field_name(provider, "daily", "notes")) or ""
+            daily_defaults["recorded_by"] = request.user
+            LeadgenProviderDailyActivity.objects.update_or_create(
+                provider=provider,
+                activity_date=activity_date,
+                defaults=daily_defaults,
+            )
+            if baseline_date:
+                baseline_defaults = {
+                    field_name: form.cleaned_data.get(form.provider_field_name(provider, "baseline", field_name)) or 0
+                    for field_name, _label in LeadgenProviderActivityEntryForm.BASELINE_FIELDS
+                }
+                baseline_defaults["notes"] = form.cleaned_data.get(form.provider_field_name(provider, "baseline", "notes")) or ""
+                baseline_defaults["recorded_by"] = request.user
+                LeadgenProviderActivityBaseline.objects.update_or_create(
+                    provider=provider,
+                    baseline_date=baseline_date,
+                    defaults=baseline_defaults,
+                )
+        messages.success(request, "Lead gen provider activity tracker updated.")
+        return redirect("leadgen_provider_activity_dashboard")
+    return render(
+        request,
+        "leadgen/provider_activity_entry.html",
+        {
+            "workspace_eyebrow": _workspace_eyebrow(request),
+            "form": form,
+            "provider_sections": _provider_activity_entry_sections(form),
+        },
+    )
 
 
 @role_required(User.ROLE_SUPERVISOR)

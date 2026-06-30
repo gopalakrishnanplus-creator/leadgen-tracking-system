@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django import forms
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -15,6 +17,7 @@ from .models import (
     ContractCollection,
     ContractCollectionInstallment,
     DirectMarketingActivity,
+    LeadgenServiceProvider,
     Meeting,
     MeetingReminder,
     MarketingEmailCampaign,
@@ -779,6 +782,93 @@ class DirectMarketingActivityForm(StyledFormMixin, forms.ModelForm):
 
     def clean_therapy_area(self):
         return (self.cleaned_data.get("therapy_area") or "").strip()
+
+
+class LeadgenProviderActivityEntryForm(StyledFormMixin, forms.Form):
+    week_start_date = forms.DateField(
+        label="Week starting",
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    activity_date = forms.DateField(
+        label="Daily activity date",
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    baseline_date = forms.DateField(
+        required=False,
+        label="Starting cumulative date",
+        widget=forms.DateInput(attrs={"type": "date"}),
+        help_text="Use this when setting up the tracker for the first time or resetting the cumulative starting point.",
+    )
+
+    TARGET_FIELDS = [
+        ("daily_reachout_target", "Daily reach-out target"),
+        ("weekly_reachout_target", "Weekly reach-out target"),
+        ("weekly_connection_acceptance_target", "Weekly connection acceptance target"),
+        ("weekly_meeting_target", "Weekly meetings target"),
+    ]
+    DAILY_FIELDS = [
+        ("prospects_reached_out", "Prospects reached out"),
+        ("connections_accepted", "Connections accepted"),
+        ("meetings_scheduled", "Meetings scheduled"),
+        ("meetings_done", "Meetings done"),
+    ]
+    BASELINE_FIELDS = [
+        ("cumulative_reachouts", "Cumulative reach-outs"),
+        ("cumulative_connections_accepted", "Cumulative accepted connections"),
+        ("cumulative_meetings_scheduled", "Cumulative meetings scheduled"),
+        ("cumulative_meetings_done", "Cumulative meetings done"),
+    ]
+
+    def __init__(self, *args, **kwargs):
+        self.providers = list(
+            kwargs.pop("providers", None)
+            or LeadgenServiceProvider.objects.filter(is_active=True).order_by("display_order", "name")
+        )
+        super().__init__(*args, **kwargs)
+        for provider in self.providers:
+            for field_name, label in self.TARGET_FIELDS:
+                self.fields[self.provider_field(provider, "target", field_name)] = forms.IntegerField(
+                    required=False,
+                    min_value=0,
+                    initial=0,
+                    label=label,
+                )
+            for field_name, label in self.DAILY_FIELDS:
+                self.fields[self.provider_field(provider, "daily", field_name)] = forms.IntegerField(
+                    required=False,
+                    min_value=0,
+                    initial=0,
+                    label=label,
+                )
+            for field_name, label in self.BASELINE_FIELDS:
+                self.fields[self.provider_field(provider, "baseline", field_name)] = forms.IntegerField(
+                    required=False,
+                    min_value=0,
+                    initial=0,
+                    label=label,
+                )
+            self.fields[self.provider_field(provider, "baseline", "notes")] = forms.CharField(
+                required=False,
+                label="Baseline notes",
+                widget=forms.Textarea(attrs={"rows": 2}),
+            )
+            self.fields[self.provider_field(provider, "daily", "notes")] = forms.CharField(
+                required=False,
+                label="Daily notes",
+                widget=forms.Textarea(attrs={"rows": 2}),
+            )
+        self._apply_classes()
+
+    @staticmethod
+    def provider_field(provider, group, field_name):
+        return f"{group}_{provider.pk}_{field_name}"
+
+    def provider_field_name(self, provider, group, field_name):
+        return self.provider_field(provider, group, field_name)
+
+    def clean_week_start_date(self):
+        week_start_date = self.cleaned_data["week_start_date"]
+        return week_start_date - timedelta(days=week_start_date.weekday())
 
 
 class MarketingPlaybookForm(StyledFormMixin, forms.ModelForm):

@@ -882,6 +882,121 @@ class DirectMarketingActivity(models.Model):
         return f"{self.therapy_area} / {self.sent_on:%Y-%m-%d}"
 
 
+class LeadgenServiceProvider(models.Model):
+    name = models.CharField(max_length=255, unique=True)
+    display_order = models.PositiveSmallIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["display_order", "name"]
+
+    def __str__(self):
+        return self.name
+
+
+class LeadgenProviderWeeklyTarget(models.Model):
+    provider = models.ForeignKey(
+        LeadgenServiceProvider,
+        related_name="weekly_targets",
+        on_delete=models.CASCADE,
+    )
+    week_start_date = models.DateField()
+    daily_reachout_target = models.PositiveIntegerField(default=0)
+    weekly_reachout_target = models.PositiveIntegerField(default=0)
+    weekly_connection_acceptance_target = models.PositiveIntegerField(default=0)
+    weekly_meeting_target = models.PositiveIntegerField(default=0)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="created_provider_weekly_targets",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-week_start_date", "provider__display_order", "provider__name"]
+        constraints = [
+            models.UniqueConstraint(fields=["provider", "week_start_date"], name="unique_provider_weekly_target"),
+        ]
+        indexes = [
+            models.Index(fields=["week_start_date", "provider"]),
+        ]
+
+    def __str__(self):
+        return f"{self.provider} / {self.week_start_date:%Y-%m-%d}"
+
+
+class LeadgenProviderDailyActivity(models.Model):
+    provider = models.ForeignKey(
+        LeadgenServiceProvider,
+        related_name="daily_activities",
+        on_delete=models.CASCADE,
+    )
+    activity_date = models.DateField()
+    prospects_reached_out = models.PositiveIntegerField(default=0)
+    connections_accepted = models.PositiveIntegerField(default=0)
+    meetings_scheduled = models.PositiveIntegerField(default=0)
+    meetings_done = models.PositiveIntegerField(default=0)
+    notes = models.TextField(blank=True)
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="recorded_provider_daily_activities",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-activity_date", "provider__display_order", "provider__name"]
+        constraints = [
+            models.UniqueConstraint(fields=["provider", "activity_date"], name="unique_provider_daily_activity"),
+        ]
+        indexes = [
+            models.Index(fields=["activity_date", "provider"]),
+        ]
+
+    def __str__(self):
+        return f"{self.provider} / {self.activity_date:%Y-%m-%d}"
+
+
+class LeadgenProviderActivityBaseline(models.Model):
+    provider = models.ForeignKey(
+        LeadgenServiceProvider,
+        related_name="activity_baselines",
+        on_delete=models.CASCADE,
+    )
+    baseline_date = models.DateField()
+    cumulative_reachouts = models.PositiveIntegerField(default=0)
+    cumulative_connections_accepted = models.PositiveIntegerField(default=0)
+    cumulative_meetings_scheduled = models.PositiveIntegerField(default=0)
+    cumulative_meetings_done = models.PositiveIntegerField(default=0)
+    notes = models.TextField(blank=True)
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="recorded_provider_activity_baselines",
+        on_delete=models.PROTECT,
+        blank=True,
+        null=True,
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-baseline_date", "provider__display_order", "provider__name"]
+        constraints = [
+            models.UniqueConstraint(fields=["provider", "baseline_date"], name="unique_provider_activity_baseline"),
+        ]
+        indexes = [
+            models.Index(fields=["baseline_date", "provider"]),
+        ]
+
+    def __str__(self):
+        return f"{self.provider} baseline / {self.baseline_date:%Y-%m-%d}"
+
+
 class MarketingPlaybook(models.Model):
     title = models.CharField(max_length=255)
     therapy_area = models.CharField(max_length=255)

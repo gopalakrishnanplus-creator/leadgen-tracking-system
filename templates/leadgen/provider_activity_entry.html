@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Enter Provider Activity{% endblock %}
+{% block content %}
+<section class="section-head">
+    <div>
+        <p class="eyebrow">{{ workspace_eyebrow }}</p>
+        <h1>Enter LinkedIn provider tracker data</h1>
+        <p class="note">Update weekly targets, enter daily numbers, and optionally set the starting cumulative totals used for future dashboard calculations.</p>
+    </div>
+    <div class="button-row">
+        <a class="button" href="{% url 'leadgen_provider_activity_dashboard' %}">Back to tracker</a>
+    </div>
+</section>
+<form method="post">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <section class="panel">
+        <h2>Dates</h2>
+        <div class="filter-grid">
+            <p>
+                {{ form.week_start_date.errors }}
+                {{ form.week_start_date.label_tag }}
+                {{ form.week_start_date }}
+            </p>
+            <p>
+                {{ form.activity_date.errors }}
+                {{ form.activity_date.label_tag }}
+                {{ form.activity_date }}
+            </p>
+            <p>
+                {{ form.baseline_date.errors }}
+                {{ form.baseline_date.label_tag }}
+                {{ form.baseline_date }}
+                <span class="note">{{ form.baseline_date.help_text }}</span>
+            </p>
+        </div>
+    </section>
+    {% for section in provider_sections %}
+        <section class="panel">
+            <h2>{{ section.provider.name }}</h2>
+            <h3>Weekly targets</h3>
+            <div class="filter-grid">
+                {% for field in section.target_fields %}
+                    <p>
+                        {{ field.errors }}
+                        {{ field.label_tag }}
+                        {{ field }}
+                    </p>
+                {% endfor %}
+            </div>
+            <h3>Daily numbers</h3>
+            <div class="filter-grid">
+                {% for field in section.daily_fields %}
+                    <p>
+                        {{ field.errors }}
+                        {{ field.label_tag }}
+                        {{ field }}
+                    </p>
+                {% endfor %}
+                <p>
+                    {{ section.daily_notes.errors }}
+                    {{ section.daily_notes.label_tag }}
+                    {{ section.daily_notes }}
+                </p>
+            </div>
+            <h3>Starting cumulative entry</h3>
+            <p class="note">These fields are saved only when a starting cumulative date is supplied above.</p>
+            <div class="filter-grid">
+                {% for field in section.baseline_fields %}
+                    <p>
+                        {{ field.errors }}
+                        {{ field.label_tag }}
+                        {{ field }}
+                    </p>
+                {% endfor %}
+                <p>
+                    {{ section.baseline_notes.errors }}
+                    {{ section.baseline_notes.label_tag }}
+                    {{ section.baseline_notes }}
+                </p>
+            </div>
+        </section>
+    {% empty %}
+        <section class="panel">
+            <p>No active service providers have been configured.</p>
+        </section>
+    {% endfor %}
+    <section class="panel">
+        <div class="button-row">
+            <button class="button button-primary" type="submit">Save tracker data</button>
+            <a class="button" href="{% url 'leadgen_provider_activity_dashboard' %}">Cancel</a>
+        </div>
+    </section>
+</form>
+{% endblock %}

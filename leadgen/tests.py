@@ -47,6 +47,10 @@ from .models import (
     ContractCollectionContact,
     ContractCollectionInstallment,
     DirectMarketingActivity,
+    LeadgenProviderActivityBaseline,
+    LeadgenProviderDailyActivity,
+    LeadgenProviderWeeklyTarget,
+    LeadgenServiceProvider,
     MarketingEmailCampaign,
     MarketingPlaybook,
     Meeting,
@@ -2775,6 +2779,7 @@ class LeadgenWorkflowTests(TestCase):
         response = self.client.get("/supervisor/")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Manage users")
+        self.assertContains(response, "Open provider tracker")
         self.assertNotContains(response, "Active sales managers")
         self.assertNotContains(response, "Active finance managers")
         self.assertNotContains(response, "Accepted prospects")
@@ -2798,6 +2803,7 @@ class LeadgenWorkflowTests(TestCase):
         self.assertContains(response, "Add prospect")
         self.assertContains(response, "Five unanswered attempts")
         self.assertContains(response, "Compare yesterday's target with imported call attempts for each lead gen staff member")
+        self.assertContains(response, "Open provider tracker")
         self.assertContains(response, "Track WhatsApp proofs, automated reminder emails, and missed reminder steps")
         self.assertContains(response, "Open any lead gen staff dashboard from one place")
         self.assertContains(response, "Move conducted meetings straight into sales follow-through")
@@ -2809,6 +2815,101 @@ class LeadgenWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, self.staff.name)
         self.assertContains(response, "Supervisor view of this staff member")
+
+    def test_supervisor_can_enter_provider_activity_targets_daily_and_baseline(self):
+        provider = LeadgenServiceProvider.objects.create(name="Entry Provider", display_order=99)
+        week_start = datetime(2026, 6, 29).date()
+        activity_date = datetime(2026, 6, 30).date()
+        baseline_date = datetime(2026, 6, 28).date()
+        self.client.force_login(self.supervisor)
+
+        response = self.client.post(
+            "/supervisor/provider-activity/entry/",
+            {
+                "week_start_date": week_start.isoformat(),
+                "activity_date": activity_date.isoformat(),
+                "baseline_date": baseline_date.isoformat(),
+                f"target_{provider.pk}_daily_reachout_target": "15",
+                f"target_{provider.pk}_weekly_reachout_target": "105",
+                f"target_{provider.pk}_weekly_connection_acceptance_target": "42",
+                f"target_{provider.pk}_weekly_meeting_target": "3",
+                f"daily_{provider.pk}_prospects_reached_out": "18",
+                f"daily_{provider.pk}_connections_accepted": "6",
+                f"daily_{provider.pk}_meetings_scheduled": "2",
+                f"daily_{provider.pk}_meetings_done": "1",
+                f"daily_{provider.pk}_notes": "Good response from specialty contacts.",
+                f"baseline_{provider.pk}_cumulative_reachouts": "200",
+                f"baseline_{provider.pk}_cumulative_connections_accepted": "80",
+                f"baseline_{provider.pk}_cumulative_meetings_scheduled": "12",
+                f"baseline_{provider.pk}_cumulative_meetings_done": "9",
+                f"baseline_{provider.pk}_notes": "Opening tracker numbers.",
+            },
+        )
+
+        self.assertRedirects(response, "/supervisor/provider-activity/")
+        target = LeadgenProviderWeeklyTarget.objects.get(provider=provider, week_start_date=week_start)
+        self.assertEqual(target.weekly_reachout_target, 105)
+        activity = LeadgenProviderDailyActivity.objects.get(provider=provider, activity_date=activity_date)
+        self.assertEqual(activity.prospects_reached_out, 18)
+        self.assertEqual(activity.notes, "Good response from specialty contacts.")
+        baseline = LeadgenProviderActivityBaseline.objects.get(provider=provider, baseline_date=baseline_date)
+        self.assertEqual(baseline.cumulative_reachouts, 200)
+        self.assertEqual(baseline.notes, "Opening tracker numbers.")
+
+    def test_provider_activity_dashboard_uses_starting_cumulative_entry(self):
+        provider = LeadgenServiceProvider.objects.create(name="Dashboard Provider", display_order=98)
+        week_start = datetime(2026, 6, 29).date()
+        baseline_date = datetime(2026, 6, 28).date()
+        LeadgenProviderWeeklyTarget.objects.create(
+            provider=provider,
+            week_start_date=week_start,
+            daily_reachout_target=15,
+            weekly_reachout_target=105,
+            weekly_connection_acceptance_target=42,
+            weekly_meeting_target=3,
+            created_by=self.supervisor,
+        )
+        LeadgenProviderActivityBaseline.objects.create(
+            provider=provider,
+            baseline_date=baseline_date,
+            cumulative_reachouts=200,
+            cumulative_connections_accepted=80,
+            cumulative_meetings_scheduled=12,
+            cumulative_meetings_done=9,
+            recorded_by=self.supervisor,
+        )
+        LeadgenProviderDailyActivity.objects.create(
+            provider=provider,
+            activity_date=week_start,
+            prospects_reached_out=18,
+            connections_accepted=6,
+            meetings_scheduled=2,
+            meetings_done=1,
+            recorded_by=self.supervisor,
+        )
+        LeadgenProviderDailyActivity.objects.create(
+            provider=provider,
+            activity_date=week_start + timedelta(days=1),
+            prospects_reached_out=20,
+            connections_accepted=4,
+            meetings_scheduled=1,
+            meetings_done=0,
+            recorded_by=self.supervisor,
+        )
+        self.client.force_login(self.supervisor)
+
+        with patch("leadgen.views.business_localdate", return_value=week_start + timedelta(days=1)):
+            response = self.client.get(f"/supervisor/provider-activity/?week={week_start.isoformat()}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "LinkedIn provider activity tracker")
+        row = next(item for item in response.context["rows"] if item["provider"] == provider)
+        self.assertEqual(row["week_totals"]["prospects_reached_out"], 38)
+        self.assertEqual(row["week_totals"]["connections_accepted"], 10)
+        self.assertEqual(row["cumulative_totals"]["prospects_reached_out"], 238)
+        self.assertEqual(row["cumulative_totals"]["connections_accepted"], 90)
+        self.assertEqual(row["cumulative_totals"]["meetings_scheduled"], 15)
+        self.assertEqual(row["cumulative_totals"]["meetings_done"], 10)
 
     def test_staff_prospect_list_can_filter_to_accepted(self):
         Prospect.objects.create(
