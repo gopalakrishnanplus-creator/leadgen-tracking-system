@@ -219,6 +219,7 @@ STAFF_HIDDEN_WORKFLOWS = {
 }
 
 YESTERDAY_CALLS_FILTER = "yesterday_calls"
+RESPONDED_FILTER = "responded"
 
 
 @login_required
@@ -521,6 +522,8 @@ def _filtered_staff_prospects_queryset(staff_user, status_filter, include_hidden
         prospects = prospects.exclude(workflow_status__in=STAFF_HIDDEN_WORKFLOWS)
     if status_filter == "accepted":
         prospects = prospects.filter(approval_status=Prospect.APPROVAL_ACCEPTED)
+    elif status_filter == RESPONDED_FILTER:
+        prospects = prospects.filter(status_updates__isnull=False).distinct()
     elif status_filter == YESTERDAY_CALLS_FILTER:
         _, start_dt, end_dt = _yesterday_bounds(SystemSetting.load().default_timezone)
         prospects = prospects.filter(call_logs__started_at__range=(start_dt, end_dt)).distinct()

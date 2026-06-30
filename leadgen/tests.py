@@ -2844,6 +2844,47 @@ class LeadgenWorkflowTests(TestCase):
         self.assertContains(response, self.prospect.company_name)
         self.assertNotContains(response, "Awaiting Review Co")
 
+    def test_supervisor_can_filter_staff_prospects_to_responded(self):
+        responded = Prospect.objects.create(
+            company_name="Responded Co",
+            contact_name="Responded Person",
+            linkedin_url="https://linkedin.com/in/responded-person",
+            phone_number="+919812340002",
+            assigned_to=self.staff,
+            created_by=self.staff,
+            approval_status=Prospect.APPROVAL_ACCEPTED,
+            workflow_status=Prospect.WORKFLOW_FOLLOW_UP,
+            follow_up_date=datetime(2026, 4, 20).date(),
+            follow_up_reason="Interested, asked to reconnect next week.",
+        )
+        untouched = Prospect.objects.create(
+            company_name="No Response Co",
+            contact_name="Silent Person",
+            linkedin_url="https://linkedin.com/in/silent-person",
+            phone_number="+919812340003",
+            assigned_to=self.staff,
+            created_by=self.staff,
+            approval_status=Prospect.APPROVAL_ACCEPTED,
+            workflow_status=Prospect.WORKFLOW_READY_TO_CALL,
+        )
+        ProspectStatusUpdate.objects.create(
+            prospect=responded,
+            staff=self.staff,
+            outcome=ProspectStatusUpdate.OUTCOME_FOLLOW_UP,
+            reason="Interested, asked to reconnect next week.",
+            follow_up_date=datetime(2026, 4, 20).date(),
+        )
+        self.client.force_login(self.supervisor)
+
+        response = self.client.get(f"/supervisor/staff/{self.staff.pk}/prospects/?view=responded")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Responded prospects")
+        self.assertContains(response, "Responded")
+        self.assertContains(response, responded.company_name)
+        self.assertContains(response, "Interested, asked to reconnect next week.")
+        self.assertNotContains(response, untouched.company_name)
+
     def test_supervisor_staff_prospect_list_shows_move_and_delete_actions(self):
         self.client.force_login(self.supervisor)
         response = self.client.get(f"/supervisor/staff/{self.staff.pk}/prospects/?view=all")
